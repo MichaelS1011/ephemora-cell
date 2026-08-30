@@ -1,6 +1,8 @@
 # Ephemora Cell
 
-**Isolated WASM sandbox for untrusted code — sub-millisecond, capability-based. No network, no filesystem, no host access; capped at 128 MB memory / 1 M fuel / 30 s by default.**
+### The execution layer for untrusted AI-generated code.
+
+Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits — sub-millisecond warm execution, signed execution records, zero dependencies.
 
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/">
@@ -16,6 +18,18 @@
     <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status">
   </a>
 </p>
+
+## The problem
+
+AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe:
+
+**How do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute?**
+
+```text
+AI Agent ──▶ Tool / MCP ──▶ Ephemora Cell ──▶ WASM ──▶ bounded result
+```
+
+**Ephemora Cell** is a small, capability-based WASM execution runtime for exactly that job: an execution primitive — not an agent framework — that sits underneath your existing agent stack, MCP server, plugin system, or application.
 
 ## Quick Start
 
@@ -34,40 +48,121 @@ Hello from Ephemora Cell!
 ```python
 from ephemora_cell import run_wasm
 
-result = run_wasm("examples/hello.wasm")
-print(result.stdout)        # Hello from Ephemora Cell!
-print(result.status.name)   # SUCCESS
+result = run_wasm("my_module.wasm")
+print(result.stdout)          # captured output (10 KB cap)
+print(result.status.name)     # SUCCESS
+print(result.elapsed_ms)      # wall time
+print(result.fuel_consumed)   # compute actually used
 ```
 
-## Why Cell
+## Why this matters
 
-- **AI agents and MCP tools execute untrusted code** — Docker, shells and system Python give no isolation guarantees at agent scale. Cell sandboxes every execution.
-- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per run, with the effective posture attested in a signed execution record.
-- **Sub-millisecond warm execution** — 0.16 ms guest / 0.46 ms end-to-end (pooled, measured) enables plugin and edge scale.
+Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
 
-## Features
+- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in a signed execution record.
+- **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
+- **Sub-millisecond warm execution** — 0.16 ms guest / 0.46 ms end-to-end (pooled, measured) makes sandboxing every call affordable instead of exceptional.
 
-- ⚡ **Fuel metering** — CPU limits per execution; catches infinite loops (~13 fuel/iteration, R² = 1.000)
-- 🧠 **Memory limits** — 128 MB WASM memory max via `Store.set_limits`
-- ⏱️ **Timeout** — 30 s wall-clock default (epoch interruption)
-- 🔒 **Preopen deny** — 14 dangerous directories blocked by default (`/dev`, `/proc`, `/sys`, …)
-- 🚫 **No network, no host access** — no socket, exec or fork APIs in WASI Preview1; imports rejected at instantiate
-- 📦 **Output capping** — stdout/stderr capped at 10 KB (prevents buffer bloat)
-- 🧬 **Dual-ABI** — WASI Preview1 (default) and WASI 0.2 components (opt-in via `abi="component"` or auto-detection)
-- 🧱 **I/O budgets** — walls for host work, not just guest compute: `WASIConfig(io_cpu_seconds=…, io_budget_bytes=…)` (defaults 2.0 s / 64 MiB; `None` = unlimited for trusted runs; measured attack basis in `benchmarks/io_dos/`)
+## What is enforced
 
-Also included: **memory64 opt-in** (`memory64=True` / `--memory64`, off by default), **GC-heap declared cap** (`max_gc_heap_mb`, recorded in the security baseline — wasmtime-py 47 binds no GC-heap limiter, fuel remains the effective bound), **named state** (`state_set`/`state_get` host imports, capped at 64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls, no guest sockets — [docs/egress_patterns.md](docs/egress_patterns.md)).
+Every execution runs under explicit limits — no opt-in security:
+
+| Resource | Default |
+|---|---|
+| WASM memory | 128 MB (`Store.set_limits`) |
+| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000) |
+| Wall-clock timeout | 30 s (epoch interruption) |
+| Captured stdout/stderr | 10 KB |
+| Network | disabled — no socket APIs in WASI |
+| Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
+| Process exec / fork | unavailable in WASI |
+| Threading | disabled (`wasm_threads=False`) |
+
+Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
+
+## Security
+
+The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)):
+
+| Attack class | Docker | Ephemora Cell |
+|---|---|---|
+| Shell (`os.system`) / fork / network sockets | ALLOWED | **BLOCKED** — APIs don't exist in WASI |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — import-level rejection |
+| Host filesystem (`/etc/passwd`) | ALLOWED | **BLOCKED** — preopen default-deny |
+| Symlink escape | ALLOWED | **BLOCKED** — dangerous directory filter |
+| Multi-threading | ALLOWED | **BLOCKED** — `wasm_threads=False` |
+| Environment access | ALLOWED | **BLOCKED** — controlled via `allow_env` |
+
+**Result: 8/8 attack vectors blocked (live-verified); Docker baselines are measured live per run — never hardcoded.**
+
+This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given. Execution paths differ materially: the default runs the guest inside your process; `run_isolated()` adds OS-level walls (rlimits, disk quota, I/O CPU watchdog, hard kill).
+
+Full details: [SECURITY.md](SECURITY.md) (policy, execution-path control matrix, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, residual risks) · [docs/security_posture.md](docs/security_posture.md) (arXiv 2509.11242 evaluation, fuel boundary, related research).
 
 ## Performance
 
-| Scenario (n=1000, `examples/hello.wasm`, Mac M5, wasmtime 47.0.1) | Wall median | Wall p95 | Guest median |
+**Sandbox every execution without paying container-scale startup costs.**
+
+| Scenario (n=1000, `hello.wasm`, Mac M5, wasmtime 47.0.1) | Wall median | Wall p95 | Guest median |
 |------|--------|------|------|
 | **Pooled engine** (`io_budget_bytes=None`, trusted runs) | **0.46 ms** | 0.60 ms | 0.16 ms |
 | **Default path** (`io_budget_bytes=64 MiB`, per-run engine) | 0.92 ms | 1.26 ms | 0.60 ms |
 
-*Measured 2026-08-29, reproducible: `python benchmarks/pool_vs_budget.py` (raw: `benchmarks/results/2026-08-29/pool_vs_budget.json`, `measured:true`). Budgeted runs force a per-run engine (ADR-002).*
+Live cold-start comparison (2026-08-30, same Mac): `docker run` python:3.12-slim 171 ms vs Cell 0.40 ms = **427×** — this is a container-cold-start vs invoked-WASM comparison for this benchmark workload, not a general claim that WASM is always faster than Docker.
 
-Docker comparison (2026-08-30, live, same Mac): `docker run` python:3.12-slim 171 ms vs Cell 0.40 ms cold = **427×** — reproducible: `python benchmarks/competitive_benchmark.py` (raw: `benchmarks/results/2026-08-30/competitive_benchmark.json`, `docker_measured:true`). Agentic workloads (50 tool-calls, n=500 pooled): 0.24–0.26 ms median, p95 0.29 ms — detail in [docs/performance.md](docs/performance.md).
+Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competitive_benchmark.py` (raw results with `measured:true` committed under `benchmarks/results/`). Agentic workloads and more: [docs/performance.md](docs/performance.md).
+
+## Any language that compiles to WASM
+
+Cell executes the `.wasm` — it does not know the source language. One-command build with actionable error hints from the measured friction matrix:
+
+```bash
+ephemora-cell build tool.rs     # → tool.wasm → run it
+```
+
+| Language | Compiler | Verified |
+|----------|----------|----------|
+| Rust | `cargo build --target wasm32-wasip1` | ✅ Compiled + executed (CI) |
+| Go | `GOOS=wasip1 GOARCH=wasm go build` | ✅ Compiled + executed (CI) |
+| C | wasi-sdk `clang --target=wasm32-wasip1` | ✅ Compiled + executed (CI) |
+| AssemblyScript | `asc --runtime stub` | ✅ Compiled + executed (CI) |
+| Zig | `zig build-exe -target wasm32-wasi` | ✅ Compiled + executed (CI) |
+| Python | — | Guidance: run on a wasi-python interpreter (no AOT exists) |
+
+All five compiled-language gates verify on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). **Platforms:** macOS (Apple M5) ✅ · Ubuntu 24.04 ✅ · DGX Spark GB10 ✅
+
+## Use Cases
+
+**AI-generated code** — run agent-produced tools with explicit limits:
+
+```python
+result = run_wasm(
+    "llm_generated.wasm",
+    max_fuel=200_000,
+    timeout_seconds=5,
+    allow_dirs=("/input", "/output")
+)
+```
+
+**Plugin systems** — accept user-uploaded plugins without giving them unrestricted host access:
+
+```python
+config = WASIConfig(allow_dirs=("/data",), max_fuel=500_000)
+result = WASISandbox(config=config).run("user_plugin.wasm")
+```
+
+Also documented: serverless/edge workloads, air-gapped validation, WASI 0.2 components, FastAPI integration — [docs/recipes.md](docs/recipes.md). Agent-framework integration tests (LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel, Hermes, NemoClaw) live in [`integration/`](integration/).
+
+### MCP Server
+
+Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signed execution records:
+
+```bash
+pip install ephemora-cell
+ephemora-cell-mcp          # bundled echo tool included; register your own: --tools-dir ./tools
+```
+
+See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 
 ## Architecture
 
@@ -89,132 +184,36 @@ flowchart TB
     sandbox -.-> blocked
 ```
 
-## Security
-
-Ephemora Cell blocks attack vectors that are fully allowed in Docker (verified on DGX Spark GB10):
-
-| Attack Vector | Docker | Ephemora Cell |
-|---|---|---|
-| Shell access (`os.system`) | ALLOWED | **BLOCKED** — no exec/system in WASI Preview1 |
-| Fork (`os.fork`) | ALLOWED | **BLOCKED** — no fork() in WASI Preview1 |
-| Network (`socket`) | ALLOWED | **BLOCKED** — no socket() in WASI Preview1 |
-| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — import-level rejection at instantiate |
-| Host FS (`/etc/passwd`) | ALLOWED | **BLOCKED** — preopen default-deny |
-| Symlink escape | ALLOWED | **BLOCKED** — dangerous directory filter |
-| Multi-threading | ALLOWED | **BLOCKED** — `wasm_threads=False` enforced |
-| Env access | ALLOWED | **BLOCKED** — controlled via `allow_env` |
-
-**Result: 8/8 attack vectors blocked (live-verified** via [`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)**).** Docker attacks are measured live per run via [`benchmarks/competitive_benchmark.py`](benchmarks/competitive_benchmark.py) — never hardcoded.
-
-Full details: [SECURITY.md](SECURITY.md) (policy, execution-path control matrix, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, residual risks) · [docs/security_posture.md](docs/security_posture.md) (arXiv 2509.11242 evaluation, fuel boundary, related research).
-
-## Compatibility & Integrations
-
-Ephemora Cell is a WASM execution primitive, not a framework library — drop it into any agent framework, use it with any LLM, compile from any language that targets WASM. Integration tests live in [`integration/`](integration/): Hermes, NemoClaw, LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel, and model independence (tested live against Ollama). The pattern is always the same: **`execute(wasm_path)` → isolated result.**
-
-### MCP Server
-
-Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, 10 KB output cap, no network, SEP-2787-ready signed execution records:
-
-```bash
-pip install ephemora-cell
-ephemora-cell-mcp          # bundled echo tool included; register your own: --tools-dir ./tools
-```
-
-See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
-
-### Programming Languages (WASM Universal)
-
-Any language that compiles to WASM works — Cell executes the `.wasm`, it does not know the source language. One-command build: `ephemora-cell build <source>` detects the toolchain and maps failed builds to actionable hints from the measured friction matrix (`benchmarks/build_friction/`).
-
-| Language | Compiler | Verified |
-|----------|----------|----------|
-| Rust | `cargo build --target wasm32-wasip1` | ✅ Compiled + executed (CI) |
-| Go | `GOOS=wasip1 GOARCH=wasm go build` | ✅ Compiled + executed (CI) |
-| C | wasi-sdk `clang --target=wasm32-wasip1` | ✅ Compiled + executed (CI) |
-| AssemblyScript | `asc --runtime stub` | ✅ Compiled + executed (CI) |
-| Zig | `zig build-exe -target wasm32-wasi` | ✅ Compiled + executed (CI) |
-| Python | — | Guidance: run on a wasi-python interpreter (no AOT exists) |
-
-All five compiled-language gates verify on every push: the CI `build-recipes` job installs each toolchain and runs a real build + sandbox execution per language ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
-
-**Platforms:** macOS (Apple M5, ARM64) ✅ · Ubuntu 24.04 (x86_64, CI) ✅ · DGX Spark GB10 (Grace ARM64) ✅
-
-## Configuration
+The primary API is deliberately simple: `execute(wasm) → result`. Every execution returns structured, auditable information:
 
 ```python
-from ephemora_cell import WASISandbox, WASIConfig
-
-config = WASIConfig(
-    max_memory_mb=64,        # 64 MB WASM memory
-    max_fuel=500_000,        # CPU fuel (None = unlimited)
-    timeout_seconds=10,      # Wall-clock timeout
-    allow_dirs=("/data",),   # Only /data pre-opened
-)
-
-sandbox = WASISandbox(config=config)
-result = sandbox.run("examples/hello.wasm", args=["--input", "file.txt"])
+result.status        # SUCCESS | ERROR | TIMEOUT | FUEL_EXHAUSTED | MEMORY_EXCEEDED
+result.exit_code
+result.stdout        # 10 KB cap
+result.stderr
+result.elapsed_ms
+result.fuel_consumed
 ```
 
-`result` contains: `status` (`ExecutionStatus.SUCCESS | ERROR | TIMEOUT | FUEL_EXHAUSTED | MEMORY_EXCEEDED`), `exit_code`, `stdout`/`stderr` (capped at 10 KB), `elapsed_ms`, `fuel_consumed`.
+That makes execution suitable for auditing, policy enforcement, and resource accounting — not just running code. Full CLI (`run`, `--json` with `security_baseline`, `inspect`, `benchmark`, `build`, profiles incl. `--profile analytical`) in the [CLI docs](docs/recipes.md) and `ephemora-cell --help`.
 
-```bash
-ephemora-cell run examples/hello.wasm              # execute
-ephemora-cell run examples/hello.wasm --json       # JSON on stdout, guest output on stderr
-ephemora-cell run examples/hello.wasm --profile analytical
-ephemora-cell inspect examples/hello.wasm          # module metadata
-ephemora-cell benchmark examples/hello.wasm --n 300
-```
+## What Cell is — and is not
 
-Explicit CLI flags override the selected `--profile`; profiles add nothing you did not ask for. `--profile analytical` runs data-analysis workloads beyond the 128 MB wall (64-bit memories, 4.5 GiB linear memory, 50 M fuel, 120 s timeout — measured guarantees in `benchmarks/analytical_breakpoint/`, design in [docs/decisions/ADR-003](docs/decisions/ADR-003-analytical-profile.md)). In `--json` mode the payload includes `security_baseline` and `stdin_capped`; piped stdin beyond 9,216 B is refused (wasmtime host cap) — use a preopened file for bigger inputs.
+**Cell is:** a WASM execution primitive · a capability-based isolation layer · a resource-bounded runtime · an embeddable Python library · a CLI · an MCP execution layer.
 
-## Use Cases
+**Cell is not:** an agent framework · an LLM · a code-generation system · a malware detector · a full VM · a replacement for every container workload.
 
-### Plugin Systems
-
-Run user-uploaded plugins in isolation — even if they are malicious:
-
-```python
-from ephemora_cell import WASISandbox, WASIConfig
-
-# Only /data is accessible — no /etc, no network, no shell
-config = WASIConfig(allow_dirs=("/data",), max_fuel=500_000)
-sandbox = WASISandbox(config=config)
-result = sandbox.run("user_plugin.wasm")
-```
-
-### AI Agent Code Execution
-
-Sandbox LLM-generated code — prevent credential theft, infinite loops, and network exfiltration:
-
-```python
-result = run_wasm(
-    "llm_generated.wasm",
-    max_fuel=200_000,
-    timeout_seconds=5,
-    allow_dirs=("/input", "/output")
-)
-# Output capped at 10KB — no buffer bloat
-csv_analysis = result.stdout
-```
-
-More recipes — serverless functions, air-gapped validation, WASI 0.2 components, FastAPI integration — in [docs/recipes.md](docs/recipes.md).
-
-## Limitations
-
-**What Ephemora Cell guarantees:** host isolation (the guest cannot access host filesystem, network, or processes outside preopened directories) and resource limits (CPU via fuel, memory, wall-clock time).
-
-**What Ephemora Cell does NOT guarantee:** it does not evaluate whether guest code is *good* (a well-crafted module can still produce unexpected output within its budget); I/O system calls run on the host and cost minimal fuel (the 10 KB output budget caps captured output; see the fuel boundary analysis in [docs/security_posture.md](docs/security_posture.md)); and it does not provide multi-tenant isolation between concurrent modules sharing the same host process.
-
-Execution paths differ materially: the default runs the guest **inside your process**; `run_isolated()` adds OS-level walls (rlimits, disk quota, I/O CPU watchdog, hard kill). The full control matrix is in [SECURITY.md](SECURITY.md).
-
-Language-interpreter guidance (CPython-WASI, custom interpreters) is in [docs/languages.md](docs/languages.md).
+> **The goal is narrow: make untrusted execution cheap enough and controlled enough that an application can safely do it by default.**
 
 ## Testing & Verification
 
-357 tests · 74% statement coverage · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml) and the verification commands in [docs/security_posture.md](docs/security_posture.md).
+357 tests · 74% statement coverage · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-## Relationship to Ephemora
+## Documentation
+
+[SECURITY.md](SECURITY.md) — security policy and controls · [docs/threat-model.md](docs/threat-model.md) — trust boundaries · [docs/security_posture.md](docs/security_posture.md) — attack-surface verification · [docs/performance.md](docs/performance.md) — benchmarks · [docs/mcp.md](docs/mcp.md) — MCP server · [docs/recipes.md](docs/recipes.md) — usage patterns · [docs/languages.md](docs/languages.md) — language support · [CHANGELOG.md](CHANGELOG.md) — changes
+
+## About Ephemora
 
 Ephemora Cell is the open-source isolation layer (Apache 2.0, standalone — no Ephemora dependency). The Ephemora enterprise edition builds on Cell's isolation for production and regulated deployments. Cell is complete for isolation; the enterprise edition is complete for operation — see [docs/enterprise.md](docs/enterprise.md) for when that conversation is worth having.
 
@@ -224,6 +223,6 @@ Apache 2.0 — See `LICENSE`.
 
 ---
 
-*Isolated. Limited. Deterministic.*
+*One agent action. One bounded execution. One controlled result.*
 
 Created by [Michael Soppa](https://www.linkedin.com/in/michael-soppa).
