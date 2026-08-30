@@ -2,7 +2,9 @@
 
 ### The execution layer for untrusted AI-generated code.
 
-Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits — sub-millisecond warm execution, signed execution records, zero dependencies.
+Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits — **sub-millisecond warm execution with signed execution records.**
+
+Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads.**
 
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/">
@@ -18,6 +20,7 @@ Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and 
     <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status">
   </a>
 </p>
+
 
 <p align="center">
   <picture>
