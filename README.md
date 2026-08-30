@@ -3,6 +3,9 @@
 **Isolated WASM sandbox for untrusted code — sub-millisecond, capability-based. No network, no filesystem, no host access; capped at 128 MB memory / 1 M fuel / 30 s by default.**
 
 <p align="center">
+  <a href="https://pypi.org/project/ephemora-cell/">
+    <img src="https://img.shields.io/pypi/v/ephemora-cell" alt="PyPI">
+  </a>
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   </a>
@@ -17,12 +20,11 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/MichaelS1011/ephemora-cell.git
-cd ephemora-cell
-pip install -e .
+pip install ephemora-cell
 
-# Run your first isolated module (compiled from examples/hello.wat):
-ephemora-cell run examples/hello.wasm
+# Run your first isolated module (grab the repo's examples, or bring any .wasm):
+git clone https://github.com/MichaelS1011/ephemora-cell.git
+ephemora-cell run ephemora-cell/examples/hello.wasm
 ```
 
 ```text
@@ -115,7 +117,7 @@ Ephemora Cell is a WASM execution primitive, not a framework library — drop it
 Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, 10 KB output cap, no network, SEP-2787-ready signed execution records:
 
 ```bash
-pip install -e .           # from a clone (PyPI package ships with the first release)
+pip install ephemora-cell
 ephemora-cell-mcp          # bundled echo tool included; register your own: --tools-dir ./tools
 ```
 
