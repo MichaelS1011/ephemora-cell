@@ -1,0 +1,126 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-08-28",
+  "wasmtime": "47.0.1",
+  "method": "counted loop calling one WASI syscall N times, max_fuel set; fuel_per_iteration = fuel_consumed/N; net syscall cost = variant - baseline_loop (loop + counter overhead)",
+  "baseline_fuel_per_iteration": 8.328,
+  "results": [
+    {
+      "name": "baseline_loop",
+      "n": 50000,
+      "fuel_consumed": 416388,
+      "fuel_per_iteration": 8.328,
+      "host_wall_seconds": 0.0022,
+      "host_us_per_call": 0.045
+    },
+    {
+      "name": "clock_time_get",
+      "n": 50000,
+      "fuel_consumed": 616388,
+      "fuel_per_iteration": 12.328,
+      "host_wall_seconds": 0.0029,
+      "host_us_per_call": 0.057,
+      "net_fuel_per_call": 4.0
+    },
+    {
+      "name": "random_get",
+      "n": 50000,
+      "fuel_consumed": 566388,
+      "fuel_per_iteration": 11.328,
+      "host_wall_seconds": 0.0065,
+      "host_us_per_call": 0.131,
+      "net_fuel_per_call": 3.0
+    },
+    {
+      "name": "sched_yield",
+      "n": 10000,
+      "fuel_consumed": 106388,
+      "fuel_per_iteration": 10.639,
+      "host_wall_seconds": 0.0014,
+      "host_us_per_call": 0.14,
+      "net_fuel_per_call": 2.311
+    },
+    {
+      "name": "environ_sizes_get",
+      "n": 50000,
+      "fuel_consumed": 566388,
+      "fuel_per_iteration": 11.328,
+      "host_wall_seconds": 0.0019,
+      "host_us_per_call": 0.039,
+      "net_fuel_per_call": 3.0
+    },
+    {
+      "name": "fd_prestat_get",
+      "n": 50000,
+      "fuel_consumed": 566388,
+      "fuel_per_iteration": 11.328,
+      "host_wall_seconds": 0.0031,
+      "host_us_per_call": 0.062,
+      "net_fuel_per_call": 3.0
+    },
+    {
+      "name": "fd_fdstat_get",
+      "n": 50000,
+      "fuel_consumed": 566388,
+      "fuel_per_iteration": 11.328,
+      "host_wall_seconds": 0.0049,
+      "host_us_per_call": 0.097,
+      "net_fuel_per_call": 3.0
+    },
+    {
+      "name": "fd_filestat_get",
+      "n": 50000,
+      "fuel_consumed": 566388,
+      "fuel_per_iteration": 11.328,
+      "host_wall_seconds": 0.4846,
+      "host_us_per_call": 9.692,
+      "net_fuel_per_call": 3.0
+    },
+    {
+      "name": "fd_write_stdout_capped",
+      "n": 20000,
+      "fuel_consumed": 276388,
+      "fuel_per_iteration": 13.819,
+      "host_wall_seconds": 0.0431,
+      "host_us_per_call": 2.155,
+      "net_fuel_per_call": 5.491
+    },
+    {
+      "name": "fd_write_file_real",
+      "n": 10000,
+      "fuel_consumed": 156401,
+      "fuel_per_iteration": 15.64,
+      "host_wall_seconds": 0.0579,
+      "host_us_per_call": 5.792,
+      "net_fuel_per_call": 7.312
+    },
+    {
+      "name": "fd_read_file_real",
+      "n": 10000,
+      "fuel_consumed": 156401,
+      "fuel_per_iteration": 15.64,
+      "host_wall_seconds": 0.053,
+      "host_us_per_call": 5.296,
+      "net_fuel_per_call": 7.312
+    },
+    {
+      "name": "fd_seek_file",
+      "n": 50000,
+      "fuel_consumed": 716401,
+      "fuel_per_iteration": 14.328,
+      "host_wall_seconds": 0.0054,
+      "host_us_per_call": 0.108,
+      "net_fuel_per_call": 6.0
+    },
+    {
+      "name": "path_open_plus_close",
+      "n": 1000,
+      "fuel_consumed": 37388,
+      "fuel_per_iteration": 37.388,
+      "host_wall_seconds": 0.0146,
+      "host_us_per_call": 14.592,
+      "net_fuel_per_call": 29.06
+    }
+  ]
+}

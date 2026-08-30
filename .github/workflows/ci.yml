@@ -1,0 +1,173 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # requirements.txt pins the exact tested wasmtime (47.0.1) for CI
+          # and pip-audit; pyproject.toml declares the supported range (<47).
+          # --no-deps keeps the pinned version instead of downgrading.
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov
+          python -m pip install -e . --no-deps
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+
+      - name: Lint (black + ruff)
+        run: |
+          python -m pip install black ruff
+          python -m black --check ephemora_cell/ tests/
+          python -m ruff check ephemora_cell/ tests/
+
+      # Integration regressions must fail CI, not be silently skipped.
+      - name: Integration — subagent isolation
+        run: |
+          python integration/test_hermes_subagent.py --json
+
+      - name: Integration — NemoClaw
+        run: |
+          python integration/test_nemoclaw_isolation.py --json
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-cov
+          python -m pip install -e . --no-deps
+
+      # --cov=ephemora_cell (the old run relied on pyproject addopts
+      # which pointed at the misspelled 'ephemera_cell' and silently
+      # measured nothing) + hard 70% gate.
+      - name: Run tests with coverage
+        run: |
+          python -m pytest tests/ -q --cov=ephemora_cell --cov-report=xml:coverage.xml --cov-fail-under=70
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  build-recipes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Add Rust WASM target
+        run: rustup target add wasm32-wasip1
+
+      - name: Install AssemblyScript
+        run: npm install -g assemblyscript
+
+      - name: Install Zig
+        run: |
+          curl -fsSL https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz -o /tmp/zig.tar.xz
+          sudo tar -xJf /tmp/zig.tar.xz -C /opt
+          echo "/opt/zig-linux-x86_64-0.13.0" >> "$GITHUB_PATH"
+
+      - name: Install WASI SDK
+        run: |
+          curl -fsSL -o /tmp/wasi-sdk.tar.gz https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-25/wasi-sdk-25.0-x86_64-linux.tar.gz
+          sudo tar -xzf /tmp/wasi-sdk.tar.gz -C /opt
+          echo "WASI_SDK_PATH=/opt/wasi-sdk-25.0-x86_64-linux" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (incl. pytest via the dev extra)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e ".[dev]"
+
+      # Real toolchain builds (rust + go) run in CI
+      - name: Run builder tests with real toolchains
+        run: python -m pytest tests/test_builder.py -v --tb=short
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies and audit tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+          python -m pip install pip-audit cyclonedx-bom
+
+      - name: CVE scan (pip-audit)
+        run: |
+          pip-audit -r requirements.txt
+
+      # SAST scope: production code only. tests/ is excluded deliberately —
+      # it contains documented fake positive-control secrets (e.g.
+      # argv-secret-7f3a) that exist to prove secrets never reach worker
+      # surfaces; ruff already covers test code style/correctness.
+      - name: SAST (bandit)
+        run: |
+          python -m pip install bandit
+          bandit -r ephemora_cell/ ephemora_cell_mcp/ -ll
+
+      # SBOM from the INSTALLED environment (true dependency tree,
+      # includes the package itself), not from a requirements listing.
+      - name: Generate SBOM (CycloneDX, installed metadata)
+        run: |
+          cyclonedx-py environment -o sbom.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json

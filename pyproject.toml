@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ephemora-cell"
+version = "1.0.0"
+description = "Ephemora Cell — Isolated WASM Sandbox"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Michael Soppa", email = "contact-via-LinkedIn"},
+]
+requires-python = ">=3.10"
+dependencies = ["wasmtime>=36.0.12,<48"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Embedded Systems",
+]
+keywords = ["wasm", "webassembly", "wasi", "sandbox", "isolation", "agent", "mcp"]
+
+[project.urls]
+Homepage = "https://github.com/MichaelS1011/ephemora-cell"
+Issues = "https://github.com/MichaelS1011/ephemora-cell/issues"
+
+[project.optional-dependencies]
+# pytest<9 keeps Python 3.11 support until CI moves off it.
+dev = ["pytest<9", "pytest-cov", "black>=24", "ruff>=0.5", "bandit>=1.7"]
+
+[project.scripts]
+ephemora-cell = "ephemora_cell.cli:main"
+ephemora-cell-mcp = "ephemora_cell_mcp.__main__:main"
+
+[tool.pytest.ini_options]
+# integration/ pulls the OpenAI agents SDK (optional, broken in some
+# venvs). Scope the default run to the core suite so `pytest` stays green
+# for an open-source consumer. Run integration/ explicitly when needed.
+testpaths = ["tests", "benchmarks"]
+addopts = "--cov=ephemora_cell --cov-report=term-missing"
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]
+ignore = ["BLE001", "S110", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S110"]
+
+[tool.setuptools.packages.find]
+include = ["ephemora_cell*", "ephemora_cell_mcp*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+ephemora_cell_mcp = ["tools/*.wasm", "tools/*.json"]

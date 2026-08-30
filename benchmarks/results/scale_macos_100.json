@@ -1,0 +1,21 @@
+{
+  "label": "macos-verify-100x8",
+  "n": 100,
+  "workers": 8,
+  "wall_s": 0.208,
+  "throughput_exec_per_s": 481.54,
+  "latency_ms": {
+    "p50": 1.522,
+    "p95": 25.946,
+    "p99": 50.139,
+    "max": 50.139
+  },
+  "errors": 0,
+  "error_rate": 0.0,
+  "fuel_samples": {
+    "min": 18786,
+    "max": 18896
+  },
+  "rss_max_kb": 25935872,
+  "cpu_count": 10
+}

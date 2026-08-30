@@ -1,0 +1,134 @@
+{
+  "code_review": {
+    "scenario": "code_review",
+    "n_calls": 50,
+    "n_repeats": 10,
+    "ephemora_cell_naive": {
+      "n": 500,
+      "mean_ms": 0.29,
+      "stdev_ms": 0.25,
+      "median_ms": 0.26,
+      "min_ms": 0.23,
+      "max_ms": 5.2,
+      "p95_ms": 0.32,
+      "p99_ms": 0.98,
+      "ci95_low": 0.27,
+      "ci95_high": 0.31,
+      "total_ms": 144.73,
+      "throughput": 3454.7
+    },
+    "ephemora_cell_pooled": {
+      "n": 500,
+      "mean_ms": 0.28,
+      "stdev_ms": 0.62,
+      "median_ms": 0.24,
+      "min_ms": 0.21,
+      "max_ms": 13.86,
+      "p95_ms": 0.29,
+      "p99_ms": 0.31,
+      "ci95_low": 0.23,
+      "ci95_high": 0.33,
+      "total_ms": 139.8,
+      "throughput": 3576.6
+    },
+    "docker": null,
+    "cost_ephemora_cell_naive": {
+      "calls_per_hour": 12436920.0,
+      "cost_per_1k": 0.0002,
+      "cost_per_1m": 0.25
+    },
+    "cost_ephemora_cell_pooled": {
+      "calls_per_hour": 12875760.0,
+      "cost_per_1k": 0.0002,
+      "cost_per_1m": 0.24
+    }
+  },
+  "data_transform": {
+    "scenario": "data_transform",
+    "n_calls": 50,
+    "n_repeats": 10,
+    "ephemora_cell_naive": {
+      "n": 500,
+      "mean_ms": 0.27,
+      "stdev_ms": 0.22,
+      "median_ms": 0.25,
+      "min_ms": 0.22,
+      "max_ms": 5.12,
+      "p95_ms": 0.34,
+      "p99_ms": 0.44,
+      "ci95_low": 0.25,
+      "ci95_high": 0.29,
+      "total_ms": 136.72,
+      "throughput": 3657.2
+    },
+    "ephemora_cell_pooled": {
+      "n": 500,
+      "mean_ms": 0.24,
+      "stdev_ms": 0.02,
+      "median_ms": 0.24,
+      "min_ms": 0.22,
+      "max_ms": 0.31,
+      "p95_ms": 0.27,
+      "p99_ms": 0.29,
+      "ci95_low": 0.24,
+      "ci95_high": 0.24,
+      "total_ms": 121.1,
+      "throughput": 4129.0
+    },
+    "docker": null,
+    "cost_ephemora_cell_naive": {
+      "calls_per_hour": 13165920.0,
+      "cost_per_1k": 0.0002,
+      "cost_per_1m": 0.23
+    },
+    "cost_ephemora_cell_pooled": {
+      "calls_per_hour": 14864400.0,
+      "cost_per_1k": 0.0002,
+      "cost_per_1m": 0.21
+    }
+  },
+  "plugin_chain": {
+    "scenario": "plugin_chain",
+    "n_calls": 50,
+    "n_repeats": 10,
+    "ephemora_cell_naive": {
+      "n": 500,
+      "mean_ms": 0.32,
+      "stdev_ms": 0.78,
+      "median_ms": 0.26,
+      "min_ms": 0.22,
+      "max_ms": 14.19,
+      "p95_ms": 0.38,
+      "p99_ms": 0.56,
+      "ci95_low": 0.26,
+      "ci95_high": 0.39,
+      "total_ms": 161.86,
+      "throughput": 3089.1
+    },
+    "ephemora_cell_pooled": {
+      "n": 500,
+      "mean_ms": 0.28,
+      "stdev_ms": 0.48,
+      "median_ms": 0.24,
+      "min_ms": 0.22,
+      "max_ms": 8.25,
+      "p95_ms": 0.28,
+      "p99_ms": 0.31,
+      "ci95_low": 0.24,
+      "ci95_high": 0.32,
+      "total_ms": 140.63,
+      "throughput": 3555.4
+    },
+    "docker": null,
+    "cost_ephemora_cell_naive": {
+      "calls_per_hour": 11120760.0,
+      "cost_per_1k": 0.0003,
+      "cost_per_1m": 0.28
+    },
+    "cost_ephemora_cell_pooled": {
+      "calls_per_hour": 12799440.0,
+      "cost_per_1k": 0.0002,
+      "cost_per_1m": 0.24
+    }
+  }
+}

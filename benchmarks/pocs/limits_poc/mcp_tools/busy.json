@@ -1,0 +1,1 @@
+{"name": "busy", "description": "B5 busy limits probe", "input_schema": {"type": "object", "properties": {}}}

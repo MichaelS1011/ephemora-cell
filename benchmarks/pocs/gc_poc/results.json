@@ -1,0 +1,145 @@
+{
+  "gc_engine_config": {
+    "wasmtime_py": "47.0.1",
+    "wasmtime_cli": "34.0.0",
+    "wasm_gc_flag_set_by_sandbox": null,
+    "wasm_gc_default": "enabled (verified: default Config() compiles GC modules; Config(wasm_gc=False) rejects them)"
+  },
+  "scenario_a": {
+    "gc_workload_preview1": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "gc-workload done (100000 iterations)",
+      "stderr": "error while executing at wasm backtrace:\n    0:     0xfb - <unknown>!<wasm function 3>\n\nCaused by:\n    Exited with i32 exit status 0\n",
+      "elapsed_ms_median": 3.93,
+      "elapsed_ms_min": 3.87,
+      "elapsed_ms_all": [
+        6.2,
+        3.94,
+        3.87,
+        3.89,
+        3.93
+      ],
+      "fuel_consumed": 3416396,
+      "fuel_median": 3416396,
+      "loop_count": 100000
+    },
+    "arith_workload_preview1": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "arith-workload done (100000 iterations)",
+      "stderr": "error while executing at wasm backtrace:\n    0:     0xc4 - <unknown>!<wasm function 3>\n\nCaused by:\n    Exited with i32 exit status 0\n",
+      "elapsed_ms_median": 0.37,
+      "elapsed_ms_min": 0.33,
+      "elapsed_ms_all": [
+        1.04,
+        0.38,
+        0.36,
+        0.33,
+        0.37
+      ],
+      "fuel_consumed": 1516396,
+      "fuel_median": 1516396,
+      "loop_count": 100000
+    },
+    "gc_fuel_exhausted_preview1": {
+      "status": "fuel_exhausted",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:     0xa0 - <unknown>!gc_loop\n    1:     0xed - <unknown>!<wasm function 3>\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n",
+      "elapsed_ms_median": 1.12,
+      "elapsed_ms_min": 1.12,
+      "elapsed_ms_all": [
+        1.12
+      ],
+      "fuel_consumed": null,
+      "fuel_median": null
+    },
+    "gc_epoch_timeout_preview1": {
+      "status": "timeout",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "Timeout after 1s: error while executing at wasm backtrace:\n    0:     0xaf - <unknown>!gc_loop\n    1:     0xed - <unknown>!<wasm function 3>\n\nCaused by:\n    wasm trap: interrupt\n",
+      "elapsed_ms_median": 1005.94,
+      "elapsed_ms_min": 1005.94,
+      "elapsed_ms_all": [
+        1005.94
+      ],
+      "fuel_consumed": null,
+      "fuel_median": null
+    },
+    "gc_memory_limit_preview1": {
+      "status": "error",
+      "exit_code": 1,
+      "stdout": "",
+      "stderr": "error while executing at wasm backtrace:\n    0:     0xb5 - <unknown>!<wasm function 2>\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed\n",
+      "elapsed_ms_median": 1.09,
+      "elapsed_ms_min": 1.09,
+      "elapsed_ms_all": [
+        1.09
+      ],
+      "fuel_consumed": null,
+      "fuel_median": null
+    },
+    "gc_heap_not_limited_by_store_limits": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "gc-workload done (100000 iterations)",
+      "stderr": "error while executing at wasm backtrace:\n    0:     0xfb - <unknown>!<wasm function 3>\n\nCaused by:\n    Exited with i32 exit status 0\n",
+      "elapsed_ms_median": 4.01,
+      "elapsed_ms_min": 3.69,
+      "elapsed_ms_all": [
+        4.38,
+        4.01,
+        3.69
+      ],
+      "fuel_consumed": 3416396,
+      "fuel_median": 3416396
+    }
+  },
+  "scenario_b": {
+    "gc_wrapper_component": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "elapsed_ms": 4.29,
+      "fuel_consumed": null
+    },
+    "gc_wrapper_fuel_component": {
+      "status": "fuel_exhausted",
+      "stdout": "",
+      "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:     0x50 - m!run\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n",
+      "elapsed_ms": 0.71
+    },
+    "gc_wrapper_timeout_component": {
+      "status": "timeout",
+      "stdout": "",
+      "stderr": "Timeout after 1s: error while executing at wasm backtrace:\n    0:     0x50 - m!run\n\nCaused by:\n    wasm trap: interrupt\n",
+      "elapsed_ms": 1004.1
+    },
+    "gc_wrapper_inf_fuel_component": {
+      "status": "fuel_exhausted",
+      "stdout": "",
+      "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:     0x50 - m!run\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n",
+      "elapsed_ms": 0.9
+    },
+    "gc_lifted_component": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "gc-workload done (100000 iterations)\n",
+      "stderr": "",
+      "elapsed_ms": 6.89
+    },
+    "lifted_gc_exports": [
+      "wasi:cli/run@0.2.3"
+    ],
+    "lifted_gc_run_found": true
+  },
+  "scenario_c": {
+    "wat2wasm_gc_ms": 0.032,
+    "wat2wasm_arith_ms": 0.028,
+    "module_compile_gc_ms": 0.285,
+    "module_compile_arith_ms": 0.233
+  }
+}

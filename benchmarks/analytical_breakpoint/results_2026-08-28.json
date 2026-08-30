@@ -1,0 +1,125 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-08-28",
+  "wasmtime": "47.0.1",
+  "platform": "darwin",
+  "method": "guest WAT grows linear memory page-by-page against Store.set_limits caps; over-cap requests are refused by the runtime (memory.grow returns -1); memory64 guest proves growth beyond the 4GiB 32-bit boundary with sparse touches",
+  "literature_context": {
+    "measured": false,
+    "source": "literature",
+    "citation": "Pyodide documents stricter memory limits than native Python; pandas/numpy OOM class (stackoverflow.com/questions/67636518). numpy/pandas wheels for wasm32-wasip1 are not published, so real dataframe workloads fall back to Pyodide reference values until a wasi-python recipe exists (M11)."
+  },
+  "results": {
+    "part_a_stepped_caps": [
+      {
+        "case": "fits",
+        "cap_mb": 32,
+        "target_mb": 30.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "GROWN\u0000",
+        "refused": false,
+        "elapsed_ms": 2.9,
+        "expect": "GROWN"
+      },
+      {
+        "case": "over_request",
+        "cap_mb": 32,
+        "target_mb": 36.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "REFUSED",
+        "refused": true,
+        "elapsed_ms": 1.6,
+        "expect": "REFUSED"
+      },
+      {
+        "case": "fits",
+        "cap_mb": 64,
+        "target_mb": 62.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "GROWN\u0000",
+        "refused": false,
+        "elapsed_ms": 1.7,
+        "expect": "GROWN"
+      },
+      {
+        "case": "over_request",
+        "cap_mb": 64,
+        "target_mb": 68.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "REFUSED",
+        "refused": true,
+        "elapsed_ms": 1.9,
+        "expect": "REFUSED"
+      },
+      {
+        "case": "fits",
+        "cap_mb": 128,
+        "target_mb": 126.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "GROWN\u0000",
+        "refused": false,
+        "elapsed_ms": 2.4,
+        "expect": "GROWN"
+      },
+      {
+        "case": "over_request",
+        "cap_mb": 128,
+        "target_mb": 132.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "REFUSED",
+        "refused": true,
+        "elapsed_ms": 2.4,
+        "expect": "REFUSED"
+      },
+      {
+        "case": "fits",
+        "cap_mb": 256,
+        "target_mb": 254.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "GROWN\u0000",
+        "refused": false,
+        "elapsed_ms": 4.2,
+        "expect": "GROWN"
+      },
+      {
+        "case": "over_request",
+        "cap_mb": 256,
+        "target_mb": 260.0,
+        "memory64": false,
+        "status": "success",
+        "outcome": "REFUSED",
+        "refused": true,
+        "elapsed_ms": 4.1,
+        "expect": "REFUSED"
+      }
+    ],
+    "part_b_memory64": [
+      {
+        "cap_mb": 4608,
+        "target_mb": 4112.0,
+        "memory64": true,
+        "status": "success",
+        "outcome": "",
+        "refused": false,
+        "elapsed_ms": 708.0
+      },
+      {
+        "cap_mb": 4096,
+        "target_mb": 4112.0,
+        "memory64": true,
+        "status": "error",
+        "outcome": "status=error",
+        "refused": false,
+        "elapsed_ms": 21.6
+      }
+    ]
+  }
+}

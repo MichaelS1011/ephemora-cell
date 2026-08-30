@@ -1,0 +1,19 @@
+[package]
+name = "limits-guests"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "memhog"
+path = "src/memhog.rs"
+
+[[bin]]
+name = "hugeout"
+path = "src/hugeout.rs"
+
+[[bin]]
+name = "busy"
+path = "src/busy.rs"
+
+[profile.release]
+opt-level = "s"

@@ -1,0 +1,47 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-08-29",
+  "platform": "darwin",
+  "method": "probe toolchain versions, compile hello-world -> wasm where available (timed), record verbatim failure classes otherwise",
+  "results": [
+    {
+      "language": "rust",
+      "toolchain": "cargo 1.92.0 (344c4567c 2025-10-21)",
+      "wasm_target_installed": true,
+      "measured": true,
+      "exit_code": 0,
+      "ok": true,
+      "wasm_path": "/tmp/ephemora_m11_17c97cec/target/wasm32-wasip1/release/hello.wasm",
+      "elapsed_s": 0.1,
+      "error_class": null
+    },
+    {
+      "language": "go",
+      "toolchain": null,
+      "measured": false,
+      "error_class": "toolchain not installed (hint: install go >= 1.21; wasip1 needs GOOS=wasip1 GOARCH=wasm)"
+    },
+    {
+      "language": "c",
+      "toolchain": "Apple clang version 17.0.0 (clang-1700.3.19.1)",
+      "measured": true,
+      "exit_code": 1,
+      "ok": false,
+      "elapsed_s": 0.0,
+      "error_class": "hello.c:1:10: fatal error: 'stdio.h' file not found\n    1 | #include <stdio.h>\n      |          ^~~~~~~~~\n1 error generated."
+    },
+    {
+      "language": "python",
+      "toolchain": null,
+      "measured": false,
+      "error_class": "no AOT compile: python scripts run on a wasi-python interpreter; recipe = embed script into wasi-python build (documented guidance, not a compiler call)"
+    },
+    {
+      "language": "assemblyscript",
+      "toolchain": "npm error could not determine executable to run",
+      "measured": false,
+      "error_class": "toolchain via npm; not installed (hint: npm i -g assemblyscript)"
+    }
+  ]
+}

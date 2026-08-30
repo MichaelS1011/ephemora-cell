@@ -1,0 +1,9 @@
+# Ephemora Cell
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Michael Soppa
+"""
+Ephemora Cell — WebAssembly Virtual Machine sandbox with resource limits.
+
+Decoupled WASMtime Runtime — Pure WASM execution with fuel metering,
+memory limits, timeouts, and preopened directories.
+"""

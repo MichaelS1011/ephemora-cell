@@ -1,0 +1,42 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.coverage
+coverage.xml
+*.wasm
+*.wasmtest
+*.wat
+!tests/fixtures/*.wasm
+!tests/fixtures/*.wat
+!benchmarks/workloads/*.wasm
+!ephemora_cell_mcp/tools/*.wasm
+!examples/*.wasm
+!examples/*.wat
+.DS_Store
+
+# Rust fixture rebuild artifacts
+tests/fixtures/src/*/target/
+benchmarks/pocs/*/guests/target/
+benchmarks/pocs/*/target/
+
+# Internal — never publish (IP)
+docs/internal/
+# Local audit drafts + probe dirs (never publish)
+*_AUDIT_*.md
+RELEASE_FIXPLAN.md
+tmp_probe_dir/
+*.log
+
+# Local tooling & founder materials — never publish
+.zcode/
+.hermes/
+.ruff_cache/
+docs/whitepaper/
+docs/diagrams/
+
+# Local worklogs & result indexes (never publish)
+benchmarks/results/**/00_INDEX.md

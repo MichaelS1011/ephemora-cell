@@ -1,0 +1,60 @@
+{
+  "title": "D14 — Scale-Probe: parallele Sandbox-Ausfuehrungen",
+  "date": "2026-08-20",
+  "method": "PDCA",
+  "driver": "benchmarks/scale_probe.py (multiprocessing spawn, 1 Sandbox-Call pro Task)",
+  "workload": "ephemora_cell_mcp/tools/echo.wasm, wasmtime 47.0.1, WASIConfig(mem=128MB, fuel=1M)",
+  "results": {
+    "macos_local": {
+      "label": "macos-smoke-100x8",
+      "n": 100,
+      "workers": 8,
+      "throughput_exec_per_s": 469.02,
+      "latency_ms": { "p50": 1.43, "p95": 81.98, "p99": 90.01 },
+      "errors": 0,
+      "error_rate": 0.0,
+      "fuel": { "min": 18786, "max": 18896 }
+    },
+    "dgx_100": {
+      "label": "dgx-100x20",
+      "n": 100,
+      "workers": 20,
+      "wall_s": 0.982,
+      "throughput_exec_per_s": 101.8,
+      "latency_ms": { "p50": 14.163, "p95": 271.4, "p99": 335.5 },
+      "errors": 0,
+      "error_rate": 0.0,
+      "fuel": { "min": 2401, "max": 2511 }
+    },
+    "dgx_500": {
+      "label": "dgx-500x20",
+      "n": 500,
+      "workers": 20,
+      "wall_s": 0.994,
+      "throughput_exec_per_s": 503.07,
+      "latency_ms": { "p50": 7.384, "p95": 47.3, "p99": 278.0 },
+      "errors": 0,
+      "error_rate": 0.0,
+      "fuel": { "min": 2401, "max": 2560 }
+    },
+    "dgx_1000": {
+      "label": "dgx-1000x20",
+      "n": 1000,
+      "workers": 20,
+      "wall_s": 1.183,
+      "throughput_exec_per_s": 845.0,
+      "latency_ms": { "p50": 7.367, "p95": 22.98, "p99": 242.0 },
+      "errors": 0,
+      "error_rate": 0.0,
+      "fuel": { "min": 2401, "max": 2560 }
+    }
+  },
+  "observations": [
+    "Fehlerquote 0% bei allen Lauefen (0/1700 Sandbox-Calls).",
+    "Durchsatz skaliert mit N: 101.8 -> 503.1 -> 845.0 exec/s (Amortisierung von Engine-Pool + Modul-Kompilierung pro Worker).",
+    "fuel deterministisch pro Plattform (DGX-Spread nur durch variable Eingabelaenge 'scale-N' bedingt: 2401-2560).",
+    "P99 242-335ms = multiprocessing-spawn-Overhead pro Task (isolierter Modus); der persistente MCP-Kanal erreicht 0.89ms/Call (siehe benchmarks/comparison-mcp-servers.md §2).",
+    "Einzellauf-P50 auf DGX 7.4ms vs. macOS 1.4ms — gleiche wasmtime, gleiche Architektur, verschiedene Plattform-Engines (konsistent mit D12: fuel/elapsed plattformabhaengig)."
+  ],
+  "conclusion": "1000 parallele Sandbox-Ausfuehrungen auf der DGX Spark in 1.18s Wall-Time, 0 Fehler, deterministische fuel-Werte. 'Verified. Not claimed.'"
+}

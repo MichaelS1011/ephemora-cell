@@ -1,0 +1,35 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-08-29",
+  "wasmtime": "47.0.1",
+  "platform": "darwin",
+  "method": "100 consecutive in-process runs; fs_state opens state.bin append, writes a 32-byte record, closes, reopens read-only and reads the file back; delta vs trivial run = per-run state cost",
+  "results": [
+    {
+      "mode": "trivial",
+      "runs": 100,
+      "mean_ms": 0.65,
+      "p95_ms": 0.94,
+      "final_state_bytes": 0
+    },
+    {
+      "mode": "fs_state",
+      "runs": 100,
+      "mean_ms": 0.95,
+      "p95_ms": 1.25,
+      "final_state_bytes": 500
+    },
+    {
+      "mode": "fs_state_big",
+      "runs": 100,
+      "mean_ms": 0.87,
+      "p95_ms": 1.09,
+      "final_state_bytes": 1049076
+    }
+  ],
+  "state_cost_per_run_ms": {
+    "small_state": 0.3,
+    "big_state_1mib": 0.22
+  }
+}

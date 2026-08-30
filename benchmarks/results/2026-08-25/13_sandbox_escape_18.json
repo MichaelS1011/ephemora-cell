@@ -1,0 +1,128 @@
+[
+  {
+    "id": "privileged",
+    "layer": "L1 Orchestration",
+    "desc": "Privileged container (--privileged)",
+    "status": "BLOCKED",
+    "detail": "WASI preopen not available / preopen deny - BLOCKED per Design: WASI hat kein privileged, nur Capability preopen"
+  },
+  {
+    "id": "docker_socket",
+    "layer": "L1 Orchestration",
+    "desc": "Docker socket /var/run/docker.sock",
+    "status": "BLOCKED",
+    "detail": "Cell blocked: ExecutionStatus.ERROR - BLOCKED: Cell hat kein Docker, kein socket"
+  },
+  {
+    "id": "pid_namespace",
+    "layer": "L1 Orchestration",
+    "desc": "Host PID --pid=host + CAP_SYS_PTRACE",
+    "status": "BLOCKED",
+    "detail": "WASI pid not available / preopen deny - BLOCKED: WASI kein pid namespace"
+  },
+  {
+    "id": "sys_admin",
+    "layer": "L1 Orchestration",
+    "desc": "CAP_SYS_ADMIN",
+    "status": "BLOCKED",
+    "detail": "WASI cap not available / preopen deny - BLOCKED: WASI kein sys_admin"
+  },
+  {
+    "id": "sys_module",
+    "layer": "L1 Orchestration",
+    "desc": "CAP_SYS_MODULE",
+    "status": "BLOCKED",
+    "detail": "WASI cap not available / preopen deny - BLOCKED: WASI kein kernel module"
+  },
+  {
+    "id": "dac_read_search",
+    "layer": "L1 Orchestration",
+    "desc": "CAP_DAC_READ_SEARCH open_by_handle_at",
+    "status": "BLOCKED",
+    "detail": "WASI fs not available / preopen deny - BLOCKED: preopen-deny blockt Host FS"
+  },
+  {
+    "id": "hostpath_etc",
+    "layer": "L1 Orchestration",
+    "desc": "Writable hostPath /etc",
+    "status": "BLOCKED",
+    "detail": "WASI fs not available / preopen deny - BLOCKED: preopen-deny /etc"
+  },
+  {
+    "id": "cgroup_release_agent",
+    "layer": "L3 Runtime",
+    "desc": "CVE-2022-0492 cgroup escape",
+    "status": "BLOCKED",
+    "detail": "WASI cgroup not available / preopen deny - BLOCKED: WASI kein cgroup"
+  },
+  {
+    "id": "runc_overwrite",
+    "layer": "L3 Runtime",
+    "desc": "CVE-2019-5736 runc overwrite",
+    "status": "BLOCKED",
+    "detail": "WASI runc not available / preopen deny - BLOCKED: kein runc, WASM memory bounds"
+  },
+  {
+    "id": "bpf_privesc",
+    "layer": "L4 Kernel",
+    "desc": "CVE-2017-16995 BPF privesc 4.4.x",
+    "status": "BLOCKED",
+    "detail": "WASI kernel not available / preopen deny - BLOCKED: kein BPF, kein kernel"
+  },
+  {
+    "id": "dirty_cow",
+    "layer": "L4 Kernel",
+    "desc": "CVE-2016-5195 Dirty COW",
+    "status": "BLOCKED",
+    "detail": "WASI kernel not available / preopen deny - BLOCKED: kein shared memory, kein COW"
+  },
+  {
+    "id": "dirty_pipe",
+    "layer": "L4 Kernel",
+    "desc": "CVE-2022-0847 Dirty Pipe 5.8-5.16",
+    "status": "BLOCKED",
+    "detail": "WASI kernel not available / preopen deny - BLOCKED: kein pipe, kein kernel"
+  },
+  {
+    "id": "packet_socket",
+    "layer": "L4 Kernel",
+    "desc": "CVE-2017-7308 packet_socket 4.8.x",
+    "status": "BLOCKED",
+    "detail": "WASI kernel not available / preopen deny - BLOCKED: WASI kein packet socket"
+  },
+  {
+    "id": "k8s_crio_escape",
+    "layer": "L4 K8s",
+    "desc": "CVE-2022-0811 CRI-O sysctl",
+    "status": "BLOCKED",
+    "detail": "WASI k8s not available / preopen deny - BLOCKED: kein CRI-O, WASI only"
+  },
+  {
+    "id": "k8s_malicious_binary",
+    "layer": "L4 K8s",
+    "desc": "CVE-2019-1002101 kubectl cp tar",
+    "status": "BLOCKED",
+    "detail": "WASI k8s not available / preopen deny - BLOCKED: WASI kein tar, kein kubectl"
+  },
+  {
+    "id": "k8s_rbac_permissions",
+    "layer": "L1 K8s",
+    "desc": "Overprivileged service account",
+    "status": "BLOCKED",
+    "detail": "WASI k8s not available / preopen deny - BLOCKED: WASI kein RBAC, kein k8s"
+  },
+  {
+    "id": "k8s_route_localnet",
+    "layer": "L4 K8s",
+    "desc": "CVE-2020-8558 route_localnet",
+    "status": "BLOCKED",
+    "detail": "WASI k8s not available / preopen deny - BLOCKED: WASI kein network"
+  },
+  {
+    "id": "k8s_runc",
+    "layer": "L3 K8s",
+    "desc": "CVE-2024-21626 runc fd leak k3s",
+    "status": "BLOCKED",
+    "detail": "WASI runc not available / preopen deny - BLOCKED: kein runc, kein fd leak"
+  }
+]

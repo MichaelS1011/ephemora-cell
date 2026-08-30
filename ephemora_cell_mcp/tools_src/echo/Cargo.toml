@@ -1,0 +1,13 @@
+[package]
+name = "echo"
+version = "0.1.0"
+edition = "2021"
+
+# Dependency-free on purpose: no crates.io fetch required at build time.
+# The JSON extraction below is a small scanner tailored to the Ephemora
+# MCP stdin contract: {"params": <any JSON value>} -> {"echo": <params>}.
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

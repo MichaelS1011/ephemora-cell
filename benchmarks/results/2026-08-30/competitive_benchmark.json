@@ -1,0 +1,48 @@
+{
+  "platform": "macOS-M5",
+  "ephemora_cell_cold": {
+    "count": 300,
+    "mean_ms": 0.4,
+    "p50_ms": 0.381,
+    "p95_ms": 0.572,
+    "p99_ms": 0.713,
+    "min_ms": 0.299
+  },
+  "ephemora_cell_warm": {
+    "count": 300,
+    "mean_ms": 0.376,
+    "p50_ms": 0.367,
+    "p95_ms": 0.494,
+    "p99_ms": 0.54,
+    "min_ms": 0.298
+  },
+  "pure_wasmtime": {
+    "count": 300,
+    "mean_ms": 0.004,
+    "p50_ms": 0.004,
+    "p95_ms": 0.004,
+    "p99_ms": 0.005,
+    "min_ms": 0.003
+  },
+  "overhead_pct": 9300.0,
+  "overhead_note": "Upper-bound: pure baseline is a no-import module (PURE_WAT), Cell uses WASI HELLO_WAT. Delta includes both sandbox policy layer and WASI subsystem.",
+  "firecracker_cold": {
+    "mean_ms": 125.0,
+    "p95_ms": 135.0,
+    "p99_ms": 145.0,
+    "count": 0
+  },
+  "firecracker_measured": false,
+  "firecracker_literature": "Northflank 18.01.2026, E2B uses Firecracker, 125ms MicroVM boot",
+  "docker": {
+    "python:3.12-slim": {
+      "mean_ms": 170.631,
+      "p95_ms": 179.497
+    },
+    "node:24-alpine": {
+      "mean_ms": 167.75,
+      "p95_ms": 179.991
+    }
+  },
+  "docker_measured": true
+}

@@ -1,0 +1,4 @@
+# Ephemora Cell — exact pinned dependency set (audit / CI baseline)
+# Tested with: Python 3.10-3.12 (CI matrix); also exercised on 3.14 (dev) + wasmtime-py 47.0.1
+# Audit with: pip-audit -r requirements.txt
+wasmtime==47.0.1

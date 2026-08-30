@@ -1,0 +1,21 @@
+{
+  "label": "dgx-500x20",
+  "n": 500,
+  "workers": 20,
+  "wall_s": 0.994,
+  "throughput_exec_per_s": 503.07,
+  "latency_ms": {
+    "p50": 7.384,
+    "p95": 47.295,
+    "p99": 278.0,
+    "max": 443.414
+  },
+  "errors": 0,
+  "error_rate": 0.0,
+  "fuel_samples": {
+    "min": 2401,
+    "max": 2560
+  },
+  "rss_max_kb": 15204,
+  "cpu_count": 20
+}

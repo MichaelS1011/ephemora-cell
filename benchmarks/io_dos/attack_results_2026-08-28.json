@@ -1,0 +1,126 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-08-28",
+  "wasmtime": "47.0.1",
+  "platform": "darwin",
+  "method": "canary subprocess (unrelated-file appends + 10ms sleep loop) measures scheduler jitter and write latency baseline vs during a sandboxed guest attack (run_isolated worker, max_fuel=None trusted config, epoch timeout 10s)",
+  "baseline_canary": {
+    "n": 414,
+    "jitter_ms_mean": 2.0430617104439124,
+    "jitter_ms_p95": 2.5255830062087625,
+    "jitter_ms_max": 2.6337920082733035,
+    "write_us_mean": 34.672896253172276,
+    "write_us_p95": 56.79100286215544,
+    "write_us_max": 1901.0830001207069
+  },
+  "write_flood": {
+    "attack": {
+      "mode": "write_flood",
+      "status": "error",
+      "io_budget_exceeded": false,
+      "io_cpu_used_seconds": 2.0225,
+      "attack_wall_seconds": 2.07,
+      "bytes_written": 2815000,
+      "writes_estimated": 351875,
+      "writes_per_second": 169954.0,
+      "stderr_head": "I/O budget exceeded: worker used 2.02s CPU (io_cpu_seconds=2.0): Timeout after 10s: error while executing at wasm backtr"
+    },
+    "canary_during": {
+      "n": 984,
+      "jitter_ms_mean": 2.153269078351706,
+      "jitter_ms_p95": 2.5284590030787513,
+      "jitter_ms_max": 2.6547079998999834,
+      "write_us_mean": 40.18090482080938,
+      "write_us_p95": 71.99999527074397,
+      "write_us_max": 2516.292006475851
+    },
+    "degradation": {
+      "jitter_mean_x_baseline": 1.05,
+      "jitter_p95_x_baseline": 1.0,
+      "write_latency_mean_x_baseline": 1.16,
+      "write_latency_p95_x_baseline": 1.27
+    }
+  },
+  "open_churn": {
+    "attack": {
+      "mode": "open_churn",
+      "status": "error",
+      "io_budget_exceeded": false,
+      "io_cpu_used_seconds": 2.0039,
+      "attack_wall_seconds": 2.073,
+      "bytes_written": 0,
+      "writes_estimated": null,
+      "writes_per_second": null,
+      "stderr_head": "I/O budget exceeded: worker used 2.00s CPU (io_cpu_seconds=2.0): Timeout after 10s: error while executing at wasm backtr"
+    },
+    "canary_during": {
+      "n": 990,
+      "jitter_ms_mean": 2.071528704925158,
+      "jitter_ms_p95": 2.5320830120472237,
+      "jitter_ms_max": 2.586249999003485,
+      "write_us_mean": 46.45567371173658,
+      "write_us_p95": 88.95799692254514,
+      "write_us_max": 173.24999498669058
+    },
+    "degradation": {
+      "jitter_mean_x_baseline": 1.01,
+      "jitter_p95_x_baseline": 1.0,
+      "write_latency_mean_x_baseline": 1.34,
+      "write_latency_p95_x_baseline": 1.57
+    }
+  },
+  "stat_flood": {
+    "attack": {
+      "mode": "stat_flood",
+      "status": "error",
+      "io_budget_exceeded": false,
+      "io_cpu_used_seconds": 1.9653,
+      "attack_wall_seconds": 1.964,
+      "bytes_written": 0,
+      "writes_estimated": null,
+      "writes_per_second": null,
+      "stderr_head": "I/O budget exceeded: worker used 1.97s CPU (io_cpu_seconds=2.0): Timeout after 10s: error while executing at wasm backtr"
+    },
+    "canary_during": {
+      "n": 987,
+      "jitter_ms_mean": 2.1302765460097275,
+      "jitter_ms_p95": 2.527250000857748,
+      "jitter_ms_max": 2.5903329899301752,
+      "write_us_mean": 32.86002119429874,
+      "write_us_p95": 73.12500383704901,
+      "write_us_max": 155.999994603917
+    },
+    "degradation": {
+      "jitter_mean_x_baseline": 1.04,
+      "jitter_p95_x_baseline": 1.0,
+      "write_latency_mean_x_baseline": 0.95,
+      "write_latency_p95_x_baseline": 1.29
+    }
+  },
+  "write_flood_x4_parallel": {
+    "attack": {
+      "mode": "write_flood_x4_parallel",
+      "status": "error,error,error,error",
+      "attack_wall_seconds": 2.064,
+      "bytes_written": 3724416,
+      "writes_per_second": 225558.0,
+      "stderr_head": ""
+    },
+    "canary_during": {
+      "n": 982,
+      "jitter_ms_mean": 2.197336507993755,
+      "jitter_ms_p95": 2.527208004030399,
+      "jitter_ms_max": 2.6457500009564683,
+      "write_us_mean": 28.30512776922021,
+      "write_us_p95": 77.50000804662704,
+      "write_us_max": 147.95800962019712
+    },
+    "degradation": {
+      "jitter_mean_x_baseline": 1.08,
+      "jitter_p95_x_baseline": 1.0,
+      "write_latency_mean_x_baseline": 0.82,
+      "write_latency_p95_x_baseline": 1.36
+    }
+  }
+}

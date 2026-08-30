@@ -1,0 +1,37 @@
+name: Benchmark Firecracker vs Cell
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'benchmarks/competitive_benchmark.py'
+      - 'benchmarks/setup_firecracker.sh'
+
+jobs:
+  firecracker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check KVM
+        run: |
+          ls -l /dev/kvm || echo "No /dev/kvm"
+          kvm-ok 2>&1 | head -5 || true
+      - name: Setup Firecracker
+        run: bash benchmarks/setup_firecracker.sh
+      # Pin the same tested wasmtime as CI (unresolved 'latest'
+      # made benchmark results non-comparable across runs).
+      - name: Install Cell
+        run: pip install -e . && pip install wasmtime==47.0.1
+      - name: Run competitive benchmark (with Firecracker)
+        run: BENCH_LABEL=ubuntu-24.04-kvm python benchmarks/competitive_benchmark.py | tee competitive.log
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitive-firecracker
+          path: |
+            /tmp/ephemora_cell-competitive-*.json
+            competitive.log

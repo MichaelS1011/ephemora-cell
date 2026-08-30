@@ -1,0 +1,8 @@
+[package]
+name = "hello02"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "hello02"
+path = "src/main.rs"

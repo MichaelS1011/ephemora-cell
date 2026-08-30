@@ -1,0 +1,11 @@
+{
+  "name": "echo",
+  "description": "Echoes the tool arguments back as JSON. Demonstrates the Ephemora Cell MCP stdin/stdout contract: receives {\"params\": ...} on stdin and writes a single JSON value to stdout.",
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": true
+  },
+  "profile": "llm",
+  "allow_dirs": []
+}

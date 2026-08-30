@@ -1,0 +1,149 @@
+{
+  "engine_memhog": [
+    {
+      "status": "success",
+      "exit_code": 0,
+      "stdout_len": 43,
+      "stdout_tail": "MEMORY_LIMIT_REACHED at 1537 pages (96 MB)\n",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 11.09
+    },
+    {
+      "status": "success",
+      "exit_code": 0,
+      "stdout_len": 43,
+      "stdout_tail": "MEMORY_LIMIT_REACHED at 1537 pages (96 MB)\n",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 0.46
+    },
+    {
+      "status": "success",
+      "exit_code": 0,
+      "stdout_len": 43,
+      "stdout_tail": "MEMORY_LIMIT_REACHED at 1537 pages (96 MB)\n",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 0.35
+    }
+  ],
+  "engine_hugeout": [
+    {
+      "status": "error",
+      "exit_code": 1,
+      "stdout_len": 9216,
+      "stdout_tail": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "fuel_consumed": null,
+      "elapsed_ms": 12.14
+    },
+    {
+      "status": "error",
+      "exit_code": 1,
+      "stdout_len": 9216,
+      "stdout_tail": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "fuel_consumed": null,
+      "elapsed_ms": 0.87
+    },
+    {
+      "status": "error",
+      "exit_code": 1,
+      "stdout_len": 9216,
+      "stdout_tail": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "fuel_consumed": null,
+      "elapsed_ms": 0.77
+    }
+  ],
+  "engine_busy": [
+    {
+      "status": "fuel_exhausted",
+      "exit_code": 0,
+      "stdout_len": 23,
+      "stdout_tail": "iter 65536\niter 131072\n",
+      "fuel_consumed": null,
+      "elapsed_ms": 9.95
+    },
+    {
+      "status": "fuel_exhausted",
+      "exit_code": 0,
+      "stdout_len": 23,
+      "stdout_tail": "iter 65536\niter 131072\n",
+      "fuel_consumed": null,
+      "elapsed_ms": 0.48
+    },
+    {
+      "status": "fuel_exhausted",
+      "exit_code": 0,
+      "stdout_len": 23,
+      "stdout_tail": "iter 65536\niter 131072\n",
+      "fuel_consumed": null,
+      "elapsed_ms": 0.46
+    }
+  ],
+  "mcp_memhog": [
+    {
+      "tool": "memhog",
+      "meta_status": "success",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 10.33,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "memhog",
+      "meta_status": "success",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 12.28,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "memhog",
+      "meta_status": "success",
+      "fuel_consumed": 19420,
+      "elapsed_ms": 11.99,
+      "wasmtime": "47.0.1"
+    }
+  ],
+  "mcp_hugeout": [
+    {
+      "tool": "hugeout",
+      "meta_status": "error",
+      "fuel_consumed": null,
+      "elapsed_ms": 11.8,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "hugeout",
+      "meta_status": "error",
+      "fuel_consumed": null,
+      "elapsed_ms": 11.97,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "hugeout",
+      "meta_status": "error",
+      "fuel_consumed": null,
+      "elapsed_ms": 11.35,
+      "wasmtime": "47.0.1"
+    }
+  ],
+  "mcp_busy": [
+    {
+      "tool": "busy",
+      "meta_status": "fuel_exhausted",
+      "fuel_consumed": null,
+      "elapsed_ms": 11.03,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "busy",
+      "meta_status": "fuel_exhausted",
+      "fuel_consumed": null,
+      "elapsed_ms": 10.51,
+      "wasmtime": "47.0.1"
+    },
+    {
+      "tool": "busy",
+      "meta_status": "fuel_exhausted",
+      "fuel_consumed": null,
+      "elapsed_ms": 10.79,
+      "wasmtime": "47.0.1"
+    }
+  ]
+}

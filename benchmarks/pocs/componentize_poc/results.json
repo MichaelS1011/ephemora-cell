@@ -1,0 +1,115 @@
+{
+  "tooling": {
+    "wasm-tools": "1.255.0",
+    "adapter": "wasi_snapshot_preview1.command.wasm (wasmtime v34.0.0 release)",
+    "lift_cmd": "wasm-tools component new <module.wasm> --adapt wasi_snapshot_preview1.command.wasm -o <lifted>.wasm"
+  },
+  "scenario_1_output_capture": {
+    "p1_print_lifted": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "lifted-preview1: hello",
+      "stderr": "",
+      "elapsed_ms": 4.21
+    },
+    "rust_fs_lifted": {
+      "status": "success",
+      "exit_code": 0,
+      "stdout": "arg0=wasm-module\nrust-wasip1-done",
+      "stderr": "",
+      "elapsed_ms": 17.98
+    },
+    "auto_dispatch_lifted": {
+      "status": "success",
+      "stdout": "lifted-preview1: hello",
+      "stderr": ""
+    }
+  },
+  "scenario_2_args_env": {
+    "rust_fs_args_env_preopen": {
+      "status": "success",
+      "stdout": "arg0=wasm-module\narg1=/Users/mimiai/.t12_cp_preopen_91903\nenv_ephemora_test=42\nrust-wasip1-done",
+      "stderr": "",
+      "exit_code": 0
+    },
+    "file_written": true,
+    "file_content": "pwned-by-lifted-rust"
+  },
+  "scenario_3_fuel": {
+    "lifted_fuel_exhausted": {
+      "status": "fuel_exhausted",
+      "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:    0x20b - <unknown>!<wasm function 1>\n    1:    0x423 - <unknown>!wasi:cli/run@0.2.3#run\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n",
+      "elapsed_ms": 1.56
+    }
+  },
+  "scenario_4_epoch_timeout": {
+    "lifted_epoch_timeout": {
+      "status": "timeout",
+      "stderr": "Timeout after 1s: error while executing at wasm backtrace:\n    0:    0x20b - <unknown>!<wasm function 1>\n    1:    0x423 - <unknown>!wasi:cli/run@0.2.3#run\n\nCaused by:\n    wasm trap: interrupt\n",
+      "elapsed_ms": 1005.66
+    }
+  },
+  "scenario_5_memory_limit": {
+    "lifted_memory_limit_2mb": {
+      "status": "error",
+      "stderr": "error while executing at wasm backtrace:\n    0:    0x216 - <unknown>!<wasm function 1>\n    1:    0x437 - <unknown>!wasi:cli/run@0.2.3#run\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed\n",
+      "elapsed_ms": 1.79
+    },
+    "lifted_memory_no_limit": {
+      "status": "success",
+      "stderr": "",
+      "elapsed_ms": 1.93
+    }
+  },
+  "scenario_6_preopen_allowlist": {
+    "no_preopen_denied": {
+      "status": "success",
+      "stdout": "arg0=wasm-module\narg1=/Users/mimiai/.t12_cp_denied_91903\nrust-wasip1-done",
+      "stderr": "",
+      "file_written": false
+    }
+  },
+  "scenario_7_entry_points": {
+    "p1_print_lifted": {
+      "exports": [
+        "wasi:cli/run@0.2.3"
+      ],
+      "has_wasi_cli_run": true,
+      "has_direct_run": false
+    },
+    "rust_fs_lifted": {
+      "exports": [
+        "wasi:cli/run@0.2.3"
+      ],
+      "has_wasi_cli_run": true,
+      "has_direct_run": false
+    },
+    "hello02_native": {
+      "exports": [
+        "wasi:cli/run@0.2.6"
+      ],
+      "has_wasi_cli_run": true,
+      "has_direct_run": false
+    }
+  },
+  "scenario_8_startup_overhead": {
+    "hello02_native": {
+      "status": "success",
+      "elapsed_ms_median": 11.17,
+      "elapsed_ms_min": 10.64,
+      "stdout": "hello from wasip2 component\nenv_ephemora_test="
+    },
+    "p1_print_lifted": {
+      "status": "success",
+      "elapsed_ms_median": 2.41,
+      "elapsed_ms_min": 2.34,
+      "stdout": "lifted-preview1: hello"
+    },
+    "rust_fs_lifted": {
+      "status": "success",
+      "elapsed_ms_median": 15.6,
+      "elapsed_ms_min": 14.63,
+      "stdout": "arg0=wasm-module\nrust-wasip1-done"
+    }
+  }
+}
