@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="320" viewBox="0 0 880 320" role="img" aria-label="AI Agent → Ephemora Cell enforcement stack → bounded result">
+<rect x="20" y="138" width="130" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="85.0" y="160" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">AI Agent</text>
+<text x="85" y="208" text-anchor="middle" font-size="12" fill="#9198a1" font-family="-apple-system,Segoe UI,sans-serif">untrusted tool code</text>
+<line x1="150" y1="155" x2="255" y2="155" stroke="#3d444d" stroke-width="1.5"/><polygon points="255,150 265,155 255,160" fill="#3d444d"/>
+<rect x="265" y="40" width="350" height="240" rx="14" fill="#151b23" stroke="#4493f8" stroke-width="1.5"/>
+<text x="440" y="74" text-anchor="middle" font-size="17" font-weight="600" fill="#4493f8" font-family="-apple-system,Segoe UI,sans-serif">EPHEMORA CELL</text>
+<text x="440" y="94" text-anchor="middle" font-size="11.5" fill="#9198a1" font-family="-apple-system,Segoe UI,sans-serif">capability boundary — every run</text>
+<rect x="285" y="112" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="360.0" y="134" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">CPU / Fuel metering</text>
+<rect x="445" y="112" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="520.0" y="134" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">Memory cap (128 MB)</text>
+<rect x="285" y="156" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="360.0" y="178" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">Wall-clock timeout</text>
+<rect x="445" y="156" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="520.0" y="178" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">Filesystem preopens</text>
+<rect x="285" y="200" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="360.0" y="222" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">I/O budgets</text>
+<rect x="445" y="200" width="150" height="34" rx="8" fill="#1c2128" stroke="#3d444d"/><text x="520.0" y="222" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">Output cap (10 KB)</text>
+<text x="440" y="266" text-anchor="middle" font-size="11.5" fill="#f85149" font-family="-apple-system,Segoe UI,sans-serif">no network · no exec/fork · no host access</text>
+<line x1="615" y1="155" x2="645" y2="155" stroke="#3d444d" stroke-width="1.5"/><polygon points="645,150 655,155 645,160" fill="#3d444d"/>
+<rect x="655" y="138" width="165" height="34" rx="8" fill="#121d2f" stroke="#4493f8"/><text x="737.5" y="160" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="14" fill="#e6edf3">bounded result</text>
+<text x="737" y="128" text-anchor="middle" font-size="12" fill="#9198a1" font-family="-apple-system,Segoe UI,sans-serif">status · fuel · audit</text>
+<text x="440" y="302" text-anchor="middle" font-size="12" fill="#9198a1" font-family="-apple-system,Segoe UI,sans-serif">execute(wasm) → result — enforced per run, not promised</text>
+</svg>

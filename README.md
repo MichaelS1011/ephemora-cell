@@ -19,6 +19,13 @@ Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and 
   </a>
 </p>
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+    <img src="assets/hero-light.svg" alt="AI Agent → Ephemora Cell enforcement stack → bounded result">
+  </picture>
+</p>
+
 ## The problem
 
 AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe:
@@ -54,6 +61,10 @@ print(result.status.name)     # SUCCESS
 print(result.elapsed_ms)      # wall time
 print(result.fuel_consumed)   # compute actually used
 ```
+
+![Ephemora Cell demo — install, run, JSON report, attack blocked](assets/demo.gif)
+
+*Real CLI session: install, first run, machine-readable `--json` report with the security baseline, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
 
 ## Why this matters
 
