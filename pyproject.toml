@@ -9,7 +9,7 @@ description = "Ephemora Cell — The execution layer for untrusted AI-generated 
 readme = "README.md"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Michael Soppa", email = "contact-via-LinkedIn"},
+    {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
 dependencies = ["wasmtime>=36.0.12,<48"]

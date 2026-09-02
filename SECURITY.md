@@ -17,8 +17,7 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 
 ### How to Report
 
-**Primary:** Email **contact-via-LinkedIn** — forwarded to Michael Soppa (contact-via-LinkedIn) — PGP optional
-**Secondary:** LinkedIn DM https://www.linkedin.com/in/michael-soppa
+**Report via:** LinkedIn DM to Michael Soppa — https://www.linkedin.com/in/michael-soppa
 
 Please include:
 - A clear description of the vulnerability
