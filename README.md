@@ -221,7 +221,7 @@ That makes execution suitable for auditing, policy enforcement, and resource acc
 
 ## Testing & Verification
 
-357 tests · 74% statement coverage · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+379 tests · 85% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 

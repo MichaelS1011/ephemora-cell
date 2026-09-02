@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Test coverage
+
+- Statement coverage 74% → 85% measured over `ephemora_cell` +
+  `ephemora_cell_mcp` (`--cov-fail-under` gate 70 → 80; 84.55% measured):
+  new in-process characterization tests for `cli.py` (17% → 86%) and
+  `process_worker.py` (30% → 81%) — payload validation at the worker
+  trust boundary, run/inspect/build/benchmark command paths, previously
+  only exercised via subprocesses invisible to coverage. Coverage now
+  counts the shipped `ephemora_cell_mcp` package, which was previously
+  measured at 0% despite being installed and documented.
+
 ## [1.0.0] - 2026-08-30
 
 **First public release** — first version published to PyPI. Internally

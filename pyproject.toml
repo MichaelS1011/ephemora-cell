@@ -45,7 +45,7 @@ ephemora-cell-mcp = "ephemora_cell_mcp.__main__:main"
 # venvs). Scope the default run to the core suite so `pytest` stays green
 # for an open-source consumer. Run integration/ explicitly when needed.
 testpaths = ["tests", "benchmarks"]
-addopts = "--cov=ephemora_cell --cov-report=term-missing"
+addopts = "--cov=ephemora_cell --cov=ephemora_cell_mcp --cov-report=term-missing"
 
 [tool.black]
 line-length = 88

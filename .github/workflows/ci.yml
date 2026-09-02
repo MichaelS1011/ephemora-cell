@@ -74,10 +74,10 @@ jobs:
 
       # --cov=ephemora_cell (the old run relied on pyproject addopts
       # which pointed at the misspelled 'ephemera_cell' and silently
-      # measured nothing) + hard 70% gate.
+      # measured nothing) + hard 80% gate.
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -q --cov=ephemora_cell --cov-report=xml:coverage.xml --cov-fail-under=70
+          python -m pytest tests/ -q --cov=ephemora_cell --cov=ephemora_cell_mcp --cov-report=xml:coverage.xml --cov-fail-under=80
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
