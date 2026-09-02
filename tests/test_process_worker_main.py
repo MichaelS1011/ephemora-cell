@@ -11,12 +11,11 @@ import io
 import json
 import sys
 
-import wasmtime
-
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
-import ephemora_cell.process_worker as pw
 from test_cli import PRINTING_WAT, _write_module
+
+import ephemora_cell.process_worker as pw
 from ephemora_cell.wasi_runtime import ExecutionResult, ExecutionStatus
 
 

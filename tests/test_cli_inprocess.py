@@ -10,21 +10,26 @@ from __future__ import annotations
 import json
 import sys
 
-import pytest
-
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
 
 from test_cli import OOB_WAT, PRINTING_WAT, _write_module
+
 from ephemora_cell import cli
 
 
 def _run(monkeypatch, capsys, argv, stdin_text=""):
     monkeypatch.setattr(sys, "argv", ["ephemora-cell", *argv])
     monkeypatch.setattr(
-        sys, "stdin", type("FakeStdin", (), {
-            "read": lambda self: stdin_text,
-            "isatty": lambda self: True,
-        })()
+        sys,
+        "stdin",
+        type(
+            "FakeStdin",
+            (),
+            {
+                "read": lambda self: stdin_text,
+                "isatty": lambda self: True,
+            },
+        )(),
     )
     try:
         cli.main()
@@ -112,7 +117,9 @@ class TestBenchmarkInProcess:
 
     def test_json_report(self, monkeypatch, capsys, tmp_path):
         wasm = _write_module(tmp_path, PRINTING_WAT)
-        code, out = _run(monkeypatch, capsys, ["benchmark", str(wasm), "--n", "2", "--json"])
+        code, out = _run(
+            monkeypatch, capsys, ["benchmark", str(wasm), "--n", "2", "--json"]
+        )
         assert code is None
         doc = json.loads(out.out)
         assert doc["warm"]["n"] == 1
