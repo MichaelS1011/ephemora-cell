@@ -750,6 +750,41 @@ class TestSecurity4_9_Fsync_Import_Blocking:
             "Blocked WASI import" in result.stderr or "fsync" in result.stderr.lower()
         ), f"Error message doesn't mention fsync block: {result.stderr[:200]}"
 
+    def test_default_config_exposes_zero_env_vars(self):
+        """Regression: default WASIConfig must show the guest ZERO env vars.
+
+        Root cause of the 7/8 false-positive in security_comparison.py was a
+        test that probed the *presence* of the environ_get import (always
+        present in WASI Preview1) rather than whether host env actually leaks.
+        This pins the real property: the guest-visible env count is 0, so a
+        future allow_env regression that leaks the host environment fails here.
+        """
+        env_count_wat = """
+        (module
+          (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+          (import "wasi_snapshot_preview1" "environ_sizes_get"
+            (func $sizes (param i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (func (export "_start")
+            i32.const 0
+            i32.const 4
+            call $sizes
+            drop
+            ;; exit(0) if any env var visible (a leak); exit(1) if none.
+            (if (i32.load offset=0)
+              (then (i32.const 0) (call $exit))
+              (else (i32.const 1) (call $exit))))
+        )
+        """
+        sandbox = WASISandbox(config=WASIConfig(max_fuel=100_000))
+        wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_env_")) / "env.wasm"
+        wasm_path.write_bytes(wasmtime.wat2wasm(env_count_wat))
+        result = sandbox.run(str(wasm_path))
+        sandbox.cleanup()
+        assert (
+            result.status != ExecutionStatus.SUCCESS
+        ), "Guest saw host env vars under default config — env isolation broken"
+
 
 class TestSecurity4_10_Sandbox_Cleanup:
     """4.10: Zero-dwell — sandbox dir must be fully removed after cleanup()."""

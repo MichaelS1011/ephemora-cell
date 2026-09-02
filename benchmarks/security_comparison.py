@@ -1,4 +1,5 @@
 """Ephemora Cell Security vs Docker — messbare Security-Vergleich."""
+
 import json
 import os
 import sys
@@ -95,19 +96,25 @@ MULTITHREAD_WAT = SHELL_WAT  # Kein threading in WASI Preview1
 ENV_WAT = """
 (module
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
-  (import "wasi_snapshot_preview1" "environ_get" (func $env_get
+  (import "wasi_snapshot_preview1" "environ_sizes_get" (func $sizes
     (param i32 i32) (result i32)))
   (memory (export "memory") 1)
   (func (export "_start")
-    (local $ptr i32)
-    (local $len i32)
+    ;; environ_sizes_get(count*@0, buflen*@4); count = env vars the guest sees.
     i32.const 0
-    i32.const 0
-    call $env_get
-    local.tee $ptr
+    i32.const 4
+    call $sizes
     drop
-    i32.const 0
-    call $exit
+    ;; count>0 -> host env visible -> leak -> exit(0)=SUCCESS=ALLOWED.
+    ;; count==0 -> no host env -> blocked -> exit(1)=non-SUCCESS=BLOCKED.
+    i32.load offset=0
+    if
+      i32.const 0
+      call $exit
+    else
+      i32.const 1
+      call $exit
+    end
   )
 )
 """
@@ -121,13 +128,16 @@ def test_ephemora_cell_attack(name, wat, allow_dirs=()):
         return {"ephemora_cell_status": "BLOCKED (compile)", "detail": str(e)[:60]}
 
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    tmp.write(wasm); tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=100_000,
-        timeout_seconds=5,
-        max_memory_mb=32,
-        allow_dirs=allow_dirs,
-    ))
+    tmp.write(wasm)
+    tmp.close()
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=100_000,
+            timeout_seconds=5,
+            max_memory_mb=32,
+            allow_dirs=allow_dirs,
+        )
+    )
     result = sandbox.run(tmp.name)
     sandbox.cleanup()
     os.unlink(tmp.name)
@@ -191,7 +201,11 @@ def main():
         print(f"{name:<25} {d:<14} {a['ephemora_cell_status']:<18} {m}")
 
     # Summary
-    blocked = sum(1 for v in ephemora_cell_results.values() if "BLOCKED" in v["ephemora_cell_status"])
+    blocked = sum(
+        1
+        for v in ephemora_cell_results.values()
+        if "BLOCKED" in v["ephemora_cell_status"]
+    )
     total = len(attacks)
     print(f"\nResult: {blocked}/{total} attacks blocked in Ephemora Cell")
     print(f"Docker: 0/{total} attacks blocked (all ALLOWED)")
