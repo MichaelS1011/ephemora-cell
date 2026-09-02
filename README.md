@@ -69,6 +69,15 @@ print(result.fuel_consumed)   # compute actually used
 
 *Real CLI session: install, first run, machine-readable `--json` report with the security baseline, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
 
+![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
+
+*Same eight attack primitives, measured live in one run (2026-09-02): a stock `python:3.12-slim` container lets every one through (0/8 blocked), the Ephemora Cell boundary blocks all eight (8/8). Reproduce both columns:*
+
+```bash
+python3 assets/demo_attack_probe.py    # left column  -> 0/8 blocked (stock Docker)
+python  benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora Cell)
+```
+
 ## Why this matters
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:

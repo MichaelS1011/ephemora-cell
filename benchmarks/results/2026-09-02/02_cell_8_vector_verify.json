@@ -1,0 +1,51 @@
+{
+  "timestamp": "2026-09-02T14:41:13+0200",
+  "total": 8,
+  "blocked": 8,
+  "results": {
+    "shell_access": {
+      "blocked": true,
+      "method": "live capability scan",
+      "detail": "no shell/exec API in WASI Preview1 surface"
+    },
+    "fork": {
+      "blocked": true,
+      "method": "live capability scan",
+      "detail": "no fork API in WASI Preview1 surface"
+    },
+    "network": {
+      "blocked": true,
+      "method": "live capability scan",
+      "detail": "no socket API in WASI Preview1 surface"
+    },
+    "fsync": {
+      "blocked": true,
+      "status": "error",
+      "detail": "Blocked WASI import: wasi_snapshot_preview1::fd_psync \u2014 fsync/sync operations are not allowed in sandbox"
+    },
+    "host_fs": {
+      "blocked": true,
+      "status": "error",
+      "errno": 44,
+      "detail": "error while executing at wasm backtrace:\n    0:     0xa8 - <unknown>!<wasm function 2>\n\nCaused by:\n    Exited with i32 exit status 44\n"
+    },
+    "symlink": {
+      "blocked": true,
+      "status": "error",
+      "attack_errno": 44,
+      "positive_control_opened": false,
+      "detail": "error while executing at wasm backtrace:\n    0:     0xa8 - <unknown>!<wasm function 2>\n\nCaused by:\n    Exited with i32 exit status 44\n"
+    },
+    "threading": {
+      "blocked": true,
+      "status": "error",
+      "detail": "failed to parse WebAssembly module\n\nCaused by:\n    threads must be enabled for shared memories (at offset 0xb)\n"
+    },
+    "env": {
+      "blocked": true,
+      "status": "success",
+      "env_count": 0,
+      "detail": "error while executing at wasm backtrace:\n    0:     0x9b - <unknown>!<wasm function 2>\n\nCaused by:\n    Exited with i32 exit status 0\n"
+    }
+  }
+}

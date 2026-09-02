@@ -1,0 +1,46 @@
+{
+  "image": "python:3.12-slim",
+  "results": {
+    "shell": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "fork": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "socket": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "fsync": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "/etc/passwd": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "symlink escape": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "threads": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    },
+    "environment": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": ""
+    }
+  },
+  "allowed_count": 8
+}
