@@ -366,7 +366,8 @@ class _FakeResource:
 
 
 class TestWorkerRlimits:
-    """RLIMIT application must stay wasmtime-compatible on Linux (CI #7)."""
+    """RLIMIT application must stay wasmtime-compatible on Linux
+    (verified in a prior CI investigation)."""
 
     def _capture_rlimits(self, config: WASIConfig):
         from ephemora_cell import process_worker

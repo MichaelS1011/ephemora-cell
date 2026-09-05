@@ -1,4 +1,4 @@
-"""3.2 NemoClaw Module Isolation.
+"""NemoClaw-style module isolation.
 
 Simulates NemoClaw module orchestration: each module is isolated in
 Ephemora Cell before execution. Shows that Ephemora Cell works as a
@@ -6,8 +6,9 @@ drop-in isolation layer for external agent pipelines (NemoClaw).
 
 Modules:
   valid — NemoClaw module with valid metadata (PASS)
-  tampered — same module with corrupted hash (BLOCK via fuel limit)
-  expired — time-limited module that exceeded budget (BLOCK via timeout)
+  tampered — a different module under a corrupted/limited execution budget
+    (BLOCK via fuel limit)
+  expired — a time-limited module past its deadline (BLOCK via timeout)
 
 Usage:
     python integration/test_nemoclaw_isolation.py

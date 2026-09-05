@@ -1,5 +1,5 @@
 """
-P3 — ephemora-cell-mcp MCP adapter tests.
+ephemora-cell-mcp MCP adapter tests.
 
 Covers the MCP stdio protocol surface (initialize, notifications/initialized,
 tools/list, tools/call) against the dependency-free JSON-RPC implementation,
@@ -412,7 +412,7 @@ def test_bundled_package_has_version():
     assert __version__ == "1.0.1"
 
 
-class TestM4Hardening:
+class TestMcpHardening:
     """Protocol validation + crash-resilience of the MCP server."""
 
     def test_wrong_jsonrpc_version_is_invalid_request(self, server_with):

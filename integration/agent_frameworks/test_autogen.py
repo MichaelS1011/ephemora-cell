@@ -22,12 +22,14 @@ WORKLOADS = Path(__file__).parent.parent.parent / "benchmarks" / "workloads"
 try:
     from autogen_agentchat.agents import AssistantAgent
 except ImportError:
-    print("SKIP: autogen_agentchat not installed (pip install pyautogen)")
+    print("SKIP: autogen_agentchat not installed (pip install autogen-agentchat)")
     sys.exit(0)
 
 
 def test_autogen() -> dict:
-    """Run AutoGen agent with Ephemora Cell execution."""
+    """Check the AutoGen integration path (EphemoraCellExecutor with an
+    AutoGen-style tool contract; the agent class itself is only an
+    availability gate here)."""
     executor = EphemoraCellExecutor(max_fuel=100_000, timeout=5)
 
     wasm_paths = [

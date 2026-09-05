@@ -412,7 +412,7 @@ def test_ed25519_roundtrip():
 
 
 class TestFuelUtilizationSemantics:
-    """M3b: zero-budget safety and 0.0 vs None distinction."""
+    """Zero-budget safety and the 0.0 vs None distinction."""
 
     def test_zero_budget_zero_consumed_is_zero(self):
         report = ExecutionReport(

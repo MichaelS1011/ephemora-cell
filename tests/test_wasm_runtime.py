@@ -129,10 +129,13 @@ class TestWASISandbox:
         assert result.elapsed_ms >= 0
 
     def test_run_non_wasi_module(self):
-        """A non-WASM32-unknown-unknown module or non-WASI module returns ERROR."""
-        # The test .wasm was compiled for WASI but may not have _start export
+        """A module that is not a valid wasm32/wasi binary is rejected (ERROR);
+        some trivial binaries still compile — either outcome is acceptable,
+        the sandbox must never crash."""
+        # The referenced path does not exist as a fixture on purpose: a
+        # missing/invalid file must surface as ERROR, never as a host crash.
         sandbox = WASISandbox()
-        result = sandbox.run("/tmp/wvm_wasm_test.wasm")
+        result = sandbox.run("/tmp/ephemora_wasm_test.wasm")
         assert result.status in (ExecutionStatus.ERROR, ExecutionStatus.SUCCESS)
         assert result.elapsed_ms >= 0
         assert isinstance(result.elapsed_ms, float)

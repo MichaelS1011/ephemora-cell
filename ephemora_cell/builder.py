@@ -1,6 +1,6 @@
 # Ephemora Cell — one-command WASM builds (ADR-005)
 # SPDX-License-Identifier: Apache-2.0
-"""``ephemora build`` — compile a tool to WASM without toolchain archaeology.
+"""``ephemora-cell build`` — compile a tool to WASM without toolchain archaeology.
 
 The builder turns language-specific toolchain knowledge into recipes
 (detected from the source file), runs the toolchain, and — when a build

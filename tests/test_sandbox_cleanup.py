@@ -1,5 +1,5 @@
 """
-TDD test for P0 #3: Sandbox dir cleanup and tmpfs support.
+Sandbox dir cleanup and sandbox_base_dir configuration.
 
 Verifies:
 1. After run() completes, the sandbox directory is cleaned up

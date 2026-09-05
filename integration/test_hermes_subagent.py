@@ -1,4 +1,4 @@
-"""3.1 Hermes Subagent Isolation (End-to-End).
+"""Hermes-style subagent isolation (end-to-end).
 
 Uses existing benchmark workloads to simulate a Hermes subagent that
 generates code, then executes it in Ephemora Cell isolation.
@@ -6,7 +6,7 @@ generates code, then executes it in Ephemora Cell isolation.
 Modules (from benchmarks/workloads/):
   code_review — benign computation (SUCCESS)
   exploit — imports blocked WASI function (BLOCK)
-  code_review with low fuel — resource exhaustion (FUEL_EXHAUSTED)
+  plugin_chain with low fuel — resource exhaustion (FUEL_EXHAUSTED)
 
 Usage:
     python integration/test_hermes_subagent.py

@@ -37,7 +37,7 @@ class EphemoraCellExecutor:
     """Drop-in execution layer for any agent framework.
 
     Wraps Ephemora Cell WASISandbox with a simple execute() interface.
-    Framework-agnostic — works with Hermes, NemoClaw, LangGraph, CrewAI, etc.
+    Framework-agnostic — usable from Hermes, NemoClaw, LangGraph, CrewAI, etc.
     """
 
     def __init__(self, max_fuel: int = 100_000, timeout: int = 5, max_memory_mb: int = 16):

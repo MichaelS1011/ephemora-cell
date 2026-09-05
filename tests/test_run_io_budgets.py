@@ -52,7 +52,8 @@ WRITE_FLOOD_WAT = """
 """
 
 # Zero-byte stat flood: fd_filestat_get on the preopen fd in an infinite
-# loop — 3 fuel/call, ~9.7us real host FS work per call, no bytes.
+# loop — 3 fuel/call, ~9.7us real host FS work per call, no bytes
+# (measured 2026-08; may shift with wasmtime versions).
 STAT_FLOOD_WAT = """
 (module
   (import "wasi_snapshot_preview1" "fd_filestat_get" (func $fstat

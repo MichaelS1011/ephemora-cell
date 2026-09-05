@@ -170,8 +170,8 @@ class TestPoolConcurrency:
         assert all(m is modules[0] for m in modules)
 
 
-class TestS3TimeoutLease:
-    """S3: timeout_seconds is not part of the fingerprint; pooled runs get
+class TestTimeoutLease:
+    """timeout_seconds is intentionally NOT part of the fingerprint; pooled runs get
     a per-store epoch deadline driven by a shared ticker; a live run is
     never evicted."""
 

@@ -1,8 +1,9 @@
 """Model independence test — Ephemora Cell isolates code from any LLM.
 
 Tests that Ephemora Cell works regardless of which model generates the code.
-Uses Ollama locally to generate code from multiple models, then executes
-each in Ephemora Cell isolation.
+Uses a local Ollama to generate code from multiple models. The generated
+snippets are recorded as evidence; execution proof runs the pre-compiled
+workload WASMs in Ephemora Cell isolation (no generated code is executed).
 
 Usage:
     python integration/test_model_independence.py
@@ -21,7 +22,7 @@ from integration.ephemora_cell_agent_executor import EphemoraCellExecutor
 
 WORKLOADS = Path(__file__).parent.parent / "benchmarks" / "workloads"
 
-# Models to test — all present on user's Ollama
+# Models to test (requires a local Ollama providing these tags)
 TEST_MODELS = ["llama3:8b", "mistral", "qwen3.5:9b", "gemma4:12b"]
 
 

@@ -2,9 +2,9 @@
 Regression tests: real I/O byte budget, host-owned capture,
 preopen visibility, and the frozen memory baseline.
 
-K3/K4: output is capped by a byte-budget WASI sink (stdout/stderr), capture
-files live in a host-owned directory that is never preopened, and the
-Store-level memory limit rejects modules whose linear memory exceeds it.
+Output is capped by a byte-budget WASI sink (stdout/stderr), capture files
+live in a host-owned directory that is never preopened, and the Store-level
+memory limit rejects modules whose linear memory exceeds it.
 """
 
 from __future__ import annotations

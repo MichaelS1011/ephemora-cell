@@ -2,8 +2,9 @@
 
 Two stacked terminal panes (server + client), LinkedIn-square 1080x1080, silent,
 ~30s, H.264. Every terminal string is a verbatim capture from a real run
-(scripts saved alongside; see /tmp/mcpdemo/*.ndjson captured by
-~/.hermes/scratch/mcp_capture.py — same commands, same values, rerun to reproduce).
+(scripts saved alongside; the .ndjson captures in /tmp/mcpdemo/ were taken
+with a local capture harness kept out of the repo — same commands, same
+values, rerun to reproduce).
 
 Honesty gate: JSON below is the server's exact response, only whitespace/pretty
 differs (like assets/make_gif.py). Run asserts() at the bottom against the saved
