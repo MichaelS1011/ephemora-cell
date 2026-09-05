@@ -121,6 +121,20 @@ class CellToolEngine:
             base = dataclasses.replace(base, allow_dirs=granted)
         return base
 
+    def policy_for(self, spec: ToolSpec) -> dict[str, Any]:
+        """Effective sandbox policy for one tool, WITHOUT executing it.
+
+        Derived from the same ``_config_for()`` path :meth:`execute` uses,
+        so the reported policy and the enforced policy cannot drift.
+        Preopens are reported as CONFIGURED (``apply_config`` semantics
+        without a live run): only an actual execution attests the
+        directories that were really granted.
+        """
+        config = self._config_for(spec)
+        report = ExecutionReport(status="configured", exit_code=0, elapsed_ms=0.0)
+        report.apply_config(config)
+        return report.security_baseline
+
     def execute(self, spec: ToolSpec, params: Any) -> CellOutcome:
         """Run ``spec`` with ``params`` in the cell.
 

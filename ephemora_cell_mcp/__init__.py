@@ -18,8 +18,7 @@ Example:
     server.serve()                      # stdio loop (also: python -m ephemora_cell_mcp)
 """
 
+from ._version import __version__
 from .server import Server
-
-__version__ = "0.1.0"
 
 __all__ = ["Server", "__version__"]

@@ -6,6 +6,8 @@ Protocol surface (dependency-free JSON-RPC 2.0 over NDJSON lines):
 * ``notifications/initialized``   -> (accepted silently)
 * ``tools/list``                  -> tools discovered in the registry
 * ``tools/call``                  -> WASM execution, result + ``_meta``
+* ``tools/call get-policy``       -> native meta tool: effective sandbox
+  policy per tool / for the registry (read-only; no WASM run)
 
 Every ``tools/call`` runs the tool's ``.wasm`` in the Ephemora Cell with
 ``{"params": ...}`` on stdin and enriches the result with the execution
@@ -37,6 +39,33 @@ from .tool_registry import ToolRegistry
 from .transport import StdioTransport
 
 _PACKAGE_TOOLS = Path(__file__).resolve().parent / "tools"
+
+_NETWORK_POLICY = (
+    "disabled - the WASI surface exposes no socket APIs; egress only via a "
+    "host-side mediator (ADR-002)"
+)
+
+# Native (host-implemented) meta tools. They appear in tools/list after the
+# registry tools and are dispatched without touching the WASM engine. A
+# registry tool colliding with a native name is shadowed by the native tool.
+_NATIVE_TOOLS = (
+    {
+        "name": "get-policy",
+        "description": (
+            'Returns the effective sandbox policy for Cell tools ("Verified. '
+            'Not claimed."): fuel budget, memory limit, threads, preopens '
+            "(configured), network policy and the security baseline incl. "
+            'wasmtime version. Pass {"tool": "<name>"} for one tool or no '
+            "arguments for the whole registry."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"tool": {"type": "string"}},
+            "additionalProperties": False,
+        },
+    },
+)
+_NATIVE_NAMES = frozenset(t["name"] for t in _NATIVE_TOOLS)
 
 
 class Server:
@@ -120,7 +149,9 @@ class Server:
         """Dispatch one JSON-RPC message (in-process entry point)."""
         if "method" not in message or not isinstance(message.get("method"), str):
             return [
-                protocol.make_error(message, protocol.INVALID_REQUEST, "invalid request")
+                protocol.make_error(
+                    message, protocol.INVALID_REQUEST, "invalid request"
+                )
             ]
         if protocol.is_notification(message):
             return self._handle_notification(message)
@@ -174,19 +205,28 @@ class Server:
         return {
             "protocolVersion": version,
             "capabilities": protocol.CAPABILITIES,
-            "serverInfo": {"name": protocol.SERVER_NAME, "version": protocol.SERVER_VERSION},
+            "serverInfo": {
+                "name": protocol.SERVER_NAME,
+                "version": protocol.SERVER_VERSION,
+            },
         }
 
     def _handle_tools_list(self, params: Any) -> dict[str, Any]:
         _ = params
-        return {"tools": [spec.to_mcp() for spec in self.registry.list_tools()]}
+        tools = [spec.to_mcp() for spec in self.registry.list_tools()]
+        tools.extend(dict(tool) for tool in _NATIVE_TOOLS)
+        return {"tools": tools}
 
     def _handle_tools_call(self, params: Any) -> dict[str, Any]:
         if not isinstance(params, dict) or "name" not in params:
             raise _InvalidParams("tools/call requires params.name")
         name = params.get("name")
         if not isinstance(name, str) or not name:
-            raise _InvalidParams("tools/call requires params.name to be a non-empty string")
+            raise _InvalidParams(
+                "tools/call requires params.name to be a non-empty string"
+            )
+        if name in _NATIVE_NAMES:
+            return self._handle_native_call(name, params.get("arguments"))
         spec = self.registry.get(name)
         if spec is None:
             raise _InvalidParams(f"unknown tool: {name}")
@@ -205,6 +245,59 @@ class Server:
             }
         return self._build_call_result(outcome)
 
+    def _handle_native_call(self, name: str, arguments: Any) -> dict[str, Any]:
+        """Dispatch a native meta tool (no WASM execution involved)."""
+        if name == "get-policy":
+            return self._handle_get_policy(arguments)
+        raise _InvalidParams(f"unknown native tool: {name}")
+
+    def _handle_get_policy(self, arguments: Any) -> dict[str, Any]:
+        """Report the effective sandbox policy for one tool or the registry.
+
+        Read-only by design: capability changes are host decisions, never
+        chat decisions (see docs/decisions/ADR-006-governed-tool-loading).
+        """
+        if arguments is None:
+            arguments = {}
+        if not isinstance(arguments, dict):
+            raise _InvalidParams("get-policy arguments must be an object")
+        tool_name = arguments.get("tool")
+        if tool_name is not None:
+            if not isinstance(tool_name, str) or not tool_name:
+                raise _InvalidParams(
+                    "get-policy requires params.tool to be a non-empty string"
+                )
+            spec = self.registry.get(tool_name)
+            if spec is None:
+                raise _InvalidParams(f"unknown tool: {tool_name}")
+            payload = self._policy_entry(spec)
+            payload["tool"] = spec.name
+        else:
+            payload = {
+                "server": {
+                    "name": protocol.SERVER_NAME,
+                    "version": protocol.SERVER_VERSION,
+                },
+                "tools": [
+                    self._policy_entry(spec) for spec in self.registry.list_tools()
+                ],
+                "native_tools": [dict(t) for t in _NATIVE_TOOLS],
+            }
+        return {
+            "content": [
+                {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+            ]
+        }
+
+    def _policy_entry(self, spec: Any) -> dict[str, Any]:
+        return {
+            "name": spec.name,
+            "profile": spec.profile,
+            "allow_dirs_configured": list(spec.allow_dirs),
+            "network": _NETWORK_POLICY,
+            "security_baseline": self.engine.policy_for(spec),
+        }
+
     def _build_call_result(self, outcome: CellOutcome) -> dict[str, Any]:
         result = outcome.result
         payload, tool_error = parse_tool_stdout(result.stdout)
@@ -222,7 +315,9 @@ class Server:
             "_meta": meta,
         }
         if failed:
-            detail = payload if isinstance(payload, dict) else {"message": result.stderr}
+            detail = (
+                payload if isinstance(payload, dict) else {"message": result.stderr}
+            )
             message["content"] = [
                 {
                     "type": "text",

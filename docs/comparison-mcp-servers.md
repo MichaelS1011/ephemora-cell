@@ -10,8 +10,8 @@
 MCP server in this comparison: tools run as WASM modules inside a
 Wasmtime sandbox (no host FS, no env, no network, fuel metering,
 10 KB output cap) instead of in-process with full user privileges — and that at
-competitive latency (0.89 ms tool call) and a small footprint
-(52 MB RSS, 1 runtime dependency).
+competitive latency (0.89 ms tool call on a persistent channel; see §2) and a
+small footprint (52 MB RSS, 1 runtime dependency).
 
 The price of isolation is measurable: an *unsecured* in-process tool is
 ~13× faster (0.07 ms) — but it reads `/etc/passwd`, sees the
@@ -22,18 +22,37 @@ environment, and can do anything the host user may do.
 Node v22.23.1 · Python 3.14.3 · ephemora-cell-mcp 0.1.0 (Cell 2.1.1, wasmtime 47.0.1).
 3 runs per candidate, median. Method: NDJSON over stdin, `time.perf_counter`,
 peak RSS via `ru_maxrss`; SDK values via the official MCP Python SDK 2.0.
+**Provenance:** the whole table is a dated, one-time snapshot from 2026-08-20
+taken with the method above. No single generator script reproduces it end to end
+and it is not tagged `measured: true`; treat every figure as reported, not
+re-runnable. Determinism, fuel, and SDK interop (see directly below) are the parts
+with checked-in, re-runnable evidence. Values may shift on other machines/builds.
 
 | Candidate | Start to initialize (ms) | tools/call (ms, raw) | Peak RSS (MB) | Install (MB) | Runtime deps | Isolation |
 |---|---|---|---|---|---|---|
-| **ephemora-cell-mcp** | **45.9** | **0.89** | **52.3** | 23.95¹ | **1** (wasmtime) | **WASM sandbox (deny-by-default)** |
+| **ephemora-cell-mcp** | **45.9** | **0.89**⁴ | **52.3** | 23.95¹ | **1** (wasmtime) | **WASM sandbox (deny-by-default)** |
 | naive MCP tool (Python stdlib) | 12.3 | 0.07 | 14.9 | 0.004 | 0 | **none** (full host rights)² |
 | `@modelcontextprotocol/server-filesystem` | 70.2 | 0.32 | 75.5 | 30.32 | 118 (npm) | **none** (directory allowlist only) |
 | Docker wrapper (external evidence) | — | +490 ms per call³ | — | — | Docker | Container (breakout-capable, see below) |
+| Microsoft Wassette | —⁵ | —⁵ | —⁵ | —⁵ | —⁵ | Wasmtime WASI-0.2 component sandbox + per-component permission grants (network/storage/env), OCI component distribution⁵ |
 
 ¹ Of that, 23.0 MB is the wasmtime runtime, 0.7 MB package code. ² Demonstrated:
 reads `/etc/passwd`, dumps env, knows cwd — a compromised or
 hallucinated tool call leaks the machine. ³ https://github.com/enkryptai/secure-mcp-gateway/blob/main/docs/sandbox_walkthrough.md
 (Docker +490 ms on a 530 ms baseline; authors: "~1 second overhead per call").
+⁴ Warm persistent-channel steady-state: a single initialized channel reused
+across calls. Each fresh `tools/call` in a new process pays WASM instantiation
+(first call ≈10 ms, see determinism note below); the shipped stdio server
+builds a fresh sandbox per call by default (ADR-002 io-budget ⇒ per-run engine).
+⁵ Not measured here (single binary, install script — no matched method run as
+of this snapshot); qualitative facts from [microsoft/wassette](https://github.com/microsoft/wassette)
+(retrieved 2026-09-05): same Wasmtime engine family, MIT, components pulled as
+OCI artifacts from registries (e.g. `oci://ghcr.io/microsoft/time-server-js`),
+per-component permission grants; README self-labels the project "Early
+Development — not production ready". Differences that matter for agents:
+Cell meters every call (fuel) and attaches an execution witness to each
+response (`_meta.execution`, determinism and CI-verified SDK interop above),
+while Wassette's OCI pull model moves the trust decision to install time.
 
 **Determinism (echo tool, 5 calls):** fuel_consumed = 21562 constant
 (spread 0); elapsed_ms 0.43 ms median (only the first call in a fresh
@@ -43,8 +62,10 @@ fuel metering = reproducible accounting ("Verified. Not claimed.").
 **Interop note:** the naive tool breaks against the official MCP SDK 2.0
 (`tools/list` returns `input_schema` instead of `inputSchema` → pydantic
 ValidationError) — SDK conformance is not a given, not even
-for hand-written servers. `ephemora-cell-mcp` passes the SDK test
-(`integration/test_mcp_sdk_client.py`).
+for hand-written servers. `ephemora-cell-mcp` is verified in CI against the
+official MCP Python SDK 2.0 over stdio — initialize, `tools/list`, and a real
+`tools/call` with execution `_meta` (`integration/test_mcp_sdk_client.py`,
+job `mcp-sdk-interop`).
 
 ## 3. Market snapshot (evidenced, sources in the appendix)
 
@@ -86,8 +107,12 @@ for hand-written servers. `ephemora-cell-mcp` passes the SDK test
   do not exist. Web research tools require a host-side gateway with an
   allowlist (as with mcp.run `allowed_hosts`).
 - **~13× slower than an unsecured in-process tool** (0.89 ms vs.
-  0.07 ms) — that is the measurable price of isolation. Absolute values remain
-  in the sub-millisecond range, though.
+  0.07 ms) — that is the measurable price of isolation. The 0.89 ms figure is
+  the **warm persistent channel** (§2); the shipped stdio server builds a fresh
+  sandbox per `tools/call`, so its steady-state is higher (~12 ms/call measured,
+  Apple arm64) — the io-budget/epoch-deadline of ADR-002 requires a per-run
+  engine and bypasses the pool. Sub-millisecond holds only for pooled warm runs
+  (`io_budget_bytes=None`, see `benchmarks/pool_vs_budget.py`).
 - **1 runtime dep** (wasmtime) instead of 0 — won back by the sandbox.
 - **SDK 2.0 interop** for server-compatible field names is tested
   (echo tool via the SDK), not for arbitrary third-party clients.

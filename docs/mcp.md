@@ -30,10 +30,10 @@ pip install ephemora-cell        # provides the Cell engine
 python -m ephemora_cell_mcp --tools-dir /path/to/tools
 ```
 
-The bundled example tool ships with the package:
+The bundled tools ship with the package:
 
 ```bash
-python -m ephemora_cell_mcp           # serves the bundled "echo" tool
+python -m ephemora_cell_mcp           # serves the bundled "clock" and "echo" tools
 ```
 
 Run it and feed a hand-written client cycle:
@@ -254,7 +254,14 @@ command = "<EPHEMORA_BIN>"
 
 ### Visual Studio Code (Copilot)
 
-VS Code mounts MCP servers via `.vscode/mcp.json` (workspace) or the
+Fastest path (Copilot in VS Code picks the server up immediately; use the
+reload button in the chat's tool panel if it does not):
+
+```bash
+code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
+```
+
+VS Code also mounts MCP servers via `.vscode/mcp.json` (workspace) or the
 Copilot settings (user scope):
 
 ```json
@@ -306,6 +313,10 @@ mcp dev <EPHEMORA_BIN>                                   # MCP developer CLI
 - **Hermes Desktop** (`hermes mcp add` + `hermes mcp test`): `Connected
   (332ms)`, `Tools discovered: 1` (`echo`), saved to `~/.hermes/config.yaml`
   with 1/1 tools enabled.
+- **Bundled `clock` tool** (2026-09-05): `tools/list` → `['clock', 'echo']`;
+  `tools/call clock` returned `{"utc": "...", "unix_ms": ...}` matching the
+  host UTC clock to the second; `_meta.execution`: status `success`, exit 0,
+  fuel 22,841 / 2,000,000, wasmtime 47.0.1.
 
 ## Comparison: naive MCP tool vs. Ephemora Cell tool
 

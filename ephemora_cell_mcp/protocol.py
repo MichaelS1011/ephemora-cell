@@ -11,6 +11,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+# Package version as the server version — single source of truth lives in
+# _version.py (re-exported here for server.py; unused within this module).
+from ._version import __version__ as SERVER_VERSION  # noqa: F401
+
 JSONRPC_VERSION = "2.0"
 
 # MCP protocol version(s) this server implements. The newest is the
@@ -19,7 +23,6 @@ MCP_PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 
 SERVER_NAME = "ephemora-cell-mcp"
-SERVER_VERSION = "0.1.0"
 
 # JSON-RPC 2.0 error codes (section 5.1).
 PARSE_ERROR = -32700
@@ -63,10 +66,7 @@ def parse_line(line: str) -> dict[str, Any] | None:
         if not (
             id_value is None
             or isinstance(id_value, str)
-            or (
-                isinstance(id_value, (int, float))
-                and not isinstance(id_value, bool)
-            )
+            or (isinstance(id_value, (int, float)) and not isinstance(id_value, bool))
         ):
             raise InvalidRequest("id must be a string, number, or null")
     return message

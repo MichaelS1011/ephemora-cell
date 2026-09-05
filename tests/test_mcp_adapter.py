@@ -75,7 +75,7 @@ def test_initialize_handshake(server_with):
     assert response["result"]["protocolVersion"] == "2025-06-18"
     assert response["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert response["result"]["serverInfo"]["name"] == "ephemora-cell-mcp"
-    assert response["result"]["serverInfo"]["version"] == "0.1.0"
+    assert response["result"]["serverInfo"]["version"] == "1.0.1"
 
 
 def test_initialized_notification_gets_no_response(server_with):
@@ -114,7 +114,7 @@ def test_tools_list_reports_registry(tmp_path, server_with):
     responses = _reply(server, transport)
 
     tools = responses[0]["result"]["tools"]
-    assert len(tools) == 1
+    assert len(tools) == 2  # registry tool + native get-policy
     assert tools[0]["name"] == "greeter"
     assert tools[0]["description"] == "Greets someone"
     assert tools[0]["inputSchema"]["properties"]["who"]["type"] == "string"
@@ -130,7 +130,7 @@ def test_tools_list_defaults_without_metadata(tmp_path, server_with):
     responses = _reply(server, transport)
 
     tools = responses[0]["result"]["tools"]
-    assert len(tools) == 1
+    assert len(tools) == 2  # registry tool + native get-policy
     assert tools[0]["name"] == "plain"
     assert tools[0]["description"] == "Executes plain"
     assert tools[0]["inputSchema"] == {"type": "object", "properties": {}}
@@ -386,7 +386,7 @@ def test_subprocess_stdio_cycle(tmp_path):
     by_id = {r["id"]: r for r in responses}
     assert by_id[1]["result"]["protocolVersion"] == "2025-06-18"
     tools = by_id[2]["result"]["tools"]
-    assert [t["name"] for t in tools] == ["echo"]
+    assert [t["name"] for t in tools] == ["clock", "echo", "get-policy"]
     echo_call = by_id[3]["result"]
     assert json.loads(echo_call["content"][0]["text"]) == {"echo": {"x": 42}}
     assert echo_call["_meta"]["execution"]["fuel_consumed"] > 0
@@ -409,7 +409,7 @@ def test_initialize_echoes_arbitrary_id(server_with):
 
 
 def test_bundled_package_has_version():
-    assert __version__ == "0.1.0"
+    assert __version__ == "1.0.1"
 
 
 class TestM4Hardening:
@@ -538,3 +538,88 @@ class TestM4Hardening:
         assert echo["protocolVersion"] == "2025-03-26"
         unknown = server._handle_initialize({"protocolVersion": "1999-01-01"})
         assert unknown["protocolVersion"] == "2025-06-18"
+
+
+# --- native meta tool: get-policy -------------------------------------
+
+
+def _call_get_policy(server_with, arguments):
+    request = {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "tools/call",
+        "params": {"name": "get-policy", "arguments": arguments},
+    }
+    server, transport = server_with(inbox=[request])
+    responses = _reply(server, transport)
+    assert len(responses) == 1
+    return responses[0]
+
+
+def test_tools_list_includes_native_get_policy(server_with):
+    """The native meta tool appears in tools/list after the registry tools."""
+    server, _ = server_with()
+    listing = server._handle_tools_list(None)
+    assert [t["name"] for t in listing["tools"]] == ["clock", "echo", "get-policy"]
+    native = listing["tools"][-1]
+    assert native["inputSchema"]["type"] == "object"
+
+
+def test_get_policy_single_tool(server_with):
+    """get-policy for one tool reports the effective profile limits."""
+    response = _call_get_policy(server_with, {"tool": "clock"})
+    assert "error" not in response
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["tool"] == "clock"
+    assert payload["profile"] == "llm"
+    assert payload["allow_dirs_configured"] == []
+    assert payload["network"].startswith("disabled")
+    baseline = payload["security_baseline"]
+    assert baseline["fuel"] == 2_000_000  # llm profile, matching execute()
+    assert baseline["memory_limit_bytes"] == 128 * 1024 * 1024
+    assert baseline["threads_enabled"] is False
+    assert baseline["wasmtime_version"]
+
+
+def test_get_policy_registry_wide(server_with):
+    """get-policy without arguments covers every registry tool."""
+    response = _call_get_policy(server_with, None)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["server"]["name"] == "ephemora-cell-mcp"
+    assert {t["name"] for t in payload["tools"]} == {"clock", "echo"}
+    for entry in payload["tools"]:
+        assert entry["security_baseline"]["fuel"] > 0
+        assert entry["security_baseline"]["threads_enabled"] is False
+    assert payload["native_tools"][0]["name"] == "get-policy"
+
+
+def test_get_policy_unknown_tool_is_invalid_params(server_with):
+    """Unknown tool names map to JSON-RPC -32602, consistent with tools/call."""
+    response = _call_get_policy(server_with, {"tool": "does-not-exist"})
+    assert response["error"]["code"] == -32602
+
+
+def test_get_policy_policy_matches_execution_baseline(server_with):
+    """The reported policy matches the baseline a real execution attests.
+
+    "Verified. Not claimed.": the same config path feeds both, and this
+    test pins it against a real WASM run of the bundled echo tool.
+    """
+    request_list = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "get-policy", "arguments": {"tool": "echo"}},
+    }
+    request_run = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "echo", "arguments": {"x": 1}},
+    }
+    server, transport = server_with(inbox=[request_list, request_run])
+    responses = _reply(server, transport)
+    policy = json.loads(responses[0]["result"]["content"][0]["text"])
+    executed = responses[1]["result"]["_meta"]["execution"]["security_baseline"]
+    for key in ("fuel", "memory_limit_bytes", "threads_enabled", "memory64"):
+        assert policy["security_baseline"][key] == executed[key]

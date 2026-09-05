@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-05
+
+Release metadata and MCP surface hardening. Repo-committed code is
+unchanged in behavior except where listed; PyPI publish pending token
+rotation (the 1.0.0 PyPI metadata publicly exposes a personal email that
+the repository itself no longer carries — this upload replaces it).
+
+### Added
+
+- **Bundled `clock` MCP tool** — second tool alongside `echo`, sourced in
+  `tools_src/clock` (dependency-free Rust, `wasm32-wasip1`): returns current
+  UTC time (ISO-8601 + Unix ms) from the WASI real-time clock only — no
+  filesystem, no network, no environment. Gives agent clients an immediately
+  useful capability the model itself lacks (current time), with every call
+  fuel-metered and reported via `_meta.execution`.
+- **Native `get-policy` meta tool** — read-only: reports the effective
+  sandbox policy per tool or for the whole registry (fuel budget, memory
+  limit, threads, preopens as configured, network policy, wasmtime
+  version), derived from the same `_config_for()` path execution uses, so
+  reported policy and enforced policy cannot drift. Capability changes
+  remain host decisions (ADR-006); policy reads are tools, policy writes
+  are not.
+- **`code --add-mcp` one-liner** for GitHub Copilot in VS Code (README +
+  docs/mcp.md VS Code section); bundled-tools line updated to `clock + echo`.
+- **Wassette row** in the MCP comparison latency table (qualitative, sourced,
+  not measured): same Wasmtime engine family, per-component permission grants,
+  OCI component distribution — with the Cell differentiators stated
+  (per-call fuel metering, execution witness, CI-verified SDK interop).
+- **ADR-006** (governed dynamic tool loading: request-file +
+  verify-before-register; no agent-callable permission grants) and
+  **ADR-007** (browser interaction is out of scope by design; mediated
+  capability via host sidecar) recorded as decision documents.
+- **Daily metrics snapshot workflow** (`metrics.yml` +
+  `scripts/metrics_snapshot.py`): PyPI downloads (pypistats, one call/day
+  per etiquette), GitHub stars/forks/traffic appended as JSONL to the
+  `metrics` branch. Public distribution channels only — no in-package
+  telemetry; Cell never phones home.
+- **MCP SDK interop CI gate** (`mcp-sdk-interop` job): the shipped stdio
+  server is verified in CI against the official MCP Python SDK 2.0 —
+  initialize, `tools/list`, and a real `tools/call` with execution
+  `_meta` (`integration/test_mcp_sdk_client.py`, new `integration` extra).
+
+### Changed
+
+- **Release metadata**: version 1.0.0 → 1.0.1 (`ephemora_cell`,
+  `ephemora_cell_mcp` — the MCP server version now shares the package
+  version via `ephemora_cell_mcp/_version.py`), classifier
+  "Development Status :: 4 - Beta" → "5 - Production/Stable", README
+  status badge → stable, plus PyPI downloads and stars badges. The git
+  identity for project commits is now the GitHub noreply address.
+
 ### Test coverage
 
 - Statement coverage 74% → 85% measured over `ephemora_cell` +

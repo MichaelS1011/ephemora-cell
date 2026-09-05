@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ephemora-cell"
-version = "1.0.0"
+version = "1.0.1"
 description = "Ephemora Cell — The execution layer for untrusted AI-generated code. Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits."
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -15,7 +15,7 @@ requires-python = ">=3.10"
 dependencies = ["wasmtime>=36.0.12,<48"]
 
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
@@ -35,6 +35,9 @@ Issues = "https://github.com/MichaelS1011/ephemora-cell/issues"
 [project.optional-dependencies]
 # pytest<9 keeps Python 3.11 support until CI moves off it.
 dev = ["pytest<9", "pytest-cov", "black>=24", "ruff>=0.5", "bandit>=1.7"]
+# Official MCP Python SDK — pulls pydantic/uvicorn, so it is kept out of the
+# core `dev` extra and `testpaths` and run only as an explicit interop gate.
+integration = ["mcp"]
 
 [project.scripts]
 ephemora-cell = "ephemora_cell.cli:main"

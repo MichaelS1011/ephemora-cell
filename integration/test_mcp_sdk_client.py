@@ -13,6 +13,7 @@ Run with a venv that has `pip install mcp`:
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -20,14 +21,32 @@ import pytest
 
 mcp = pytest.importorskip("mcp")
 
+REPO = Path(__file__).resolve().parent.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
 from mcp import ClientSession, StdioServerParameters  # noqa: E402
 from mcp.client.stdio import stdio_client  # noqa: E402
 
-REPO = Path(__file__).resolve().parent.parent
-SERVER = REPO / ".venv" / "bin" / "ephemora-cell-mcp"
+from ephemora_cell_mcp import __version__  # noqa: E402
+
+# Resolve the installed entry point portably: CI installs into the active
+# env's bin (on PATH); a local dev checkout has it under .venv/bin. Skip
+# cleanly only when neither exists — never green-by-skip when it is runnable.
+_candidates = [
+    shutil.which("ephemora-cell-mcp"),
+    REPO / ".venv" / "bin" / "ephemora-cell-mcp",
+]
+SERVER = next(
+    (Path(c) for c in _candidates if c and Path(c).exists() and os.access(c, os.X_OK)),
+    _candidates[-1],
+)
 
 
-@pytest.mark.skipif(not (SERVER.exists() and os.access(SERVER, os.X_OK)), reason="ephemora-cell-mcp entry point not found")
+@pytest.mark.skipif(
+    not (SERVER.exists() and os.access(SERVER, os.X_OK)),
+    reason="ephemora-cell-mcp entry point not found",
+)
 def test_official_sdk_interop() -> None:
     import asyncio
 
@@ -47,8 +66,8 @@ def test_official_sdk_interop() -> None:
                 )
 
     name, names, text, exec_meta = asyncio.run(run())
-    assert name == "ephemora-cell-mcp 0.1.0"
-    assert names == ["echo"]
+    assert name == f"ephemora-cell-mcp {__version__}"
+    assert names == ["clock", "echo", "get-policy"]
     assert '"greeting": "sdk"' in text
     assert exec_meta["status"] == "success"
     assert isinstance(exec_meta["fuel"], int) and exec_meta["fuel"] > 0

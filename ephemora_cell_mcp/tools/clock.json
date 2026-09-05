@@ -1,0 +1,11 @@
+{
+  "name": "clock",
+  "description": "Returns the current UTC time (ISO-8601 with milliseconds) and the Unix epoch in milliseconds. Reads only the WASI real-time clock inside the sandbox - no filesystem, no network, no environment access; the call is fuel-metered and reported via _meta.execution.",
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": true
+  },
+  "profile": "llm",
+  "allow_dirs": []
+}

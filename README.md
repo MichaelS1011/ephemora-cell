@@ -17,7 +17,13 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
     <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell">
-    <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status">
+    <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status">
+  </a>
+  <a href="https://pypistats.org/packages/ephemora-cell">
+    <img src="https://img.shields.io/pypi/dm/ephemora-cell" alt="PyPI downloads">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers">
+    <img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell?style=flat" alt="GitHub stars">
   </a>
 </p>
 
@@ -182,8 +188,13 @@ Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modu
 
 ```bash
 pip install ephemora-cell
-ephemora-cell-mcp          # bundled echo tool included; register your own: --tools-dir ./tools
+ephemora-cell-mcp          # bundled tools: clock + echo; register your own: --tools-dir ./tools
+
+# One-line setup for GitHub Copilot in VS Code:
+code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
 ```
+
+Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock, fuel-metered, no filesystem, no network — and every call carries an execution report (`_meta.execution`) as an audit witness. Per-client setup (Claude Desktop, VS Code, Codex, OpenCode, Hermes) is documented in [docs/mcp.md](docs/mcp.md).
 
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 

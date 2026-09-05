@@ -1,0 +1,13 @@
+[package]
+name = "clock"
+version = "0.1.0"
+edition = "2021"
+
+# Dependency-free on purpose: no crates.io fetch required at build time.
+# Time comes from std::time::SystemTime, which maps to the WASI real-time
+# clock on wasm32-wasip1. ISO-8601 formatting is hand-rolled (civil-from-days).
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
