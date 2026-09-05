@@ -1,4 +1,4 @@
-"""Ephemora Cell Security vs Docker — messbare Security-Vergleich."""
+"""Ephemora Cell security vs Docker - a measurable security comparison."""
 
 import json
 import os

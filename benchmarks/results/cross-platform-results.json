@@ -1,5 +1,5 @@
 {
-  "title": "D13 — Cross-Platform Verification: M11-Harness + Testsuite auf DGX Spark (Grace arm64)",
+  "title": "Cross-platform verification: escape-bench harness + test suite on DGX Spark (Grace arm64)",
   "date": "2026-08-20",
   "method": "PDCA",
   "machines": {
@@ -33,22 +33,23 @@
       "skipped": 1,
       "duration_s": 27.77,
       "skip_reasons": [
-        "tests/test_security.py:439 — Only meaningful where /tmp is a symlink into /private (macOS-spezifischer Symlink-Test; auf Linux korrekt nicht anwendbar)"
+        "tests/test_security.py:439 - only meaningful where /tmp is a symlink into /private (macOS-specific symlink test; correctly not applicable on Linux)"
       ],
       "initial_failure_artifact": {
         "test": "test_subprocess_stdio_cycle",
-        "cause": "fsprobe.wasm+fsprobe.json aus A1-CVE-PoC lagen noch in ephemora_cell_mcp/tools/ auf der DGX (Test-Umgebungs-Verschmutzung, kein Code-Defekt)",
+        "cause": "fsprobe.wasm+fsprobe.json from the A1-CVE PoC were still sitting in ephemora_cell_mcp/tools/ on the DGX (test-environment contamination, no code defect)",
         "action": "Test-Artefakte entfernt; Suite danach 271 passed / 0 failed"
       }
     },
-    "conclusion": "Identische Testsuite auf beiden Plattformen gruen. Differenz: 1 plattform-spezifischer Skip (kein Defekt). Verifiziert: 'Verified. Not claimed.'"
+    "conclusion": "Identical test suite green on both platforms. Difference: 1 platform-specific skip (no defect). Verified: 'Verified. Not claimed.'"
   },
-  "m11_harness": {
+  "footnote": "Escape-bench harness: block_rate alone is misleading; block_rate + attempt_rate are ALWAYS reported together. The control group shows: Docker alone does not block this escape class.",
+  "harness_notes": {
     "location_dgx": "/tmp/m11-harness",
     "stdlib_only": true,
     "path_patches": [
-      "Hardcodierte /Users/mimiai/...-Pfade auf /tmp/m11-harness umgeschrieben",
-      "scenarios/ von sandbox_escape_bench/ gesynct"
+      "Hardcoded home-dir paths (under the local user's home) rewritten to a /tmp harness directory",
+      "scenarios/ synced from sandbox_escape_bench/"
     ],
     "verify_runner": "6/6 Tests OK (Pair-Run, Co-Reporting, Escape-Vectors, JSON-Speicherung)",
     "verify_verifier": "9/9 Verifikationsschritte OK",
@@ -77,6 +78,5 @@
       },
       "ephemora_contribution": 1.0
     }
-  },
-  "footnote": "M11-Harness: block_rate allein ist irrefuehrend; block_rate + attempt_rate werden IMMER zusammen berichtet. Control-Gruppe zeigt: Docker allein blockiert diesen Escape-Vektor NICHT. Experimental-Gruppe zeigt: Docker + Ephemora blockiert zuverlaessig."
+  }
 }

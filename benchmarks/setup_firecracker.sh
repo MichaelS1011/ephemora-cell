@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup_firecracker.sh — PDCA Do: Firecracker vs Cell
-# Lädt Firecracker v1.11.0 + Kernel + Rootfs, prüft KVM, pinnt Versionen
+# Downloads Firecracker v1.11.0 + kernel + rootfs, checks KVM, pins versions
 # Auf Mac M5: erwartet FAIL (kein /dev/kvm) — dann Fallback Literaturwert
 set -euo pipefail
 
@@ -23,7 +23,7 @@ if [[ ! -e /dev/kvm ]]; then
 fi
 
 if [[ $EUID -ne 0 ]]; then
-  echo "WARN: Nicht root — Firecracker braucht root für KVM, versuche ohne jailer"
+  echo "WARN: not root - Firecracker needs root for KVM, trying without the jailer"
 fi
 
 TMPDIR="${TMPDIR:-/tmp}/firecracker-setup"
@@ -38,7 +38,7 @@ if ! command -v firecracker &>/dev/null; then
   echo "Tar Inhalt:"
   tar -tzf firecracker.tar.gz | head -20 || true
   ls -R 2>&1 | head -30 || true
-  # Robust: finde firecracker Binary, egal ob release-v1.11.0-x86_64/firecracker-... oder ähnlich
+  # Robust: locate the firecracker binary whether release-v1.11.0-x86_64/firecracker-... or similar
   FC_BIN=$(find . -name "firecracker*" -type f | head -1)
   echo "Gefunden: $FC_BIN"
   if [[ -n "$FC_BIN" ]]; then
@@ -58,7 +58,7 @@ else
   echo "Firecracker vorhanden: $(firecracker --version 2>&1 | head -1)"
 fi
 
-# Kernel + Rootfs (minimal, für Boot-Messung)
+# Kernel + rootfs (minimal, for the boot measurement)
 if [[ ! -f vmlinux ]]; then
   echo "Lade Kernel..."
   curl -L -o vmlinux "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin" 2>&1 | tail -1 || echo "Kernel Download SKIP (offline)"

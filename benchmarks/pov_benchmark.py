@@ -3,7 +3,7 @@
 Benchmarks:
   1. Cold Start (300 Runs, hello.wasm)
   2. Warm Start (300 Runs, cached engine)
-  3. Block Rate (arXiv 2509.11242: 11 Attack-Vektoren × 10 Runs)
+  3. Block Rate (arXiv 2509.11242: 11 attack vectors x 10 runs)
   4. Fuel-vs-I/O Gap (empirical measurement)
   5. Memory Exhaustion Rate (memory.grow per second)
   6. Throughput (simple add: ops/sec)

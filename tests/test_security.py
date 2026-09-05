@@ -4,7 +4,7 @@ Phase 4: Ephemora Cell Sandbox Security Tests
 Offensive security tests — each test simulates a real attack vector
 against the WASM sandbox and verifies the defense holds.
 
-Rollen: Penetration Tester (Attack) + Senior SecOps Engineer (Verify)
+Roles: penetration tester (attack) + senior SecOps engineer (verify)
 """
 
 from __future__ import annotations
@@ -70,11 +70,11 @@ def wasm_file(tmp_path, wat_payloads, request):
 
 
 # === Attack Payloads (Penetration Tester) ===
-# Jeder Payload ist ein kompilierbares WAT-Modul das eine spezifische Attack simuliert.
-# Kompilierung: wasmtime.wat2wasm(PAYLOAD_WAT) → bytes
+# Every payload is a compilable WAT module simulating one specific attack.
+# Compilation: wasmtime.wat2wasm(PAYLOAD_WAT) → bytes
 
 
-# 4.1 CPU-DoS: Unendliche Sprung-Schleife (br $l) — testet Fuel-Limit
+# 4.1 CPU-DoS: infinite jump loop (br $l) — exercises the fuel limit
 CPU_DOS_WAT = """
 (module
   (func (export "_start")
@@ -100,10 +100,10 @@ MEMORY_EXHAUST_WAT = """
 )
 """
 
-# 4.6 Timeout: identisch zu CPU_DOS_WAT — wird mit max_fuel=None getestet
+# 4.6 Timeout: identical to CPU_DOS_WAT — exercised via max_fuel=None
 TIMEOUT_WAT = CPU_DOS_WAT  # Dedup: identical payload, different purpose (timeout test)
 
-# 4.7 Preopen Default-Deny: Versuch, Datei ohne preopened dirs zu oeffnen.
+# 4.7 Preopen default-deny: attempt to open a file without preopened dirs.
 # path_open Signatur (WASI Preview1):
 #   param[0] dirfd:     fd of the parent directory (0 = AT_FDCWD via wasmtime)
 #   param[1] path_name: pointer to the filename string in linear memory
@@ -125,7 +125,7 @@ PATH_OPEN_WAT = """
   (data (i32.const 0) "/tmp/test\\00000000000000")  ;; path string at offset 0
   (func (export "_start")
     ;; path_open(dirfd=0, path="/tmp/test", len=9, ...)
-    ;; Ohne preopened dirs MUSS dies mit ENOTCAPABLE (63) fehlschlagen
+    ;; Without preopened dirs this MUST fail with ENOTCAPABLE (63)
     i32.const 0      ;; dirfd
     i32.const 0      ;; path_name pointer
     i32.const 9      ;; path_name_len
@@ -142,7 +142,7 @@ PATH_OPEN_WAT = """
 )
 """
 
-# 4.8 Stdout Flood: 1000x fd_write(32 bytes) = ~32KB — testet 10KB Output-Limit
+# 4.8 Stdout Flood: 1000x fd_write(32 bytes) = ~32KB — exercises the 10 KB output limit
 STDOUT_FLOOD_WAT = """
 (module
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write
@@ -179,7 +179,7 @@ STDOUT_FLOOD_WAT = """
 )
 """
 
-# 4.9 fsync Import Block: Module importiert fd_psync — muss auf Import-Ebene blockiert werden
+# 4.9 fsync import block: module imports fd_psync — must be blocked at the import layer
 FSYNC_IMPORT_WAT = """
 (module
   (import "wasi_snapshot_preview1" "fd_psync" (func $fd_psync
@@ -197,7 +197,8 @@ FSYNC_IMPORT_WAT = """
 """
 
 # 4.5 I/O DoS: 50000x fd_write(32 bytes) — exploits the fuel-vs-I/O gap
-# With 1M fuel budget and ~29 fuel/write: ~34477 writes possible = ~1.1MB
+# With 1M fuel budget and ~29 fuel/write (test-local approximation of the
+# measured 27/write stdout path): ~34477 writes possible = ~1.1MB
 WRITE_FLOOD_WAT = """
 (module
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write
@@ -308,8 +309,8 @@ class TestSecurity4_2_Memory_Exhaustion:
 class TestSecurity4_3_Path_Traversal:
     """4.3: Symlink escape via allow_dirs — MUST NOT follow symlinks outside sandbox."""
 
-    # WASM: Versucht, eine Datei via symlink im preopened Dir zu oeffnen und zu lesen.
-    # path_open(dirfd=3, "/escape_link", flags=0, ...) -> sollte blockieren.
+    # WASM: tries to open and read a file via a symlink inside the preopened dir.
+    # path_open(dirfd=3, "/escape_link", flags=0, ...) -> must be blocked.
     SYMLINK_ESCAPE_WAT = """
     (module
       (import "wasi_snapshot_preview1" "path_open" (func $path_open
@@ -320,7 +321,7 @@ class TestSecurity4_3_Path_Traversal:
         (param i32) (result i32)))
       (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
       (memory (export "memory") 2)
-      ;; "/escape_link\\0" — der Symlink-Name im preopened Dir
+      ;; "/escape_link\\0" — the symlink name inside the preopened dir
       (data (i32.const 0) "/escape_link\\0000000000000000")
       (func (export "_start")
         (local $fd i32)
@@ -337,16 +338,16 @@ class TestSecurity4_3_Path_Traversal:
         i32.const 0
         call $path_open
         local.set $fd
-        ;; Wenn fd < 0 (als unsigned: sehr gross), dann blockiert -> Test bestanden
+        ;; If fd < 0 (as unsigned: very large), it was blocked -> test passed
         local.get $fd
         i32.const 1000
         i32.gt_u
         if
-          ;; Fehler-Code -> Symlink-Escape blockiert (gut)
+          ;; error code -> symlink escape blocked (good)
           i32.const 0
           call $proc_exit
         end
-        ;; Falls doch geoeffnet: lese Inhalt und exit 1 (schlecht)
+        ;; If it did open: read contents and exit 1 (bad)
         local.get $fd
         call $fd_close
         i32.const 1
@@ -363,7 +364,7 @@ class TestSecurity4_3_Path_Traversal:
         return safe_dir
 
     def test_symlink_not_followed_via_wasm(self):
-        """Echtes WASM versucht, Symlink zu lesen — muss blockieren."""
+        """Real WASM tries to read through a symlink — must be blocked."""
         # Setup: safe dir with a symlink to /tmp (outside the sandbox)
         safe_dir = self._make_safe_dir()
         target = Path("/tmp")
@@ -373,15 +374,15 @@ class TestSecurity4_3_Path_Traversal:
         except OSError:
             pytest.skip("Symlinks not supported on this platform")
 
-        # Schreibe eine Testdatei in das safe Dir (damit es nicht leer ist)
+        # Write a test file into the safe dir (so it is not empty)
         (safe_dir / "allowed.txt").write_text("this is allowed")
 
-        # Kompiliere Attack-Payload
+        # Compile the attack payload
         wasm_bytes = wasmtime.wat2wasm(self.SYMLINK_ESCAPE_WAT)
         wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "symlink.wasm"
         wasm_path.write_bytes(wasm_bytes)
 
-        # Fuehre mit allow_dirs=safe_dir aus
+        # Run with allow_dirs=safe_dir
         config = WASIConfig(
             allow_dirs=(str(safe_dir),),
             max_fuel=1_000_000,
@@ -391,14 +392,14 @@ class TestSecurity4_3_Path_Traversal:
         sandbox.cleanup()
         shutil.rmtree(safe_dir, ignore_errors=True)
 
-        # Defense holds: path_open auf den Symlink muss fehlschlagen
-        # Der Module exitet mit 0 wenn blockiert, 1 wenn escape erfolgreich
+        # Defense holds: path_open on the symlink must fail
+        # The module exits 0 when blocked, 1 when the escape succeeded
         if result.status == ExecutionStatus.SUCCESS:
             assert (
                 result.exit_code == 0
             ), "Symlink escape SUCCESSFUL — guest read outside sandbox!"
         else:
-            # Trap/ERROR ist auch akzeptabel (Symlink garnicht auffindbar)
+            # Trap/ERROR is also acceptable (symlink not found at all)
             assert result.status in (
                 ExecutionStatus.ERROR,
                 ExecutionStatus.FUEL_EXHAUSTED,
@@ -495,7 +496,7 @@ class TestSecurity4_3_Path_Traversal:
         assert written, "positive control file was not written correctly"
 
     def test_symlink_dir_not_in_dangerous_filter(self):
-        """Ein safe Dir (nicht unter /private) bleibt im Allowlist-Filter."""
+        """A safe dir (not under /private) stays in the allowlist filter."""
         safe_dir = self._make_safe_dir()
         try:
             safe = WASISandbox()._filter_dangerous_dirs((str(safe_dir),))
@@ -608,7 +609,7 @@ class TestSecurity4_6_Timeout_Enforcement:
 
         result = sandbox.run(str(wasm_path))
 
-        # Das Modul DARF NICHT SUCCESS sein — kein unendlicher Loop ohne Grenzen
+        # The module MUST NOT be SUCCESS — no unbounded loop without limits
         assert (
             result.status != ExecutionStatus.SUCCESS
         ), "CRITICAL: Infinite loop with no fuel and no timeout returned SUCCESS!"
@@ -618,7 +619,7 @@ class TestSecurity4_6_Timeout_Enforcement:
         ), f"HANG: Execution took {result.elapsed_ms:.0f}ms — sandbox did not stop loop"
 
     def test_defense_in_depth_short_timeout_stops_loop(self):
-        """Defense-in-Depth: timeout_seconds=1 muss infinite Loop in ~1s stoppen."""
+        """Defense-in-Depth: timeout_seconds=1 must stop an infinite loop in ~1s."""
         config = WASIConfig(max_fuel=None, timeout_seconds=1)
         sandbox = WASISandbox(config=config)
 
@@ -642,7 +643,7 @@ class TestSecurity4_7_Preopen_Default_Deny:
     """4.7: Default deny — no preopened dirs means NO file access."""
 
     def test_no_preopen_blocks_path_open(self):
-        """NEGATIV: Mit leeren allow_dirs darf path_open nicht gelingen."""
+        """NEGATIVE: with empty allow_dirs, path_open must not succeed."""
         config = WASIConfig(max_fuel=1_000_000)  # No allow_dirs
         sandbox = WASISandbox(config=config)
 
@@ -652,7 +653,7 @@ class TestSecurity4_7_Preopen_Default_Deny:
 
         result = sandbox.run(str(wasm_path))
 
-        # Der Module crashen oder exiten mit Error — kein SUCCESS
+        # The module crashes or exits with an error — never SUCCESS
         assert result.status in (
             ExecutionStatus.ERROR,
             ExecutionStatus.FUEL_EXHAUSTED,
@@ -662,20 +663,20 @@ class TestSecurity4_7_Preopen_Default_Deny:
         )
 
     def test_default_deny_no_allow_dirs_config(self):
-        """POSITIV: Standard-Config hat tatsaechlich 0 preopened dirs (ausser /sandbox)."""
-        """Prueft die Konfig-Ebene — kein WASM-Test, sondern Konfig-Verifikation."""
+        """POSITIVE: the default config really has 0 preopened dirs (except /sandbox)."""
+        """Checks the config layer — not a WASM test, a config verification."""
         config = WASIConfig()  # Default: allow_dirs=()
-        assert config.allow_dirs == (), "Default allow_dirs muss leer sein"
+        assert config.allow_dirs == (), "Default allow_dirs must be empty"
 
         sandbox = WASISandbox(config=config)
         safe_dirs = sandbox._filter_dangerous_dirs(config.allow_dirs)
-        assert safe_dirs == (), "Leere allow_dirs ergeben 0 safe dirs"
+        assert safe_dirs == (), "Empty allow_dirs yield 0 safe dirs"
 
     def test_only_sandbox_dir_is_preopened(self):
-        """POSITIV: Nach run() existiert /sandbox als einziger preopened Zugriffspunkt."""
-        """Ein minimales WASM das nur exitet — ohne allow_dirs MUSS es laufen koennen."""
-        # Das Module darf ohne preopened dirs funktionieren (solange es keine
-        # Datei-Operationen macht — /sandbox ist immer preopened fuer stdout/stderr)
+        """POSITIVE: after run() /sandbox exists as the only preopened access point."""
+        """A minimal WASM that only exits — without allow_dirs it MUST still run."""
+        # The module must work without preopened dirs (as long as it performs no
+        # file operations — /sandbox is always preopened for stdout/stderr)
         minimal_exit_wat = """
         (module
           (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
@@ -690,12 +691,12 @@ class TestSecurity4_7_Preopen_Default_Deny:
         wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "minimal.wasm"
         wasm_path.write_bytes(wasm_bytes)
 
-        config = WASIConfig(max_fuel=1_000_000)  # Keine allow_dirs
+        config = WASIConfig(max_fuel=1_000_000)  # No allow_dirs
         sandbox = WASISandbox(config=config)
         result = sandbox.run(str(wasm_path))
 
-        # proc_exit wirft einen Trap — bei exit 0 wird das als ERROR mit exit_code=0 gemeldet
-        # (Das ist korrekt — WASI proc_exit ist kein cleaner _start return.)
+        # proc_exit raises a trap — exit 0 is reported as ERROR with exit_code=0
+        # (that is correct — WASI proc_exit is not a clean _start return.)
         assert result.status in (
             ExecutionStatus.SUCCESS,
             ExecutionStatus.ERROR,
@@ -848,7 +849,7 @@ class TestSecurityBaselineFingerprint:
         assert baseline["fuel"] == 500_000
         assert baseline["threads_enabled"] is False
         assert baseline["memory64"] is False
-        # S2: without a live run result no grant is claimed — configured
+        # Without a live run result no grant is claimed — configured
         # dirs are reported as configured, /sandbox is NOT attested.
         assert baseline["preopens"] == ["/data"]
         report.apply_config(config, effective_preopens=("/data", "/sandbox"))
@@ -865,7 +866,7 @@ class TestSecurityBoundary:
     """Boundary conditions — extreme config values must not crash the sandbox."""
 
     def test_zero_fuel_fails_immediately(self):
-        """max_fuel=0: jedes WASM muss sofort fuel_exhausted werfen."""
+        """max_fuel=0: every WASM must fail fuel_exhausted immediately."""
         minimal_wat = """
         (module
           (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
@@ -892,7 +893,7 @@ class TestSecurityBoundary:
         assert result.elapsed_ms < 100, "Zero fuel should fail instantly"
 
     def test_zero_memory_still_works_for_minimal(self):
-        """max_memory_mb=0: Module ohne Memory sollte laufen koennen."""
+        """max_memory_mb=0: a module without memory should still run."""
         no_mem_wat = """
         (module
           (func (export "_start"))
@@ -913,7 +914,7 @@ class TestSecurityBoundary:
         ), f"max_memory_mb=0 blocked minimal WASM: {result.stderr[:200]}"
 
     def test_zero_timeout_stops_infinite_loop(self):
-        """timeout_seconds=0: infinite Loop muss sofort gestoppt werden."""
+        """timeout_seconds=0: an infinite loop must be stopped immediately."""
         config = WASIConfig(max_fuel=None, timeout_seconds=0)
         sandbox = WASISandbox(config=config)
 
@@ -932,7 +933,7 @@ class TestSecurityBoundary:
         assert result.elapsed_ms < 100, "Zero timeout should stop instantly"
 
     def test_wasm_threads_disabled(self):
-        """P1#11: wasm_threads=False muss shared_memory Module blockieren."""
+        """wasm_threads=False must block shared-memory modules."""
         # WASM mit shared memory (require threads capability)
         shared_mem_wat = """
         (module
@@ -953,7 +954,7 @@ class TestSecurityBoundary:
         sandbox = WASISandbox()
         result = sandbox.run(str(wasm_path))
 
-        # shared memory Module muss abgelehnt werden (wasm_threads=False)
+        # shared-memory modules must be rejected (wasm_threads=False)
         assert (
             result.status == ExecutionStatus.ERROR
         ), f"Shared memory WASM not blocked with wasm_threads=False: {result.status}"

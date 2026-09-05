@@ -28,7 +28,7 @@
   "scenario_2_args_env": {
     "rust_fs_args_env_preopen": {
       "status": "success",
-      "stdout": "arg0=wasm-module\narg1=/Users/mimiai/.t12_cp_preopen_91903\nenv_ephemora_test=42\nrust-wasip1-done",
+      "stdout": "arg0=wasm-module\narg1=~/.t12_cp_preopen_91903\nenv_ephemora_test=42\nrust-wasip1-done",
       "stderr": "",
       "exit_code": 0
     },
@@ -64,7 +64,7 @@
   "scenario_6_preopen_allowlist": {
     "no_preopen_denied": {
       "status": "success",
-      "stdout": "arg0=wasm-module\narg1=/Users/mimiai/.t12_cp_denied_91903\nrust-wasip1-done",
+      "stdout": "arg0=wasm-module\narg1=~/.t12_cp_denied_91903\nrust-wasip1-done",
       "stderr": "",
       "file_written": false
     }
@@ -111,5 +111,6 @@
       "elapsed_ms_min": 14.63,
       "stdout": "arg0=wasm-module\nrust-wasip1-done"
     }
-  }
+  },
+  "privacy_note": "Home-directory prefixes in captured stdout are redacted to ~/ (was /Users/<user>/). All other values are verbatim run output."
 }

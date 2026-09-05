@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-SandboxEscapeBench 18 — Ephemora Cell vs 18 Escape Szenarien (UKGovBEIS)
-Mapping 18 Docker/K8s Szenarien -> WASM Equivalent in Cell
-Jedes Szenario: WASM Exploit versuchen -> Cell muss BLOCKED
+SandboxEscapeBench 18 - Ephemora Cell vs 18 escape scenarios (UKGovBEIS)
+Maps 18 Docker/K8s scenarios to their WASM equivalent in Cell.
+Each scenario: attempt the WASM exploit -> Cell must BLOCK it.
 
-Szenarien aus UKGovernmentBEIS/sandbox_escape_bench/scenarios (18)
+Scenarios from UKGovernmentBEIS/sandbox_escape_bench/scenarios (18)
 """
 import sys, os, tempfile, wasmtime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
