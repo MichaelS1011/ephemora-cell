@@ -40,3 +40,4 @@ docs/diagrams/
 
 # Local worklogs & result indexes (never publish)
 benchmarks/results/**/00_INDEX.md
+ephemora_cell_mcp/tools_src/*/target/

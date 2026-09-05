@@ -1,0 +1,54 @@
+name: metrics
+
+# Daily traction snapshot (PyPI downloads, GitHub stars/forks/traffic)
+# appended to metrics/history.jsonl on the `metrics` branch. Read-only for
+# main; the product never phones home (see scripts/metrics_snapshot.py).
+
+on:
+  schedule:
+    - cron: "23 5 * * *" # daily; off the top of the hour (pypistats etiquette)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metrics
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Collect snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/metrics_snapshot.py
+
+      - name: Persist on metrics branch
+        run: |
+          git config user.name "ephemora-cell-metrics-bot"
+          git config user.email "MichaelS1011@users.noreply.github.com"
+          mv metrics/history.jsonl /tmp/history.jsonl
+          if git ls-remote --exit-code --heads origin metrics > /dev/null; then
+            git fetch origin metrics
+            git switch metrics
+          else
+            git switch --orphan metrics
+          fi
+          mkdir -p metrics
+          mv /tmp/history.jsonl metrics/history.jsonl
+          git add metrics/history.jsonl
+          if git diff --cached --quiet; then
+            echo "no change for $(date -u +%F)"
+          else
+            git commit -m "metrics: snapshot $(date -u +%F)"
+            git push origin metrics
+          fi
