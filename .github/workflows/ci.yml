@@ -194,4 +194,7 @@ jobs:
           python -m pip install pytest -e ".[integration]"
 
       - name: Official MCP SDK interop
-        run: python -m pytest integration/test_mcp_sdk_client.py -v --tb=short
+        # -o addopts= drops the project-wide coverage addopts: this job
+        # installs pytest without pytest-cov on purpose (interop, not
+        # coverage — the test jobs own that).
+        run: python -m pytest integration/test_mcp_sdk_client.py -v --tb=short -o addopts=""
