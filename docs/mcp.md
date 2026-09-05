@@ -109,6 +109,50 @@ Every `tools/call` result embeds the Cell's `ExecutionReport` under
 auditable execution witness — signed execution records (SEP-2787 style, via
 `ExecutionReport.sign()`) are a drop-in next step.
 
+### `get-policy` — the agent can read its sandbox policy, not rewrite it
+
+A native (host-implemented) meta tool, listed in `tools/list` alongside the
+WASM tools and dispatched without running a module. Policy reads are tools;
+policy writes are host decisions (ADR-006) — there is deliberately no
+agent-callable permission grant. The payload is derived from the same
+`_config_for()` code path `tools/call` uses, so the reported policy and the
+enforced policy cannot drift:
+
+```json
+{"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+ "params": {"name": "get-policy", "arguments": {"tool": "clock"}}}
+```
+
+```json
+{
+  "name": "clock",
+  "profile": "llm",
+  "allow_dirs_configured": [],
+  "network": "disabled - the WASI surface exposes no socket APIs; egress only via a host-side mediator (ADR-002)",
+  "security_baseline": {
+    "wasmtime_version": "47.0.1",
+    "memory_limit_bytes": 134217728,
+    "fuel": 2000000,
+    "threads_enabled": false,
+    "memory64": false,
+    "multi_memory": false,
+    "preopens": [],
+    "gc_heap_mb": null
+  },
+  "tool": "clock"
+}
+```
+
+(Capture from a live call on 2026-09-05; only whitespace is prettified.)
+
+`preopens` here reports CONFIGURED grants — no live run has attested more
+than that. The per-call attested grants come from
+`_meta.execution.security_baseline.preopens`: a preview1 execution
+additionally attests `/sandbox` (the guest scratch directory) even when no
+other directory is configured. The executed baseline is the authoritative
+record. Without arguments, `get-policy` returns this entry for every
+registry tool plus the server identity and the native tool list.
+
 ## The stdin/stdout contract for tool authors
 
 A WASM MCP tool is a plain WASI module (wasm32-wasip1 or WASI 0.2

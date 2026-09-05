@@ -186,6 +186,8 @@ Also documented: serverless/edge workloads, air-gapped validation, WASI 0.2 comp
 
 Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signed execution records:
 
+**Every tool call answers three questions at once: what was returned, what it cost (fuel, milliseconds), and under which sandbox rules it ran** (memory limit, preopens, `wasmtime_version`) — attached to every response as `_meta.execution`. "Verified. Not claimed." is a data field, not a slogan.
+
 ```bash
 pip install ephemora-cell
 ephemora-cell-mcp          # bundled tools: clock + echo; register your own: --tools-dir ./tools
@@ -194,7 +196,13 @@ ephemora-cell-mcp          # bundled tools: clock + echo; register your own: --t
 code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
 ```
 
-Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock, fuel-metered, no filesystem, no network — and every call carries an execution report (`_meta.execution`) as an audit witness. Per-client setup (Claude Desktop, VS Code, Codex, OpenCode, Hermes) is documented in [docs/mcp.md](docs/mcp.md).
+Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
+
+Three things most MCP tool servers don't give you:
+
+- **Isolation you can inspect.** The native `get-policy` tool returns the effective sandbox policy per tool — fuel budget, memory limit, preopens, network policy — computed from the same code path that enforces it, so the report and the enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and the WASI surface does not even expose sockets to try.
+- **Compatibility proven, not assumed.** The shipped server is verified in CI against the official MCP Python SDK on every push (`initialize`, `tools/list`, a real `tools/call` with execution `_meta`), with per-client setup documented for Claude Desktop, VS Code, Codex, OpenCode, and Hermes.
+- **Isolation priced for every call.** ~0.89 ms per warm tool call (measured; [comparison](docs/comparison-mcp-servers.md)) — sandboxing *every* call becomes the default, not a trade-off.
 
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 
@@ -241,7 +249,7 @@ That makes execution suitable for auditing, policy enforcement, and resource acc
 
 ## Testing & Verification
 
-379 tests · 85% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+386 tests · 85% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 
