@@ -448,7 +448,7 @@ verified against webassembly.org, the W3C track, the spec repo, and wasmtime
 
 | Wasm feature | Engine default in 47 | Ephemora Cell | Verifiable at |
 |--------------|----------------------|---------------|---------------|
-| WasmGC (`wasm_gc`) | enabled | **enabled** | `gc_poc` benchmarks (3.82 ms / 10.3× vs arithmetic) |
+| WasmGC (`wasm_gc`) | enabled | **enabled** | `gc_poc` benchmarks (3.93 ms / 10.6× vs arithmetic) |
 | Exceptions (`wasm_exceptions`) | enabled | **enabled** | engine defaults untouched |
 | Tail calls (`wasm_tail_call`) | enabled | **enabled** | engine defaults untouched |
 | SIMD (`wasm_simd`) | enabled | **enabled** | Wasm 2.0 feature, engine default |

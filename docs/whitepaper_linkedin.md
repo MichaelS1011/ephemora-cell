@@ -49,7 +49,7 @@ On top of that: OS-level hardening in the worker process (rlimits, disk quota, I
 
 ## Engineering Quality
 
-- **379 tests, 85% statement coverage** (measured: 84.55%), coverage gate at 80% — CI-enforced on every push
+- **386 tests, 85% statement coverage**, coverage gate at 80% — CI-enforced on every push
 - CI: tests on Python 3.10/3.11/3.12, pip-audit, SBOM, bandit, fuzzing workflow
 - **Exactly one runtime dependency**: `wasmtime` — no framework zoo
 - MCP server included: dependency-free stdio server, tools are WASM modules, execution reports carry `wasmtime_version` as an auditable witness; signing primitive (`ExecutionReport.sign()`, SEP-2787-style) present
@@ -74,4 +74,4 @@ Ephemora Cell is the open-source isolation layer (standalone — no Ephemora dep
 
 - All figures come from the repository itself: `README.md`, `docs/performance.md`, `docs/security_posture.md`, `BENCHMARK_RESULTS.md`.
 - Older benchmark runs (agentic benchmark 2026-08-06, "up to 148×") are flagged in the repo itself as predating the benchmark rework and possibly not reproducible — deliberately not used as a marketing figure.
-- Coverage as measured: 84.55% (CI gate: 80%).
+- Coverage as measured: 84.7% (2026-09-05; CI displays 85%), gate 80%.

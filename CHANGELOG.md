@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (repository-wide audit, 2026-09-05)
+
+- **Privacy:** redacted the local home-directory prefix from captured stdout
+  in `benchmarks/pocs/componentize_poc/results.json` and rewrote the
+  cross-platform results note that named a user path.
+- **English-only surface:** translated the remaining German text in
+  `tests/test_security.py` (incl. assert messages), the result artifacts
+  `13_sandbox_escape_18.json` / `cross-platform-results.json` /
+  `scale-results.json`, and the scripts `setup_firecracker.sh`,
+  `sandbox_escape_18.py`, `security_comparison.py`, `pov_benchmark.py`.
+- **Package license:** `ephemora_cell/LICENSE` contained a stray 9-line
+  source-header fragment instead of a license; replaced with the canonical
+  Apache-2.0 text (identical to the root `LICENSE`).
+- **Claim precision:** "signed execution records" softened to
+  "sign-ready" (RFC 8785 JCS canonicalization + `sign()`/`verify()`
+  primitives ship; records are not signed by default) across README,
+  threat-model, enterprise page and MCP docs.
+- **Evidence alignment:** `benchmarks/BENCHMARK_RESULTS.md` relabelled as the
+  historical 2026-08-06 baseline (raw JSONs not retained; tracked agentic
+  JSONs are the 2026-08-25 cell-side re-runs) and the dead
+  `agentic-full-results.json` pointer removed; `build_friction` re-measured
+  (0.4 s warm, new committed evidence `results_2026-09-05.json`; earlier
+  snapshots explained); io_dos pre-fix attack figures labelled as
+  single-run historical context with untracked raws; DGX hardware figures
+  aligned with the recorded measurement (20 cores / 121 GiB); GC-PoC and
+  componentize figures aligned with their tracked JSONs; cost-density
+  figures marked as uncommitted order-of-magnitude.
+- **Drift & hygiene:** whitepaper test count 379 → 386 (PDF re-rendered);
+  stale "347 tests" and unevidenced "17/17 acceptance scenarios" removed;
+  MCP protocol table de-pinned from a hardcoded version; broken README
+  anchor and dead artifact references (`cross-platform-m11.json`,
+  `scale-d14.json`, `scale_probe.py`) fixed; the empty `11_pip_freeze.txt`
+  artifact and the byte-identical `competitive-firecracker-macos.json`
+  duplicate removed; internal milestone/CI-run references in test
+  docstrings replaced with descriptive text; `test_wvm_wasm_runtime.py`
+  renamed to `test_wasm_runtime.py`; personal Ollama model list de-personalized;
+  wrong AutoGen install hint corrected.
+
 ## [1.0.1] - 2026-09-05
 
 Release metadata and MCP surface hardening. Repo-committed code is
