@@ -71,6 +71,18 @@ executes the guest **inside your process**; the subprocess path
 (`run_isolated()` / `use_subprocess=True`) adds OS-level walls around a
 disposable worker. For untrusted guests, use the subprocess path.
 
+```python
+from ephemora_cell import run_isolated, WASIConfig
+
+result = run_isolated("guest.wasm", WASIConfig(max_fuel=1_000_000))
+# run_isolated returns a DICT (not an ExecutionResult object) with the same
+# fields plus worker-bootstrap timing:
+result["status"]        # ExecutionStatus.SUCCESS / TIMEOUT / ...
+result["exit_code"]; result["stdout"]; result["stderr"]
+result["fuel_consumed"]; result["io_cpu_used_seconds"]; result["io_budget_exceeded"]
+result["security_baseline"]   # attested limits, incl. wasmtime_version
+```
+
 | Control | In-process (default) | Subprocess (`run_isolated()`) |
 |---|---|---|
 | Fuel metering (guest CPU) | ✅ | ✅ |

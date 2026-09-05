@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (15-user field study findings, 2026-09-05)
+
+- **Fuel classification (code):** an out-of-fuel trap firing inside a host
+  function or during `linker.instantiate` surfaced as generic ERROR;
+  it now classifies as `FUEL_EXHAUSTED` (regression test added).
+- **`run_isolated()` return contract** documented (dict with
+  `status`/`exit_code`/`stdout`/`stderr`/`fuel_consumed`/`security_baseline`/
+  io counters) with a usage example in SECURITY.md; README links to it.
+- **macOS `allow_dirs` trap** documented: `/tmp`/`/var` are symlinks into
+  blocked `/private` — the rejection is the symlink-escape defense working;
+  use a real directory (recipes.md).
+- **`build` README line** aligned with builder reality: a cargo project
+  context is required for Rust; bare files get guidance.
+- **Zig build failures** now hint at version skew (CI verifies with zig
+  0.13.0; newer zig can fail differently) before pointing at the raw error.
+- **`--tools-dir` semantics** documented: it replaces the bundled
+  `clock`/`echo` set entirely.
+
 ### Fixed (repository-wide audit, 2026-09-05)
 
 - **Privacy:** redacted the local home-directory prefix from captured stdout

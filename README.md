@@ -126,7 +126,7 @@ The guest receives only the capabilities explicitly made available to it. Live v
 
 **Result: 8/8 attack vectors blocked (live-verified); Docker baselines are measured live per run — never hardcoded.**
 
-This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given. Execution paths differ materially: the default runs the guest inside your process; `run_isolated()` adds OS-level walls (rlimits, disk quota, I/O CPU watchdog, hard kill).
+This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given. Execution paths differ materially: the default runs the guest inside your process; `run_isolated()` adds OS-level walls (rlimits, disk quota, I/O CPU watchdog, hard kill) and returns the report fields as a dict — example in [SECURITY.md](SECURITY.md).
 
 Full details: [SECURITY.md](SECURITY.md) (policy, execution-path control matrix, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, residual risks) · [docs/security_posture.md](docs/security_posture.md) (arXiv 2509.11242 evaluation, fuel boundary, related research).
 
@@ -148,8 +148,11 @@ Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competiti
 Cell executes the `.wasm` — it does not know the source language. One-command build with actionable error hints from the measured friction matrix:
 
 ```bash
-ephemora-cell build tool.rs     # → tool.wasm → run it
+ephemora-cell build src/main.rs # inside a cargo project → tool.wasm → run it
 ```
+
+A bare `.rs` file outside a cargo project gets actionable guidance instead of
+a guess (the builder searches upward for the manifest, like cargo).
 
 | Language | Compiler | Verified |
 |----------|----------|----------|
@@ -192,7 +195,7 @@ Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modu
 
 ```bash
 pip install ephemora-cell
-ephemora-cell-mcp          # bundled tools: clock + echo; register your own: --tools-dir ./tools
+ephemora-cell-mcp          # bundled tools: clock + echo; --tools-dir ./tools replaces the bundled set with your own
 
 # One-line setup for GitHub Copilot in VS Code:
 code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'

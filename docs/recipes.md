@@ -2,6 +2,22 @@
 
 Additional usage recipes beyond the [README](../README.md#use-cases) examples.
 
+## Choosing preopen directories (`allow_dirs`)
+
+`allow_dirs` entries are realpath-canonicalized and denied if they resolve
+into a blocked root. On **macOS this matters more than on Linux**: `/tmp` and
+`/var` are symlinks into `/private`, which is a blocked root, so
+`allow_dirs=("/tmp",)` is rejected by design:
+
+```text
+ValueError: allow_dirs entry '/tmp' is forbidden: canonical path
+'/private/tmp' resolves into blocked location '/private'
+```
+
+Create a real directory instead (e.g. `./workspace` or
+`~/data/agent-scratch`) and pass its absolute path. The rejection is the
+symlink-escape defense working as intended, not a bug.
+
 ## Serverless Functions (Edge/Cloud)
 
 Replace Docker with WASM for faster, safer function execution:

@@ -310,6 +310,14 @@ def build(recipe: BuildRecipe, timeout: float = DEFAULT_TIMEOUT) -> BuildResult:
         or last_line
         or "build failed without output"
     )
+    if not ok and recipe.language == "zig" and hint:
+        # CI verifies the zig recipe with 0.13.0; newer zig releases change
+        # std APIs and error wording — point the user at version skew first.
+        hint += (
+            " — note: CI verifies this recipe with zig 0.13.0; a newer zig "
+            "(brew/main) can fail or word errors differently. Check "
+            "'zig version' before debugging the guest."
+        )
     return BuildResult(
         ok=ok,
         language=recipe.language,

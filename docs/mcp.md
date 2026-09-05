@@ -199,7 +199,10 @@ cp target/wasm32-wasip1/release/echo.wasm ../../tools/echo.wasm
 
 Defaults without a sidecar: description `Executes <toolname>`, generic
 `{"type": "object"}` input schema, profile `"llm"`, **no** preopened
-directories.
+directories. Passing `--tools-dir` (or `Server(tools_dir=...)`) **replaces**
+the bundled set entirely — the shipped `clock`/`echo` tools only load when
+no custom directory is given (copy their `.wasm`/`.json` pairs into your
+tools directory if you want them alongside your own).
 
 - **Profiles** map to the Cell's `SandboxProfile` (`plugin`, `llm`, `edge`,
   `default`): memory, fuel and timeout budgets per tool. `"llm"` is the
