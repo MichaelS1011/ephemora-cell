@@ -15,7 +15,7 @@ referenced there, not duplicated here.
    latency. A hostile guest must not degrade the host even when it cannot
    escape (DoS is a security boundary, not just a performance issue).
 3. **Output integrity of the evidence chain** — `security_baseline`, I/O
-   counters and RFC 8785 signed execution records must reflect what actually
+   counters and the RFC 8785-canonicalized, sign-ready execution records must reflect what actually
    ran (a falsified baseline would poison every downstream audit).
 4. **The supply chain** — the `wasmtime` runtime is the trusted computing
    base; CVE posture is handled by pip-audit + SBOM in CI, not by the sandbox.

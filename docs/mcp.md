@@ -1,9 +1,9 @@
 # ephemora-cell-mcp — MCP adapter on top of Ephemora Cell
 
 `ephemora-cell-mcp` is an MCP (Model Context Protocol) **stdio server** whose
-tools are **WASM modules executed inside the Ephemora Cell**. The mcp.run /
-Wassette spot, but with Cell properties: determinism, fuel metering, 10 KB
-output cap, no network.
+tools are **WASM modules executed inside the Ephemora Cell**. It occupies the
+same spot as mcp.run or Wassette, but with Cell properties: determinism, fuel
+metering, 10 KB output cap, no network.
 
 ```
 MCP client (Claude Desktop, generic MCP host)
@@ -84,7 +84,7 @@ The last one returns:
 
 | Message | Behaviour |
 |---|---|
-| `initialize` | Returns `protocolVersion: "2025-06-18"`, `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: "0.1.0"}` |
+| `initialize` | Returns `protocolVersion: "2025-06-18"`, `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: <package version>}` (single-sourced in `ephemora_cell_mcp/_version.py`; 1.0.1 as of this writing) |
 | `notifications/initialized` | Accepted silently (no response, per JSON-RPC notifications) |
 | `tools/list` | Tools discovered in the registry, as MCP `{name, description, inputSchema}` |
 | `tools/call` | Runs the tool's WASM module; result `content[0].text` is the guest's stdout JSON; `_meta.execution` carries the `ExecutionReport` |
@@ -106,8 +106,8 @@ Every `tools/call` result embeds the Cell's `ExecutionReport` under
 `fuel_budget`, `fuel_utilization`, `memory_mb`, `stdout_bytes`,
 `stderr_bytes`, `warnings`, and `security_baseline` (incl. the exact
 `wasmtime_version` the tool ran on). The client can record this as an
-auditable execution witness — signed execution records (SEP-2787 style, via
-`ExecutionReport.sign()`) are a drop-in next step.
+auditable execution witness — signing it into a SEP-2787-style signed
+record (via `ExecutionReport.sign()`) is a drop-in next step.
 
 ### `get-policy` — the agent can read its sandbox policy, not rewrite it
 

@@ -16,9 +16,9 @@ dependency. It is the right tool when you need:
 - A sandbox you embed and operate yourself: single process, single tenant,
   your own logging
 - Reproducible evidence you verify yourself: the [8/8 attack-vector suite](https://github.com/MichaelS1011/ephemora-cell#security),
-  the [security posture detail](security_posture.md), and signed execution
-  records (RFC 8785 JCS `sign()`/`verify()` primitives shipped in Cell,
-  bring-your-own keys)
+  the [security posture detail](security_posture.md), and execution records with
+  `sign()`/`verify()` primitives shipped in Cell (RFC 8785 JCS
+  canonicalization, bring-your-own keys)
 
 If those are your requirements, use Cell — no conversation needed, the
 [README](../README.md) and [SUPPORT.md](../SUPPORT.md) are the docs.
@@ -30,7 +30,7 @@ you. How your team answers them is usually what decides whether an
 enterprise conversation makes sense:
 
 - **Who watches the walls?** Cell reports what happened in a run
-  (`security_baseline`, I/O budget counters, signed records). Who collects,
+  (`security_baseline`, I/O budget counters, signable records). Who collects,
   stores and alerts on those artifacts across thousands of runs a day?
 - **Multi-tenant boundaries:** Cell isolates one module execution. How do
   you keep concurrent tenants, their sandbox directories and their audit

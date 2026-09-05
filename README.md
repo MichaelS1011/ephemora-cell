@@ -2,7 +2,8 @@
 
 ### The execution layer for untrusted AI-generated code.
 
-Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits — **sub-millisecond warm execution with signed execution records.**
+Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits — **sub-millisecond warm execution with sign-ready execution records
+(RFC 8785 JCS canonicalization + ES256 `sign()`/`verify()` primitives).**
 
 Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads.**
 
@@ -88,7 +89,8 @@ python  benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora C
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
 
-- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in a signed execution record.
+- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
+  canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
 - **Sub-millisecond warm execution** — 0.16 ms guest / 0.46 ms end-to-end (pooled, measured) makes sandboxing every call affordable instead of exceptional.
 
@@ -184,7 +186,7 @@ Also documented: serverless/edge workloads, air-gapped validation, WASI 0.2 comp
 
 ### MCP Server
 
-Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signed execution records:
+Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signable execution records:
 
 **Every tool call answers three questions at once: what was returned, what it cost (fuel, milliseconds), and under which sandbox rules it ran** (memory limit, preopens, `wasmtime_version`) — attached to every response as `_meta.execution`. "Verified. Not claimed." is a data field, not a slogan.
 
