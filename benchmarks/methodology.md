@@ -8,9 +8,10 @@ hardware assumptions, statistical method, and exact invocation.
 | Platform | CPU | RAM | Docker | OS |
 |----------|-----|-----|--------|-----|
 | Mac M5 | Apple M5 (10-core) | 32 GB | Docker Desktop 29.1 | macOS 26.5.1 |
-| DGX Spark GB10 | Grace 48-core ARM | 128 GB | Docker Engine 29.1 | Ubuntu 24.04 |
+| DGX Spark GB10 | Grace 20-core ARM | 128 GB (121 GiB measured) | Docker Engine 29.1 | Ubuntu (Linux) |
 
-**Unless noted otherwise, results are from the Mac M5 platform.**
+**Unless noted otherwise, results are from the Mac M5 platform.** DGX hardware as
+measured and recorded in `results/cross-platform-results.json` (20 cores / 121 GiB).
 
 ## Benchmarks
 

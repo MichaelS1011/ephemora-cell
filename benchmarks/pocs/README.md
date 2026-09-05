@@ -78,15 +78,15 @@ EOF
 
 | Metric | GC workload | Arith twin | Ratio |
 |---|---|---|---|
-| `wat2wasm` compile (best of 20) | 0.031 ms | 0.027 ms | 1.15x |
-| wasmtime `Module.from_file` (best of 10) | 0.298 ms | 0.232 ms | 1.28x |
-| sandbox run, median of 5 (incl. sandbox setup) | 3.82 ms | 0.37 ms | **10.3x** |
+| `wat2wasm` compile (best of 20) | 0.032 ms | 0.028 ms | 1.14x |
+| wasmtime `Module.from_file` (best of 10) | 0.285 ms | 0.233 ms | 1.22x |
+| sandbox run, median of 5 (incl. sandbox setup) | 3.93 ms | 0.37 ms | **10.6x** |
 | fuel consumed (median, deterministic) | 3 416 396 | 1 516 396 | **2.25x** |
 
 Fuel is **deterministic** and **enforced on GC-heavy loops** in both ABIs —
 `struct.new`/`array.new` are ordinary instructions and metered like everything
-else. GC allocation is ~4.5x more expensive *per unit of fuel* than the
-arithmetic twin (10.3x wall-clock / 2.25x fuel), which is the price of the
+else. GC allocation is ~4.7x more expensive *per unit of fuel* than the
+arithmetic twin (10.6x wall-clock / 2.25x fuel), which is the price of the
 collector and the larger per-instruction cost of typed GC ops.
 
 ---
@@ -108,7 +108,8 @@ wasm-tools component new <preview1.wasm> \
 > The adapter file (`wasi_snapshot_preview1.command.wasm`, 53 KB) is not
 > bundled with wasm-tools or wasmtime-py; it was taken from the wasmtime
 > v34.0.0 GitHub release and is vendored at
-> `componentize_poc/adapters/wasi_snapshot_preview1.command.wasm`.
+> `componentize_poc/adapters/wasi_snapshot_preview1.command.wasm` (adapter
+> not retained in the repo — regenerate via the wasmtime v34.0.0 release).
 
 Modules (built by `build_modules.py`):
 
@@ -136,7 +137,7 @@ direct-`run` fallback. **No entry-point lookup breakage.**
 | Fuel exhaustion (`p1_loop_lifted`, max_fuel=50k) | **FUEL_EXHAUSTED** |
 | Epoch timeout (`p1_loop_lifted`, fuel=None, 1s) | **TIMEOUT** after ~1006 ms |
 | Memory limit (`p1_grow_lifted`, max_memory_mb=2) | **ERROR** (`unreachable` after grow fails at 2 MB) |
-| Memory limit control (max_memory_mb=128, 1400 pages = 89.6 MB) | **SUCCESS** |
+| Memory limit control (max_memory_mb=128, 1400 pages ≈ 87.5 MiB) | **SUCCESS** |
 | Preopen allowlist deny-by-default (`rust_fs_lifted`, no `allow_dirs`) | file **NOT** written (guest silently swallowed EACCES; status SUCCESS) |
 | Preopen allowlist allow (`allow_dirs=(target,)`) | file written |
 
@@ -144,9 +145,9 @@ direct-`run` fallback. **No entry-point lookup breakage.**
 
 | Component | median | vs native fixture |
 |---|---|---|
-| `hello02.wasm` (native Rust wasm32-wasip2 fixture) | 11.57 ms | 1.00x |
-| `p1_print_lifted.wasm` (hand-written wat + adapter) | 2.46 ms | **0.21x** |
-| `rust_fs_lifted.wasm` (Rust wasip1 + adapter) | 14.96 ms | **1.29x** |
+| `hello02.wasm` (native Rust wasm32-wasip2 fixture) | 11.17 ms | 1.00x |
+| `p1_print_lifted.wasm` (hand-written wat + adapter) | 2.41 ms | **0.22x** |
+| `rust_fs_lifted.wasm` (Rust wasip1 + adapter) | 15.6 ms | **1.40x** |
 
 Lifting adds the adapter (~19 KB into the component) but no measurable
 startup penalty: the lifted hand-written wat component is 5x *faster* than
@@ -278,35 +279,29 @@ a debugging round; documented so it isn't rediscovered.
 
 ---
 
-## 4. Files created
+## 4. Files created (run-local artifacts)
+
+The PoC drivers and the measured results are shipped in this repository:
 
 ```
 benchmarks/pocs/
-├── README.md                            (this file)
+├── README.md                     (this file)
 ├── gc_poc/
-│   ├── build_modules.py                 generator: .wat/.wasm for all GC modules
-│   ├── run_gc_poc.py                    scenario driver → results.json
-│   ├── results.json                     measured numbers (this run)
-│   ├── gc_workload.wat/.wasm            GC struct+array churn (preview1 _start)
-│   ├── arith_workload.wat/.wasm         arithmetic twin, same loop count
-│   ├── gc_infinite.wat/.wasm            unbounded GC churn
-│   ├── gc_grow.wat/.wasm                GC alloc + linear memory growth
-│   ├── gc_core.wat/.wasm                self-contained GC module (run export)
-│   ├── gc_wrapper.wat/.wasm             hand-written component wrapping gc_core
-│   ├── gc_wrapper_inf.wat/.wasm         infinite-GC wrapper component
-│   └── lifted.wasm                      wasm-tools lift of gc_workload
+│   ├── build_modules.py          generator: .wat/.wasm for all GC modules
+│   ├── run_gc_poc.py             scenario driver → results.json
+│   └── results.json              measured numbers (this run)
 └── componentize_poc/
-    ├── build_modules.py                 generator + lift driver
-    ├── run_componentize_poc.py          scenario driver → results.json
-    ├── results.json                     measured numbers (this run)
-    ├── p1_print.wat/.wasm(_lifted.wasm) proc_exit(0) wat module
-    ├── p1_loop.wat/.wasm(_lifted.wasm)  infinite-loop wat module
-    ├── p1_grow.wat/.wasm(_lifted.wasm)  memory.grow wat module
-    ├── rust_fs.wasm                     prebuilt Rust wasm32-wasip1 command
-    ├── rust_fs_lifted.wasm              lifted Rust command
-    ├── rust_fs/                         Cargo manifest + src/main.rs
-    └── adapters/wasi_snapshot_preview1.command.wasm   (wasmtime v34.0.0)
+    ├── build_modules.py          generator + lift driver
+    ├── run_componentize_poc.py   scenario driver → results.json
+    ├── results.json              measured numbers (this run)
+    └── rust_fs/                  Cargo manifest + src/main.rs
 ```
+
+The generated `.wat`/`.wasm` intermediates (gc_workload, arith_workload, the
+p1_* modules, lifted components and the wasi_snapshot_preview1 adapter) were
+run-local build artifacts and are **not** tracked — regenerate them with the
+two `build_modules.py` drivers (they rebuild every input deterministically;
+the adapter comes from the wasmtime v34.0.0 release).
 
 ## 5. Reproduce everything
 

@@ -1,9 +1,21 @@
-# Agentic Workflow Benchmark Results (Full)
+# Agentic Workflow Benchmark Results
 
-| Generated: 2026-08-26 (revalidated) | Machine: Mac M5 | N=50 calls × 10 repeats | historical baseline 2026-08-06, see Limitations |
+| Generated: 2026-08-06 (historical baseline — pre-rework) | Machine: Mac M5 | N=50 calls × 10 repeats | NOT re-runnable from this repo, see Limitations |
 |---|---|---|
 
-## Speedup (Naive vs Docker)
+> **Provenance:** every figure below comes from the 2026-08-06 run, before
+> the benchmark rework (wasmtime pinning, live Docker measurement, honest
+> Docker payloads). The raw JSONs of that run are **not retained in this
+> repository** — the tracked files `results/agentic_workflow.json` and
+> `results/2026-08-25/06_agentic_fresh_2026-08-25.json` are the 2026-08-25
+> re-runs of the CELL/naive columns only (no Docker, `docker: null`), and
+> their naive numbers (0.31/0.31/0.37 ms) intentionally differ from the
+> historical 2026-08-06 figures below. Treat this page as a historical
+> baseline, not as reproducible evidence; the reproducible Docker reference
+> is the live 2026-08-30 cold-start comparison in
+> [`docs/performance.md`](../docs/performance.md).
+
+## Speedup (Naive vs Docker) — historical 2026-08-06 figures
 
 | Scenario | Ephemora Cell Naive | Docker | Speedup | Cost/1K (est.) |
 |----------|----------------|--------|---------|---------|
@@ -40,14 +52,16 @@
 **All three scenarios show extremely significant differences**
 (Cohen's d > 0.8 = "large"; here d > 50 = massive).
 
-## Full Raw Data
-See `agentic-full-results.json` in same directory for per-agent breakdowns.
-
 ## Known Limitations
 
 - Results generated 2026-08-06 predate the benchmark rework (wasmtime pinning,
   live Docker measurement, honest Docker payloads); figures may not reproduce
-  with current tooling.
+  with current tooling, and the raw per-run JSONs of that date are not
+  retained in this repository.
+- The per-agent breakdowns file referenced by earlier revisions
+  (`agentic-full-results.json`) is not retained; the tracked raw data for the
+  cell-side re-runs is `results/agentic_workflow.json` and
+  `results/2026-08-25/06_agentic_fresh_2026-08-25.json`.
 - Docker baselines measure container cold-start + minimal Python work, not
   computational parity with the WASM guest workloads (scenario `.wasm` modules
   are not shipped in this repository).
@@ -59,3 +73,7 @@ See `agentic-full-results.json` in same directory for per-agent breakdowns.
 - `run_docker()` in `agentic_workflow.py` previously executed `print('OK')`;
   it now runs scenario-derived Python transform logic and reports are labelled
   accordingly.
+- The DGX Spark scale/cross-platform artifacts
+  (`results/scale_dgx_*.json`, `results/cross-platform-results.json`) are
+  hardware-specific to that machine and were not re-run elsewhere; treat them
+  as single-machine evidence.

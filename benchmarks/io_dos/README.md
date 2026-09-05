@@ -71,6 +71,14 @@ scheduler jitter and write latency: baseline (5 s) vs. attack window (12 s, atta
 1 s after canary start). Attacks run over the worker path (`run_isolated`,
 `max_fuel=None` = trusted configuration), stopped only by the 10-s epoch timeout.
 
+> **Provenance note (2026-09-05):** the "Before (unthrottled)" figures below and
+the unthrottled columns of the Results table come from the pre-fix attack runs
+(2026-08-27/28, `max_fuel=None` + no I/O budgets). Their raw per-run JSONs are
+**not retained in this repository** — the tracked evidence
+(`attack_results_2026-08-28.json`, `results_2026-08-28.json`) covers the fuel
+inventory and the post-budget re-run. The unthrottled numbers are kept because
+they motivated the fix; treat them as single-run historical context.
+
 ## Results
 
 | Phase | Syscall Rate | Bytes | Jitter (×Baseline) | Write Latency (×Baseline) |
@@ -123,7 +131,7 @@ Same harness, same attacks — now with ADR-002 defaults
 
 The attack breaks against the budget, not against the host: the syscall work per run is limited to
 ~2 s of host CPU (or 64 MB of sandbox bytes), and jitter degradation drops from
-1.18× to 1.01–1.05×. Every budget breach is auditable in the report
+1.18× to 1.01–1.08× (upper bound from the ×4-parallel run). Every budget breach is auditable in the report
 (`io_cpu_used_seconds`, `io_bytes_written`, `io_budget_exceeded`).
 
 Limitation of the proof: measured on macOS M5/APFS; Linux degradation in CI
