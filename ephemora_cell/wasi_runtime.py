@@ -824,6 +824,23 @@ class WASISandbox:
             stdout = _read_capped_output(stdout_path) if stdout_path else ""
             stderr_from_file = _read_capped_output(stderr_path) if stderr_path else ""
 
+            # Out-of-fuel can surface as a generic exception when the trap
+            # fires inside a host function (e.g. fd_write) instead of a
+            # guest instruction — classify it as FUEL_EXHAUSTED, not ERROR.
+            if "all fuel consumed" in str(e).lower():
+                return ExecutionResult(
+                    status=ExecutionStatus.FUEL_EXHAUSTED,
+                    exit_code=1,
+                    stdout=stdout,
+                    stderr=_limit_output(str(e) + stderr_from_file),
+                    elapsed_ms=elapsed_ms,
+                    sandbox_dir=sandbox_dir,
+                    state_bytes=(
+                        state_store.total_bytes if state_store is not None else None
+                    ),
+                    effective_preopens=effective_preopens,
+                )
+
             # proc_exit with code 0 = clean exit (even if it raised as Exception)
             if exit_code == 0:
                 fuel_consumed = None

@@ -958,3 +958,17 @@ class TestSecurityBoundary:
         assert (
             result.status == ExecutionStatus.ERROR
         ), f"Shared memory WASM not blocked with wasm_threads=False: {result.status}"
+
+
+def test_out_of_fuel_during_host_call_is_fuel_exhausted(wasm_file):
+    """Regression (2026-09-05, 15-user field study): an out-of-fuel trap that
+    fires inside a host function or during instantiation surfaces as a
+    generic exception — it must still classify as FUEL_EXHAUSTED, not ERROR."""
+    wasm_file.write("stdout_flood")
+    config = WASIConfig(max_fuel=500)
+    sandbox = WASISandbox(config=config)
+    result = sandbox.run(str(wasm_file.path))
+    sandbox.cleanup()
+    assert (
+        result.status == ExecutionStatus.FUEL_EXHAUSTED
+    ), f"out-of-fuel classified as {result.status}: {result.stderr[:120]}"
