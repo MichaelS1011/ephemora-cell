@@ -72,6 +72,8 @@ MODULES = {
 
 
 def build(name: str, wat: str) -> None:
+    if os.path.basename(name) != name or name in (".", ".."):
+        raise ValueError(f"module file name must be a bare '<stem>.wat': {name!r}")
     wat_path = os.path.join(HERE, name)
     wasm_path = os.path.join(HERE, name.replace(".wat", ".wasm"))
     with open(wat_path, "w") as f:

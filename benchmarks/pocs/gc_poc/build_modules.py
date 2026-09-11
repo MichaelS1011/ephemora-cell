@@ -112,6 +112,8 @@ def wasi_print(msg: str, body: str = "i32.const 0 call $exit") -> str:
 
 def build(name: str, wat: str) -> str:
     """Compile wat text to benchmarks/pocs/gc_poc/<name>.wasm; return path."""
+    if os.path.basename(name) != name or name in (".", ".."):
+        raise ValueError(f"module name must be a bare file stem: {name!r}")
     wat_path = os.path.join(HERE, name + ".wat")
     wasm_path = os.path.join(HERE, name + ".wasm")
     with open(wat_path, "w") as f:
