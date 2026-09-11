@@ -274,7 +274,6 @@ class TestCliBuild:
     @staticmethod
     def _run_cli(*argv):
         import subprocess
-        from pathlib import Path
 
         return subprocess.run(
             [*_cli_command(), *argv],
