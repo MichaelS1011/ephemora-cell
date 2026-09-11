@@ -261,15 +261,23 @@ class TestGoBuild:
         assert run_result.status == ExecutionStatus.SUCCESS, run_result.stderr[:200]
 
 
+def _cli_command():
+    """Installed console script if present (what users actually get), else the
+    module entry point so a fresh source checkout stays green."""
+    console = Path(sys.executable).parent / "ephemora-cell"
+    if console.exists():
+        return [str(console)]
+    return [sys.executable, "-m", "ephemora_cell.cli"]
+
+
 class TestCliBuild:
     @staticmethod
     def _run_cli(*argv):
         import subprocess
         from pathlib import Path
 
-        console = Path(sys.executable).parent / "ephemora-cell"
         return subprocess.run(
-            [str(console), *argv],
+            [*_cli_command(), *argv],
             capture_output=True,
             text=True,
             timeout=300,
