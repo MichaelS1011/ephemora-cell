@@ -30,6 +30,7 @@ returned as ``isError: true`` results with status + message and the same
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,7 @@ class Server:
         transport=None,
         engine: CellToolEngine | None = None,
         pooled: bool = False,
+        manifest_verifier: Callable[[bytes, bytes], bool] | None = None,
     ) -> None:
         """Create the server.
 
@@ -92,6 +94,11 @@ class Server:
                 sandbox-dir I/O byte wall so the pooled engine serves each
                 call (~0.5 ms/call). Explicit operator choice; ``get-policy``
                 attests the relaxed wall. Ignored when ``engine`` is given.
+            manifest_verifier: ADR-006 verify-before-register: when given,
+                every tool sidecar must carry a valid manifest signature
+                (``tool_registry.sign_manifest``) and unsigned/tampered
+                tools are rejected at load. See
+                ``tool_registry.ed25519_verifier_from_pem``.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
@@ -100,7 +107,9 @@ class Server:
         self.tools_dir = Path(tools_dir)
         self.transport = transport if transport is not None else StdioTransport()
         self.engine = engine if engine is not None else CellToolEngine(pooled=pooled)
-        self.registry = ToolRegistry(self.tools_dir)
+        self.registry = ToolRegistry(
+            self.tools_dir, manifest_verifier=manifest_verifier
+        )
 
     # --- public API -------------------------------------------------
 
