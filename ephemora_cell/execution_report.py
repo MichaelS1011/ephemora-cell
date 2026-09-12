@@ -109,6 +109,10 @@ class ExecutionReport:
         baseline["memory64"] = bool(config.memory64)
         baseline["multi_memory"] = False
         baseline["gc_heap_mb"] = config.max_gc_heap_mb
+        # ADR-002 I/O budgets — attested alongside fuel/memory so a report
+        # cannot claim the wall while the run carried a different one.
+        baseline["io_budget_bytes"] = config.io_budget_bytes
+        baseline["io_cpu_seconds"] = config.io_cpu_seconds
         if effective_preopens is not None:
             baseline["preopens"] = list(effective_preopens)
         else:

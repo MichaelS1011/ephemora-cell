@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -42,9 +43,11 @@ def _parse_env_pairs(items: list[str]) -> list[tuple[str, str]]:
 def _resolve_config(args) -> WASIConfig:
     """Build the run config.
 
-    Explicit CLI flags override the selected profile; profile values (or
-    WASIConfig defaults) fill anything left at None. --memory64 is
-    enable-only: when absent, the profile's own memory64 setting stands.
+    Explicit CLI flags override the selected profile; every profile value the
+    CLI has no flag for (I/O budgets, GC-heap knob, sandbox base dir) carries
+    through unchanged — rebuilding the config from scratch would silently
+    reset those knobs to defaults. --memory64 is enable-only: when absent,
+    the profile's own memory64 setting stands.
     """
     from ephemora_cell import WASIConfig, get_profile
 
@@ -54,22 +57,22 @@ def _resolve_config(args) -> WASIConfig:
         base = WASIConfig()
 
     allow_env = () if args.allow_env is None else _parse_env_pairs(args.allow_env)
-    return WASIConfig(
-        max_memory_mb=(
-            args.memory_mb if args.memory_mb is not None else base.max_memory_mb
-        ),
-        max_fuel=args.fuel if args.fuel is not None else base.max_fuel,
-        timeout_seconds=(
-            args.timeout if args.timeout is not None else base.timeout_seconds
-        ),
-        allow_dirs=(
-            tuple(args.allow_dirs)
-            if args.allow_dirs not in (None, ())
-            else base.allow_dirs
-        ),
-        allow_env=allow_env if allow_env else base.allow_env,
-        memory64=True if args.memory64 else base.memory64,
-    )
+    overrides: dict = {}
+    if args.memory_mb is not None:
+        overrides["max_memory_mb"] = args.memory_mb
+    if args.fuel is not None:
+        overrides["max_fuel"] = args.fuel
+    if args.timeout is not None:
+        overrides["timeout_seconds"] = args.timeout
+    if args.allow_dirs not in (None, ()):
+        overrides["allow_dirs"] = tuple(args.allow_dirs)
+    if allow_env:
+        overrides["allow_env"] = allow_env
+    if args.memory64:
+        overrides["memory64"] = True
+    if not overrides:
+        return base
+    return dataclasses.replace(base, **overrides)
 
 
 def _capture_cli_stdin(args) -> str | None:
@@ -128,27 +131,22 @@ def cmd_run(args):
             sys.stderr.write(result.stdout)
         if result.stderr:
             _write_stderr(result.stderr)
+        # Schema = ExecutionReport.to_dict() (same shape machine readers get
+        # from the library and the MCP _meta attachment) + stdin_capped.
         report = ExecutionReport(
             status=result.status.value,
             exit_code=result.exit_code,
             elapsed_ms=result.elapsed_ms,
             fuel_consumed=result.fuel_consumed,
+            fuel_budget=config.max_fuel,
+            stdout_bytes=len(result.stdout.encode("utf-8")),
+            stderr_bytes=len(result.stderr.encode("utf-8")),
         ).apply_config(config, effective_preopens=result.effective_preopens)
-        print(
-            json.dumps(
-                {
-                    "status": result.status.value,
-                    "exit_code": result.exit_code,
-                    "elapsed_ms": result.elapsed_ms,
-                    "fuel_consumed": result.fuel_consumed,
-                    "stdin_capped": (
-                        len(stdin_data) > STDIN_MAX_BYTES if stdin_data else False
-                    ),
-                    "security_baseline": report.security_baseline,
-                },
-                indent=2,
-            )
+        payload = report.to_dict()
+        payload["stdin_capped"] = (
+            len(stdin_data) > STDIN_MAX_BYTES if stdin_data else False
         )
+        print(json.dumps(payload, indent=2))
     else:
         if result.stdout:
             sys.stdout.write(result.stdout)
@@ -355,7 +353,13 @@ def main():
         default="auto",
         help="execution ABI (auto detects WASI 0.2 components by magic bytes)",
     )
-    p_run.add_argument("--json", action="store_true")
+    p_run.add_argument(
+        "--json",
+        action="store_true",
+        help="machine-readable report on stdout (ExecutionReport schema plus "
+        "stdin_capped); guest stdout/stderr are routed to stderr so the "
+        "document stays parseable",
+    )
     p_run.add_argument("args", nargs="*")
     p_run.set_defaults(func=cmd_run)
 

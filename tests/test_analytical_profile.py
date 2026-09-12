@@ -164,6 +164,25 @@ class TestAnalyticalProfileCLI:
         assert config.max_fuel == 50_000_000
         assert config.timeout_seconds == 120
 
+    def test_profile_io_knobs_survive_cli_resolution(self):
+        """Regression (2026-09-12 audit F2): _resolve_config rebuilt the
+        config and silently reset every knob the CLI has no flag for —
+        analytical's io_cpu_seconds=10.0 became the 2.0 default via the CLI
+        while the profile's memory/fuel values carried through."""
+        from ephemora_cell.cli import _resolve_config
+
+        config = _resolve_config(self._args())
+        assert config.io_cpu_seconds == 10.0
+        assert config.io_budget_bytes == 64 * 1024 * 1024
+
+    def test_flag_override_keeps_profile_io_knobs(self):
+        """A CLI flag overrides one knob; the profile's I/O knobs stand."""
+        from ephemora_cell.cli import _resolve_config
+
+        config = _resolve_config(self._args(fuel=1))
+        assert config.max_fuel == 1
+        assert config.io_cpu_seconds == 10.0
+
     def test_memory64_flag_enables_without_profile(self):
         from ephemora_cell.cli import _resolve_config
 
