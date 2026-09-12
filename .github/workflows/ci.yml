@@ -33,6 +33,9 @@ jobs:
           # --no-deps keeps the pinned version instead of downgrading.
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-cov
+          # tools-signing extra: the signing-chain tests run for real, not
+          # skipped (they importorskip cryptography for bare environments)
+          python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
 
       - name: Run tests
@@ -75,6 +78,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-cov
+          python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
 
       # --cov=ephemora_cell (the old run relied on pyproject addopts

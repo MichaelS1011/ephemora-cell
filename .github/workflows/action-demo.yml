@@ -33,12 +33,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Same module, 100 fuel units: the sandbox must stop it (FUEL_EXHAUSTED)
-      # and the action must fail — expected and asserted below.
+      # fuel_bomb.wasm is an infinite loop — it exhausts ANY budget on ANY
+      # platform. (hello.wasm is NOT suitable: fuel costs are not cross-
+      # platform deterministic — the same module burns 16397 units on
+      # macOS arm64 but only 12 on Linux x86_64, so 100 fuel does not stop
+      # it on Linux.)
       - id: fuel-bomb
         uses: ./action
         with:
-          module: examples/hello.wasm
+          module: examples/fuel_bomb.wasm
           profile: llm
           fuel: 100
         continue-on-error: true
