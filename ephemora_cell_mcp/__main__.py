@@ -24,6 +24,16 @@ def main(argv: list[str] | None = None) -> int:
         help="directory with <toolname>.wasm files (default: bundled tools)",
     )
     parser.add_argument(
+        "--pooled",
+        action="store_true",
+        help=(
+            "trusted fast path: disable the sandbox-dir I/O byte wall so "
+            "the pooled engine serves each call (~0.5 ms/call instead of "
+            "~12 ms); the relaxed wall is attested in get-policy — use only "
+            "where the byte wall is not required"
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
@@ -32,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from .server import Server
 
-    Server(tools_dir=args.tools_dir).serve()
+    Server(tools_dir=args.tools_dir, pooled=args.pooled).serve()
     return 0
 
 

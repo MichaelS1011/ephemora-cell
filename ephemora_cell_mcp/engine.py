@@ -92,8 +92,15 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
 class CellToolEngine:
     """Runs a ToolSpec's WASM module inside the Ephemora Cell."""
 
-    def __init__(self, profile: str = "llm") -> None:
+    def __init__(self, profile: str = "llm", pooled: bool = False) -> None:
         self.default_profile = profile
+        # Trusted fast path (decision D3, 2026-09-12): disabling the
+        # sandbox-dir byte wall re-enables the pooled engine (~0.5 ms/call
+        # instead of ~12 ms — ADR-002 forces a per-run engine while a byte
+        # wall is active). An explicit operator choice; the default stays
+        # walled. The knob flows through _config_for, so get-policy
+        # attests exactly what execution enforces.
+        self.pooled = pooled
 
     def _config_for(self, spec: ToolSpec) -> Any:
         try:
@@ -119,6 +126,8 @@ class CellToolEngine:
                 base.allow_dirs,
             )
             base = dataclasses.replace(base, allow_dirs=granted)
+        if self.pooled:
+            base = dataclasses.replace(base, io_budget_bytes=None)
         return base
 
     def policy_for(self, spec: ToolSpec) -> dict[str, Any]:

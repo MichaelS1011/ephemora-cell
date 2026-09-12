@@ -211,6 +211,14 @@ tools directory if you want them alongside your own).
   invents file access. Granting a directory means the tool gets full
   read/write access to it; forbidden host locations (`/etc`, `/usr`, ...)
   are rejected by the Cell regardless.
+- **`--pooled` (trusted fast path)** — by default every call carries the
+  ADR-002 sandbox-dir I/O byte wall, which forces a per-run engine
+  (~12 ms/call). `--pooled` (or `Server(pooled=True)`) disables that wall
+  so the pooled engine serves each call (~0.5 ms/call, measured,
+  `benchmarks/results/`); fuel, memory cap, timeout and the 10 KB output
+  cap stay enforced. An explicit operator choice — the relaxed wall is
+  attested in `get-policy` (`io_budget_bytes: null`), so report and
+  enforcement cannot drift.
 
 ## Integrating with MCP clients
 

@@ -623,3 +623,35 @@ def test_get_policy_policy_matches_execution_baseline(server_with):
     executed = responses[1]["result"]["_meta"]["execution"]["security_baseline"]
     for key in ("fuel", "memory_limit_bytes", "threads_enabled", "memory64"):
         assert policy["security_baseline"][key] == executed[key]
+
+
+def _pooled_spec():
+    from ephemora_cell_mcp.tool_registry import ToolSpec
+
+    return ToolSpec(name="echo", wasm_path="/nonexistent.wasm", description="")
+
+
+def test_engine_pooled_mode_disables_byte_wall():
+    """Decision D3: --pooled (trusted fast path) clears io_budget_bytes so
+    the pooled engine serves the run; the default stays walled."""
+    spec = _pooled_spec()
+    pooled = CellToolEngine(pooled=True)._config_for(spec)
+    assert pooled.io_budget_bytes is None
+    walled = CellToolEngine(pooled=False)._config_for(spec)
+    assert walled.io_budget_bytes == 64 * 1024 * 1024
+
+
+def test_engine_pooled_mode_is_attested_in_policy():
+    """get-policy and execution share _config_for — the relaxed wall must
+    appear in the attested baseline, not only in enforcement."""
+    spec = _pooled_spec()
+    baseline = CellToolEngine(pooled=True).policy_for(spec)
+    assert baseline["io_budget_bytes"] is None
+
+
+def test_server_pooled_flag_reaches_engine(tmp_path):
+    """Server(pooled=True) wires the flag into the default engine."""
+    server = Server(tools_dir=tmp_path, pooled=True)
+    assert server.engine.pooled is True
+    server_default = Server(tools_dir=tmp_path)
+    assert server_default.engine.pooled is False
