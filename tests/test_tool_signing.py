@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -368,3 +369,20 @@ class TestGovernedLoad:
             m.get("method") == "notifications/tools/list_changed"
             for m in transport.outbox
         )
+
+
+def test_signed_record_demo_detects_tampering():
+    """The runnable demo (examples/signed_record_demo.py) must print
+    verify=True for the intact record and verify=False after tampering —
+    the recipes-doc claim stays backed by a live run."""
+    repo_root = os.path.join(os.path.dirname(__file__), "..")
+    proc = subprocess.run(
+        [sys.executable, "examples/signed_record_demo.py"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=repo_root,
+    )
+    assert proc.returncode == 0, proc.stderr[-300:]
+    assert "verify(intact): True" in proc.stdout
+    assert "verify(tampered): False" in proc.stdout
