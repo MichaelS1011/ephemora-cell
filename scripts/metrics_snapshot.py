@@ -2,10 +2,15 @@
 
 Appends one JSONL line per UTC date to metrics/history.jsonl (idempotent:
 re-running the same date replaces that line). Sources are public
-endpoints; the GitHub traffic API needs push access and may 403 — a
-missing value is recorded as null and the snapshot still succeeds, so the
-scheduled job never fails on data-source hiccups. Runs from
-.github/workflows/metrics.yml (etiquette: one pypistats call per day).
+endpoints. The GitHub traffic endpoints reject the Actions GITHUB_TOKEN
+regardless of the workflow's permissions block (they require repository
+write/administration access, which GITHUB_TOKEN cannot be granted), so a
+dedicated TRAFFIC_TOKEN secret (fine-grained PAT with Administration:
+read-only on this repo, or a classic PAT with repo scope) is used for
+them when present; without it the traffic values are recorded as null
+and the snapshot still succeeds, so the scheduled job never fails on
+data-source hiccups. Runs from .github/workflows/metrics.yml
+(etiquette: one pypistats call per day).
 
 No in-package telemetry: this measures the PUBLIC distribution channels
 only. Cell itself never phones home.
@@ -75,8 +80,12 @@ def _github_snapshot(snap: dict, token: str | None) -> None:
         snap["github_error"] = f"{type(e).__name__}: {e}"[:200]
         return
     for key, path in (("views", "traffic/views"), ("clones", "traffic/clones")):
+        # Traffic-only token: GITHUB_TOKEN is structurally rejected here.
+        traffic_token = os.environ.get("TRAFFIC_TOKEN") or token
         try:
-            traffic = _get(f"https://api.github.com/repos/{GITHUB_REPO}/{path}", token)
+            traffic = _get(
+                f"https://api.github.com/repos/{GITHUB_REPO}/{path}", traffic_token
+            )
             snap["github"][f"{key}_14d"] = {
                 "count": traffic.get("count"),
                 "uniques": traffic.get("uniques"),

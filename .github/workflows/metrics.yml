@@ -30,6 +30,12 @@ jobs:
       - name: Collect snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Traffic endpoints reject GITHUB_TOKEN even with an elevated
+          # permissions block (they need administration:read, which
+          # GITHUB_TOKEN cannot be granted). Optional: a fine-grained PAT
+          # with Administration:read-only on this repo. Without it the
+          # snapshot records traffic as null and still succeeds.
+          TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: python scripts/metrics_snapshot.py
 
       - name: Persist on metrics branch
