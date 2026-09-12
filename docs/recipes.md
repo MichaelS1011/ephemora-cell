@@ -111,3 +111,76 @@ async def execute_wasm(req: WASMRequest):
     )
     return {"status": result.status, "stdout": result.stdout, "elapsed_ms": result.elapsed_ms}
 ```
+
+## Verifiable execution records (sign/verify)
+
+Every run folds into an `ExecutionReport` — status, fuel, timing and the
+attested `security_baseline`. `sign()` turns that record into a
+tamper-evident audit artifact: the signing input is the RFC 8785 (JCS)
+canonicalization of the whole record (deterministic bytes — same record,
+same signature, regardless of key order), and `verify()` recomputes it.
+Any rewrite of a signed record breaks verification:
+
+```python
+from ephemora_cell import ExecutionReport, WASIConfig, WASISandbox
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+key = Ed25519PrivateKey.generate()  # BYO keys — Cell is signer-agnostic
+
+def _ed25519_verify(key):                     # the operator's verifier:
+    from cryptography.exceptions import InvalidSignature
+
+    public = key.public_key()
+
+    def _verify(canonical: bytes, signature: bytes) -> bool:
+        try:
+            public.verify(signature, canonical)
+            return True
+        except InvalidSignature:
+            return False
+
+    return _verify
+
+config = WASIConfig(max_fuel=1_000_000)
+sandbox = WASISandbox(config=config)
+result = sandbox.run("tool.wasm")
+sandbox.cleanup()
+
+report = ExecutionReport(
+    status=result.status.value,
+    exit_code=result.exit_code,
+    elapsed_ms=result.elapsed_ms,
+    fuel_consumed=result.fuel_consumed,
+    fuel_budget=config.max_fuel,
+).apply_config(config, effective_preopens=result.effective_preopens)
+
+signed = report.sign(key.sign, alg="EdDSA")
+assert ExecutionReport.verify(signed, _ed25519_verify(key)) is True
+
+signed["fuel_consumed"] += 1            # someone rewrites the history ...
+assert ExecutionReport.verify(signed, _ed25519_verify(key)) is False  # caught
+```
+
+A complete runnable demo lives in `examples/signed_record_demo.py`
+(needs the optional `tools-signing` extra):
+
+```text
+$ python examples/signed_record_demo.py
+record: success | fuel: 1
+verify(intact): True
+verify(tampered): False
+```
+
+Design notes:
+
+- **Cell is signer-agnostic** — `sign()`/`verify()` take opaque
+  bytes→bytes callables. The Ed25519 helper shown above (optional
+  `tools-signing` extra) is one option; a KMS-backed signer is another.
+  The signature covers every field including `security_baseline`, so the
+  attested posture (wasmtime version, limits, preopens) is signed with
+  the outcome.
+- **What it is good for:** record-keeping/audit-trail duties (for
+  example the EU AI Act's Art. 12 logging requirement for high-risk
+  systems) — it makes a run's attested posture verifiable after the
+  fact. This is a building block, not a compliance statement; custody
+  and evidence workflows are Ephemora-enterprise territory.
