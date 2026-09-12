@@ -73,12 +73,13 @@ def inspect_module(path: str | Path) -> ModuleInfo:
 
     # Parse imports
     for imp in module.imports:
+        imp_name = imp.name or ""
         info.imports.append(
-            {"module": imp.module, "name": imp.name, "kind": type(imp.type).__name__}
+            {"module": imp.module, "name": imp_name, "kind": type(imp.type).__name__}
         )
         if imp.module == "wasi_snapshot_preview1":
             info.wasi_dependent = True
-            info.wasi_imports.append(imp.name)
+            info.wasi_imports.append(imp_name)
             if imp.name in DANGEROUS_IMPORTS:
                 info.risks.append(
                     {
@@ -100,7 +101,7 @@ def inspect_module(path: str | Path) -> ModuleInfo:
             info.num_globals += 1
         elif t == "TableType":
             info.num_tables += 1
-        elif t == "MemoryType":
+        elif isinstance(exp.type, wasmtime.MemoryType):
             limits = exp.type.limits
             info.memory_pages = limits.min
             info.memory_max_pages = limits.max or 0

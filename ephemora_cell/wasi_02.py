@@ -107,8 +107,8 @@ class ComponentSandbox:
         self._config = config or WASIConfig()
         self._host_dir: str | None = None
         # Reuse the Preview1 canonical allowlist validation.
-        WASISandbox._validate_allow_dirs(self, self._config.allow_dirs)
-        WASISandbox._check_dangerous_dirs(self, self._config.allow_dirs)
+        WASISandbox._validate_allow_dirs(self._config.allow_dirs)
+        WASISandbox._check_dangerous_dirs(self._config.allow_dirs)
 
     def run(
         self,
@@ -211,9 +211,7 @@ class ComponentSandbox:
             safe_dirs = self._filter_dangerous_dirs(self._config.allow_dirs)
             # Component ABI: no /sandbox mount — the component gets no
             # sandbox dir at all (host_dir is host-owned, never preopened).
-            effective_preopens = WASISandbox._grant_preopens(
-                self, wasi_cfg, safe_dirs, None
-            )
+            effective_preopens = WASISandbox._grant_preopens(wasi_cfg, safe_dirs, None)
 
             if self._config.allow_env:
                 wasi_cfg.env = list(self._config.allow_env)

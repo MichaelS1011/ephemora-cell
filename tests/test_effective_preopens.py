@@ -162,16 +162,21 @@ class TestGrantTimeRevalidation:
         The patch is applied after WASISandbox.__init__ (validation ran
         with the real canonicalize), so the remaining calls are:
         config-time filter (1st) → grant-time revalidation (2nd).
+        _canonicalize is a staticmethod, so the patch is wrapped in
+        staticmethod() to stay shape-agnostic for instance- and
+        class-level call sites.
         """
         calls = {"n": 0}
 
-        def _swapped(self_, dir_path: str) -> str:
+        def _swapped(dir_path: str) -> str:
             calls["n"] += 1
             if calls["n"] == 1:
                 return os.path.realpath(dir_path)
             return "/etc" if dir_path == entry else os.path.realpath(dir_path)
 
-        monkeypatch.setattr(WASISandbox, "_canonicalize", _swapped, raising=False)
+        monkeypatch.setattr(
+            WASISandbox, "_canonicalize", staticmethod(_swapped), raising=False
+        )
 
     def test_swapped_entry_not_granted(self, home_dir, monkeypatch):
         data = home_dir / "data"

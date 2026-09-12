@@ -83,6 +83,20 @@ def _under_canonical_exception(dir_path: str) -> bool:
     )
 
 
+def _watch_external_interrupt(
+    engine: wasmtime.Engine,
+    interrupt_event: threading.Event,
+    timeout_event: threading.Event,
+) -> None:
+    """External watchdog (worker io_cpu_seconds): one increment fires the
+    per-run engine's deadline=1 immediately."""
+    while not timeout_event.is_set():
+        if interrupt_event.is_set():
+            engine.increment_epoch()
+            return
+        timeout_event.wait(0.02)
+
+
 # Process-wide engine pool. Created lazily on first use because
 # engine_pool imports this module (circular import guard).
 _ENGINE_POOL = None
@@ -629,7 +643,7 @@ class WASISandbox:
                 instance = linker.instantiate(store, module)
 
             start_func = instance.exports(store).get("_start")
-            if start_func is None:
+            if not isinstance(start_func, wasmtime.Func):
                 return ExecutionResult(
                     status=ExecutionStatus.ERROR,
                     stderr="WASM module has no _start export",
@@ -668,15 +682,6 @@ class WASISandbox:
                             pass
                 return total
 
-            def _interrupt_watch() -> None:
-                # External watchdog (worker io_cpu_seconds): one increment
-                # fires the per-run engine's deadline=1 immediately.
-                while not timeout_event.is_set():
-                    if interrupt_event.is_set():
-                        engine.increment_epoch()
-                        return
-                    timeout_event.wait(0.02)
-
             def _bytes_watch() -> None:
                 # Precise byte wall for the guest scratch dir (ADR-002).
                 limit = self._config.io_budget_bytes
@@ -690,7 +695,11 @@ class WASISandbox:
                     timeout_event.wait(0.1)
 
             if interrupt_event is not None:
-                threading.Thread(target=_interrupt_watch, daemon=True).start()
+                threading.Thread(
+                    target=_watch_external_interrupt,
+                    args=(engine, interrupt_event, timeout_event),
+                    daemon=True,
+                ).start()
             if self._config.io_budget_bytes is not None:
                 threading.Thread(target=_bytes_watch, daemon=True).start()
 
@@ -870,11 +879,12 @@ class WASISandbox:
             # proc_exit with code 0 = clean exit (even if it raised as Exception)
             if exit_code == 0:
                 fuel_consumed = None
-                try:
-                    remaining = store.get_fuel()
-                    fuel_consumed = self._config.max_fuel - remaining
-                except Exception:
-                    pass
+                if self._config.max_fuel is not None:
+                    try:
+                        remaining = store.get_fuel()
+                        fuel_consumed = self._config.max_fuel - remaining
+                    except Exception:
+                        pass
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     exit_code=0,
@@ -957,25 +967,28 @@ class WASISandbox:
                 return f
         return None
 
-    def _canonicalize(self, dir_path: str) -> str:
+    @staticmethod
+    def _canonicalize(dir_path: str) -> str:
         return os.path.realpath(os.path.expanduser(dir_path))
 
-    def _validate_allow_dirs(self, allow_dirs: tuple[str, ...]) -> None:
+    @staticmethod
+    def _validate_allow_dirs(allow_dirs: tuple[str, ...]) -> None:
         """Fail fast if any allow_dirs entry is canonically forbidden.
 
         Raises:
             ValueError: with the offending entry and its canonical path.
         """
         for d in allow_dirs:
-            canon = self._canonicalize(d)
-            match = self._forbidden_canonical_match(canon)
+            canon = WASISandbox._canonicalize(d)
+            match = WASISandbox._forbidden_canonical_match(canon)
             if match is not None:
                 raise ValueError(
                     f"allow_dirs entry {d!r} is forbidden: canonical path "
                     f"{canon!r} resolves into blocked location {match!r}"
                 )
 
-    def _check_dangerous_dirs(self, allow_dirs: tuple[str, ...]) -> None:
+    @staticmethod
+    def _check_dangerous_dirs(allow_dirs: tuple[str, ...]) -> None:
         """Warn if allow_dirs entries match the denylist by string.
 
         The canonical realpath check already rejects true forbidden paths;
@@ -986,8 +999,8 @@ class WASISandbox:
         for d in allow_dirs:
             if _under_canonical_exception(d):
                 continue
-            if d in self._DANGEROUS_DIRS or any(
-                d == dd or d.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
+            if d in WASISandbox._DANGEROUS_DIRS or any(
+                d == dd or d.startswith(dd + "/") for dd in WASISandbox._DANGEROUS_DIRS
             ):
                 import warnings
 
@@ -1008,8 +1021,8 @@ class WASISandbox:
                 return dd
         return ""
 
+    @staticmethod
     def _grant_preopens(
-        self,
         wasi_cfg: WasmtimeWasiConfig,
         safe_dirs: tuple[str, ...],
         sandbox_dir: str | None,
@@ -1027,8 +1040,8 @@ class WASISandbox:
         """
         granted: list[str] = []
         for dir_path in safe_dirs:
-            canon = self._canonicalize(dir_path)
-            if self._forbidden_canonical_match(canon) is not None:
+            canon = WASISandbox._canonicalize(dir_path)
+            if WASISandbox._forbidden_canonical_match(canon) is not None:
                 import warnings
 
                 warnings.warn(

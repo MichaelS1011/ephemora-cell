@@ -26,11 +26,15 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 try:
     import resource
 except ImportError:  # pragma: no cover — non-POSIX platforms
     resource = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:
+    from .wasi_02 import ComponentSandbox
 
 from .execution_report import ExecutionReport
 from .wasi_runtime import ExecutionStatus, WASIConfig, WASISandbox
@@ -214,6 +218,7 @@ def run_worker(
     _apply_rlimits(config)
     baseline_ms = (time.monotonic() - start) * 1000
 
+    sandbox: WASISandbox | ComponentSandbox
     try:
         if abi == "preview1":
             sandbox = WASISandbox(config=config)
