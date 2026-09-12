@@ -1,8 +1,10 @@
 name: metrics
 
 # Daily traction snapshot (PyPI downloads, GitHub stars/forks/traffic)
-# appended to metrics/history.jsonl on the `metrics` branch. Read-only for
-# main; the product never phones home (see scripts/metrics_snapshot.py).
+# appended to metrics/history.jsonl on the `metrics` branch, plus a
+# shields.io endpoint JSON (metrics/clones.json) for the README badge.
+# Read-only for main; the product never phones home (see
+# scripts/metrics_snapshot.py).
 
 on:
   schedule:
@@ -55,6 +57,9 @@ jobs:
           git config user.name "ephemora-cell-metrics-bot"
           git config user.email "MichaelS1011@users.noreply.github.com"
           mv metrics/history.jsonl /tmp/history.jsonl
+          if [ -f metrics/clones.json ]; then
+            mv metrics/clones.json /tmp/clones.json
+          fi
           if git ls-remote --exit-code --heads origin metrics > /dev/null; then
             git fetch origin metrics
             git switch metrics
@@ -63,7 +68,10 @@ jobs:
           fi
           mkdir -p metrics
           mv /tmp/history.jsonl metrics/history.jsonl
-          git add metrics/history.jsonl
+          if [ -f /tmp/clones.json ]; then
+            mv /tmp/clones.json metrics/clones.json
+          fi
+          git add metrics/history.jsonl metrics/clones.json
           if git diff --cached --quiet; then
             echo "no change for $(date -u +%F)"
           else

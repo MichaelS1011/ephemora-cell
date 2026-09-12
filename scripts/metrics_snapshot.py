@@ -27,6 +27,30 @@ from pathlib import Path
 PYPI_PACKAGE = "ephemora-cell"
 GITHUB_REPO = "MichaelS1011/ephemora-cell"
 OUT = Path("metrics/history.jsonl")
+BADGE_OUT = Path("metrics/clones.json")
+
+
+def _update_clones_badge(snap: dict) -> None:
+    """Refresh metrics/clones.json (shields.io endpoint schema) from live
+    clone data. On null-tolerant runs (no TRAFFIC_TOKEN) any previous badge
+    file is left untouched, so the README keeps its last known value."""
+    clones = (snap.get("github") or {}).get("clones_14d") or {}
+    count = clones.get("count")
+    if count is None:
+        return
+    BADGE_OUT.parent.mkdir(parents=True, exist_ok=True)
+    BADGE_OUT.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "label": "clones (14d)",
+                "message": str(count),
+                "color": "blue",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def _get(url: str, token: str | None = None, timeout: int = 30) -> dict:
@@ -106,6 +130,7 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN")
     _pypi_snapshot(snap)
     _github_snapshot(snap, token)
+    _update_clones_badge(snap)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
