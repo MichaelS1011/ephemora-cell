@@ -184,3 +184,33 @@ Design notes:
   systems) — it makes a run's attested posture verifiable after the
   fact. This is a building block, not a compliance statement; custody
   and evidence workflows are Ephemora-enterprise territory.
+
+## Auto-grading untrusted submissions (education / hiring)
+
+Grading student or candidate code is running untrusted code with a
+budget — exactly what the Cell enforces. Every failure mode maps to a
+status, so an infinite loop becomes a *grade*, never a host crash, and
+the 10 KB output cap bounds what a submission can exfiltrate:
+
+| Status | Verdict |
+|---|---|
+| `success` | pass (optionally: output must match an expectation) |
+| `fuel_exhausted` | fail — exceeded the compute budget |
+| `timeout` | fail — exceeded the wall-clock budget |
+| `memory_exceeded` | fail — exceeded the memory budget |
+| `error` | fail — crashed or exited non-zero |
+
+`fuel_consumed` doubles as a cost/effort meter: deterministic work the
+submission caused, comparable across runs. Give every submission the
+same `WASIConfig` (e.g. `max_fuel=1_000_000`, `max_memory_mb=128`,
+`timeout_seconds=5`) — the budget is set by the institution, never by
+the student.
+
+A runnable grader lives in `examples/auto_grader.py`; its live output
+over three submissions (correct / compute bomb / memory hog):
+
+```text
+correct.wasm         pass  success          fuel=1 — correct under budget
+compute_bomb.wasm    fail  fuel_exhausted   fuel=1000000 — exceeded the compute budget
+memory_hog.wasm      fail  memory_exceeded  fuel=None — exceeded the memory budget
+```
