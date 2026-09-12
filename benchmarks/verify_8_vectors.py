@@ -136,7 +136,15 @@ def _path_open_wat(target: str) -> str:
     """WASM that path_open()s `target` on the preopen dirfd (3) and exits
     with the returned errno (0 = opened, non-zero = blocked)."""
     n = len(target)
-    # rights mask: PATH_OPEN(0x2000) | PATH_OPEN_DIR(0x800) | FD_READ(0x1) = 0x2801
+    # Stack order is (fd, dirflags, path_ptr, path_len, oflags, rights_base,
+    # rights_inheriting, fdflags, opened_fd): path ptr = 0, len = n. Rights
+    # are requested FOR THE NEW FILE DESCRIPTOR: FD_READ (0x2) | FD_SEEK
+    # (0x4) = 0x6 — file-appropriate; PATH_OPEN is held by the preopened
+    # dirfd, never requested per-file. (The pre-2026-09-12 harness pushed
+    # {n} as the path POINTER and 0 as the LENGTH — an empty path — so
+    # control AND attack both failed with NOTCAPABLE for the wrong reason
+    # and the positive control read as a broken harness; audit 2026-09-12
+    # F10.)
     return f"""(module
   (import "wasi_snapshot_preview1" "path_open" (func $po
     (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
@@ -145,10 +153,10 @@ def _path_open_wat(target: str) -> str:
   (data (i32.const 0) "{target}")
   (func (export "_start")
     (local $err i32)
-    ;; dirfd=3, path=0, len={n}, oflags=0, fsflags=0,
-    ;; rights=PATH_OPEN|PATH_OPEN_DIR|FD_READ (0x2801), inheriting=0, fdflags=0, opened_fd=100
-    i32.const 3 i32.const 0 i32.const {n} i32.const 0 i32.const 0
-    i64.const 10241 i64.const 0 i32.const 0 i32.const 100
+    ;; dirfd=3, dirflags=0, path=0 (ptr), len={n}, oflags=0 (open existing),
+    ;; rights=FD_READ|FD_SEEK (0x6), inheriting=0, fdflags=0, opened_fd=100
+    i32.const 3 i32.const 0 i32.const 0 i32.const {n} i32.const 0
+    i64.const 6 i64.const 0 i32.const 0 i32.const 100
     call $po local.set $err
     local.get $err call $exit
   )
@@ -331,7 +339,9 @@ def main():
         )
         atk.unlink(missing_ok=True)
         # Blocked iff the symlink did NOT open (errno != 0).
-        # the positive control is informational; rights mismatch is harness issue not sandbox bypass
+        # The positive control MUST open (errno 0) — if it fails, this
+        # harness is broken, not the sandbox (suite control:
+        # tests/test_security.py positive control).
         blocked_ok = r.get("exit_code") != 0
         results["symlink"] = {
             "blocked": blocked_ok,
