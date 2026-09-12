@@ -1,13 +1,16 @@
-"""Generate assets/demo.gif — terminal demo rendered as macOS-style frames.
+"""Generate assets/trust-chain.gif — "Verifying. Not claimed." in ~15 s.
 
-Every string shown is a verbatim capture from real runs (2026-09-12; see
-README Quick Start and benchmarks/workloads/exploit.wasm). Deterministic:
-rerunning with the same inputs produces identical frames; ffmpeg palette =
-tiny, crisp GIF. elapsed_ms is deliberately NOT shown — wasmtime fuel and
-wall time are platform-dependent (see SECURITY.md), and the demo must not
-age into a false claim. The fuel-bomb scene's numbers (100/100) are exact
-on every platform: the budget is enforced, not measured.
+Four scenes, every string a verbatim capture from real runs (2026-09-12):
 
+  1. run --isolated --json          -> the attested security baseline
+  2. run fuel_bomb.wasm --fuel 100  -> stopped, 100/100 units accounted
+     (exact on every platform: budgets are enforced, not measured)
+  3. examples/signed_record_demo.py -> signed record; one rewritten field
+     breaks verification
+  4. signed-tools mode              -> a tampered manifest is rejected
+     fail-closed before the tool ever registers (ADR-006)
+
+Reuse of the frame/palette machinery from make_gif.py; deterministic.
 Requires: Pillow (.venv), ffmpeg on PATH.
 """
 from pathlib import Path
@@ -17,14 +20,13 @@ import tempfile
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).parent
-OUT = HERE / "demo.gif"
+OUT = HERE / "trust-chain.gif"
 
 W, H = 960, 620
 MARGIN = 14
 FONT_SIZE = 22
 TITLE_SIZE = 15
 
-# GitHub-dark palette
 BG = "#0d1117"
 TITLEBAR = "#161b22"
 TEXT = "#e6edf3"
@@ -36,53 +38,51 @@ PROMPT = "#3fb950"
 BORDER = "#30363d"
 
 FONT = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", FONT_SIZE)
-FONT_B = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", FONT_SIZE)
 TITLE_FONT = ImageFont.truetype("/System/Library/Fonts/Menlo.ttc", TITLE_SIZE)
 LH = FONT_SIZE + 12
 
-# (command, [(text, color), ...]) — outputs are verbatim real-run captures.
 SCENES = [
-    ("pip install ephemora-cell", [
-        ("Successfully installed ephemora-cell-1.0.1 wasmtime-47.0.1", GREEN),
-    ]),
-    ("ephemora-cell run examples/hello.wasm", [
-        ("Hello from Ephemora Cell!", TEXT),
-    ]),
-    ("ephemora-cell run examples/hello.wasm --isolated --json", [
+    ("ephemora-cell run tool.wasm --isolated --json", [
         ("{", MUTED),
-        ('  "status": "success",', TEXT),
-        ('  "fuel_consumed": 16397,', TEXT),
-        ('  "fuel_budget": 1000000,  "fuel_utilization": 0.0164,', TEXT),
-        ('  "stdout_bytes": 26,  "warnings": [],', TEXT),
-        ('  "security_baseline": { "preopens": ["/sandbox"], ... }', CYAN),
+        ('  "status": "success",  "exit_code": 0,', TEXT),
+        ('  "fuel_consumed": 16397,  "fuel_budget": 1000000,', TEXT),
+        ('  "security_baseline": {', CYAN),
+        ('    "wasmtime_version": "47.0.1",', CYAN),
+        ('    "memory_limit_bytes": 134217728,', CYAN),
+        ('    "preopens": ["/sandbox"], "threads_enabled": false', CYAN),
+        ("  }", CYAN),
         ("}", MUTED),
     ]),
-    ("ephemora-cell run examples/fuel_bomb.wasm --isolated --fuel 100 --json", [
+    ("ephemora-cell run fuel_bomb.wasm --isolated --fuel 100 --json", [
         ("{", MUTED),
         ('  "status": "fuel_exhausted",', RED),
         ('  "fuel_consumed": 100,', GREEN),
-        ('  "fuel_budget": 100,  "fuel_utilization": 1.0,', GREEN),
+        ('  "fuel_budget": 100,  "fuel_utilization": 1.0', GREEN),
         ("}", MUTED),
-        ("every unit accounted — see it live in every CI push", MUTED),
     ]),
-    ("ephemora-cell run exploit.wasm", [
-        ("Blocked WASI import: wasi_snapshot_preview1::fd_psync", RED),
-        ("  fsync/sync operations are not allowed in sandbox", RED),
+    ("python examples/signed_record_demo.py", [
+        ("record: success | fuel: 1", TEXT),
+        ("verify(intact): True", GREEN),
+        ("# ... one field rewritten ...", MUTED),
+        ("verify(tampered): False", RED),
+    ]),
+    ("ephemora-cell-mcp --require-signed-tools pub.pem", [
+        ("tool 'widget': sidecar failed manifest signature verification", RED),
+        ("  (unsigned, tampered or malformed) - rejected", RED),
+        ("  in signed-tools mode", RED),
         ("", TEXT),
-        ("8/8 attack vectors blocked — live-verified, with positive controls:", MUTED),
-        ("  python benchmarks/verify_8_vectors.py", MUTED),
+        ("the agent proposes; the host disposes", MUTED),
     ]),
 ]
 
 PAUSE_CMD = 8
 PAUSE_OUT = 5
-TYPE_SPEED = 2  # chars per frame
+TYPE_SPEED = 2
 
 
 def frame(history, current_cmd, typed, out_lines, out_reveal):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
-    # window chrome
     d.rounded_rectangle([MARGIN, MARGIN, W - MARGIN, H - MARGIN], 12, fill=BG, outline=BORDER, width=2)
     d.rounded_rectangle([MARGIN, MARGIN, W - MARGIN, MARGIN + 44], 12, fill=TITLEBAR)
     d.rectangle([MARGIN, MARGIN + 26, W - MARGIN, MARGIN + 44], fill=TITLEBAR)

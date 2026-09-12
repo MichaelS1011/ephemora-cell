@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).parent
 REPO = HERE.parent
-CELL_JSON = REPO / "benchmarks/results/2026-09-02/02_cell_8_vector_verify.json"
+CELL_JSON = REPO / "benchmarks/results/2026-09-12/02_cell_8_vector_verify.json"
 DOCKER_JSON = REPO / "benchmarks/results/2026-09-02/01_docker_attack_probe.json"
 OUT = HERE / "same-boundary.gif"
 
@@ -129,7 +129,7 @@ def draw(row_count, show_score=False, show_tagline=False):
         )
         d.text(
             (W // 2 - 130, H - 64),
-            "0.46 ms median pooled end-to-end",
+            "0.48 ms median pooled end-to-end (measured 2026-09-12)",
             font=FONT_SM,
             fill=MUTED,
         )
