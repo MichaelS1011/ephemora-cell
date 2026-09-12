@@ -1,0 +1,144 @@
+name: 'Ephemora Cell — sandboxed WASM execution'
+description: >-
+  Run a WASM module inside the Ephemora Cell sandbox (fuel metering,
+  memory cap, epoch timeout, I/O walls, deny-by-default preopens) and get
+  machine-readable outputs. Untrusted PR-provided modules run with
+  --isolated: disposable worker subprocess, OS-level rlimits, hard kill.
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  module:
+    description: 'Path to the .wasm module to execute (relative to the caller workspace)'
+    required: true
+  args:
+    description: 'Arguments passed to the WASM guest (space-separated; word splitting applies)'
+    required: false
+    default: ''
+  profile:
+    description: 'Sandbox profile: plugin | llm | edge | default | analytical'
+    required: false
+    default: 'default'
+  fuel:
+    description: 'Fuel budget override (guest CPU units)'
+    required: false
+    default: ''
+  memory-mb:
+    description: 'Memory cap override in MiB'
+    required: false
+    default: ''
+  timeout:
+    description: 'Wall-clock timeout override in seconds'
+    required: false
+    default: ''
+  allow-dirs:
+    description: 'Directories preopened for the guest (space-separated). Grants full read/write — use sparingly'
+    required: false
+    default: ''
+  isolated:
+    description: 'Run in a disposable worker subprocess with OS-level walls (recommended for untrusted modules)'
+    required: false
+    default: 'true'
+  fail-on:
+    description: 'When to fail the step: non-success | never'
+    required: false
+    default: 'non-success'
+  package-version:
+    description: 'ephemora-cell version to install from PyPI (empty = latest)'
+    required: false
+    default: ''
+
+outputs:
+  status:
+    description: 'success | error | timeout | fuel_exhausted | memory_exceeded'
+    value: ${{ steps.run.outputs.status }}
+  exit_code:
+    description: 'Guest exit code'
+    value: ${{ steps.run.outputs.exit_code }}
+  fuel_consumed:
+    description: 'Fuel units consumed (null when unmetered)'
+    value: ${{ steps.run.outputs.fuel_consumed }}
+  elapsed_ms:
+    description: 'Execution wall time in ms'
+    value: ${{ steps.run.outputs.elapsed_ms }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install ephemora-cell
+      shell: bash
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+      run: |
+        if [ -n "$PACKAGE_VERSION" ]; then
+          pip install "ephemora-cell==$PACKAGE_VERSION"
+        else
+          pip install ephemora-cell
+        fi
+
+    - name: Run module in the Cell sandbox
+      id: run
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        GUEST_ARGS: ${{ inputs.args }}
+        PROFILE: ${{ inputs.profile }}
+        FUEL: ${{ inputs.fuel }}
+        MEMORY_MB: ${{ inputs.memory-mb }}
+        TIMEOUT: ${{ inputs.timeout }}
+        ALLOW_DIRS: ${{ inputs.allow-dirs }}
+        ISOLATED: ${{ inputs.isolated }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        set -uo pipefail
+        result_file="$(mktemp)"
+        stderr_file="$(mktemp)"
+
+        cmd=(run "$MODULE" --profile "$PROFILE" --json)
+        [ "$ISOLATED" = "true" ] && cmd+=(--isolated)
+        [ -n "$FUEL" ] && cmd+=(--fuel "$FUEL")
+        [ -n "$MEMORY_MB" ] && cmd+=(--memory-mb "$MEMORY_MB")
+        [ -n "$TIMEOUT" ] && cmd+=(--timeout "$TIMEOUT")
+        # word splitting is intentional: the inputs are space-separated lists
+        [ -n "$ALLOW_DIRS" ] && cmd+=(--allow-dirs $ALLOW_DIRS)
+        [ -n "$GUEST_ARGS" ] && cmd+=($GUEST_ARGS)
+
+        set +e
+        ephemora-cell "${cmd[@]}" > "$result_file" 2> "$stderr_file"
+        cli_exit=$?
+        set -e
+
+        if [ "$cli_exit" -ne 0 ] && ! jq -e . "$result_file" >/dev/null 2>&1; then
+          echo "::error::ephemora-cell CLI failed before producing a report (exit $cli_exit)"
+          cat "$stderr_file" >&2
+          exit 1
+        fi
+
+        status=$(jq -r '.status // "parse_error"' "$result_file")
+        exit_code=$(jq -r '.exit_code // 1' "$result_file")
+        fuel=$(jq -r '.fuel_consumed // "null"' "$result_file")
+        elapsed=$(jq -r '.elapsed_ms // 0' "$result_file")
+
+        {
+          echo "status=$status"
+          echo "exit_code=$exit_code"
+          echo "fuel_consumed=$fuel"
+          echo "elapsed_ms=$elapsed"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "Cell run: status=$status exit_code=$exit_code fuel_consumed=$fuel elapsed_ms=${elapsed}ms"
+        if [ -s "$stderr_file" ]; then
+          echo "::group::guest output (stderr channel — stdout carries the report)"
+          cat "$stderr_file" >&2
+          echo "::endgroup::"
+        fi
+
+        if [ "$status" != "success" ] && [ "$FAIL_ON" = "non-success" ]; then
+          echo "::error::Cell run did not succeed: status=$status exit_code=$exit_code"
+          exit 1
+        fi

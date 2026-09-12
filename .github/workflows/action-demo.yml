@@ -1,0 +1,50 @@
+# Live proof-of-work for the composite action in ./action — runs on every
+# push: the smoke job executes a benign module, the enforcement job feeds
+# the SAME module a 100-unit fuel budget and expects the sandbox to stop
+# it with status fuel_exhausted. If either behavior regresses, CI is red.
+name: action-demo
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: hello
+        uses: ./action
+        with:
+          module: examples/hello.wasm
+          profile: llm
+      - name: Assert the run succeeded
+        run: |
+          [ "${{ steps.hello.outputs.status }}" = "success" ] || { echo "unexpected status: ${{ steps.hello.outputs.status }}"; exit 1; }
+          echo "smoke OK on ${{ matrix.os }}: status=${{ steps.hello.outputs.status }} fuel=${{ steps.hello.outputs.fuel_consumed }} elapsed=${{ steps.hello.outputs.elapsed_ms }}ms"
+
+  enforcement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Same module, 100 fuel units: the sandbox must stop it (FUEL_EXHAUSTED)
+      # and the action must fail — expected and asserted below.
+      - id: fuel-bomb
+        uses: ./action
+        with:
+          module: examples/hello.wasm
+          profile: llm
+          fuel: 100
+        continue-on-error: true
+      - name: Assert the fuel bomb was stopped
+        run: |
+          [ "${{ steps.fuel-bomb.outcome }}" = "failure" ] || { echo "action should have failed on fuel exhaustion"; exit 1; }
+          [ "${{ steps.fuel-bomb.outputs.status }}" = "fuel_exhausted" ] || { echo "unexpected status: ${{ steps.fuel-bomb.outputs.status }}"; exit 1; }
+          [ "${{ steps.fuel-bomb.outputs.fuel_consumed }}" = "100" ] || { echo "fuel accounting broken: ${{ steps.fuel-bomb.outputs.fuel_consumed }}"; exit 1; }
+          echo "enforcement OK: fuel bomb stopped, fuel_consumed=100 accounted"

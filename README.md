@@ -214,6 +214,22 @@ Three things most MCP tool servers don't give you:
 
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 
+## Untrusted PR code in GitHub Actions
+
+This repository ships a composite action: run a WASM module in the Cell sandbox inside your own workflow — with fuel metering, memory cap, epoch timeout and (default) the `--isolated` subprocess path (OS-level rlimits, hard kill):
+
+```yaml
+- id: run-tool
+  uses: MichaelS1011/ephemora-cell/action@main
+  with:
+    module: path/to/module.wasm   # e.g. built from a PR-provided recipe
+    profile: llm
+    # fuel: 500_000
+- run: echo "status=${{ steps.run-tool.outputs.status }} fuel=${{ steps.run-tool.outputs.fuel_consumed }}"
+```
+
+Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. This repo dogfoods the action on every push: [`.github/workflows/action-demo.yml`](.github/workflows/action-demo.yml) runs a benign module and feeds the same module a 100-unit fuel budget, asserting live that the sandbox stops it and accounts every unit.
+
 ## Architecture
 
 ```mermaid
