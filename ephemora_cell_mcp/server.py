@@ -30,13 +30,21 @@ returned as ``isError: true`` results with status + message and the same
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ephemora_cell.profiles import get as get_profile
+
 from . import protocol
 from .engine import CellOutcome, CellToolEngine, ToolExecutionError, parse_tool_stdout
-from .tool_registry import ToolRegistry
+from .tool_registry import (
+    TOOL_REQUEST_SUFFIX,
+    ToolRegistry,
+    tool_wasm_sha256,
+    verify_manifest,
+)
 from .transport import StdioTransport
 
 _PACKAGE_TOOLS = Path(__file__).resolve().parent / "tools"
@@ -79,6 +87,7 @@ class Server:
         engine: CellToolEngine | None = None,
         pooled: bool = False,
         manifest_verifier: Callable[[bytes, bytes], bool] | None = None,
+        tool_requests_dir: str | Path | None = None,
     ) -> None:
         """Create the server.
 
@@ -99,12 +108,22 @@ class Server:
                 (``tool_registry.sign_manifest``) and unsigned/tampered
                 tools are rejected at load. See
                 ``tool_registry.ed25519_verifier_from_pem``.
+            tool_requests_dir: Governed-load requests directory (ADR-006).
+                The host drops or allows guests to drop
+                ``<name>.tool.request.json`` files here; the HOST invokes
+                :meth:`process_tool_requests` to evaluate them
+                (verify-before-register), install accepted tools and emit
+                ``notifications/tools/list_changed``. When set,
+                ``initialize`` advertises ``listChanged: True``.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
         elif not Path(tools_dir).is_absolute():
             tools_dir = Path(tools_dir).resolve()
         self.tools_dir = Path(tools_dir)
+        self.tool_requests_dir = (
+            Path(tool_requests_dir).resolve() if tool_requests_dir else None
+        )
         self.transport = transport if transport is not None else StdioTransport()
         self.engine = engine if engine is not None else CellToolEngine(pooled=pooled)
         self.registry = ToolRegistry(
@@ -218,7 +237,15 @@ class Server:
         )
         return {
             "protocolVersion": version,
-            "capabilities": protocol.CAPABILITIES,
+            "capabilities": {
+                "tools": {
+                    # listChanged flips True only once governed loading is
+                    # enabled (ADR-006): a static registry has nothing to
+                    # announce.
+                    "listChanged": self.tool_requests_dir
+                    is not None
+                }
+            },
             "serverInfo": {
                 "name": protocol.SERVER_NAME,
                 "version": protocol.SERVER_VERSION,
@@ -311,6 +338,124 @@ class Server:
             "network": _NETWORK_POLICY,
             "security_baseline": self.engine.policy_for(spec),
         }
+
+    # --- governed loading (ADR-006) ----------------------------------
+
+    def process_tool_requests(self) -> dict[str, Any]:
+        """Evaluate ``*.tool.request.json`` in the allowlisted requests dir.
+
+        The host invokes this — capability changes are host decisions, not
+        chat decisions (ADR-006); a guest can only WRITE a request file,
+        never approve one. Every request goes through verify-before-
+        register: path allowlist, manifest signature (covering the module
+        digest), module hash re-check and registry policy. Accepted
+        requests are installed into the registry directory, the file is
+        consumed, the registry rescans and
+        ``notifications/tools/list_changed`` is emitted when the tool set
+        changed. Rejected requests stay on disk with a reason in the
+        report — never silent, per ADR-006.
+        """
+        report: dict[str, Any] = {"accepted": [], "rejected": []}
+        requests_dir = self.tool_requests_dir
+        if requests_dir is None or not requests_dir.is_dir():
+            return report
+        before = {spec.name for spec in self.registry.list_tools()}
+        installed = 0
+        for request_path in sorted(requests_dir.glob(f"*{TOOL_REQUEST_SUFFIX}")):
+            ok, detail = self._evaluate_tool_request(request_path, before)
+            if ok:
+                report["accepted"].append(detail)
+                installed += 1
+                request_path.unlink(missing_ok=True)
+            else:
+                report["rejected"].append(
+                    {"request": request_path.name, "reason": detail}
+                )
+        if installed:
+            try:
+                self.registry = ToolRegistry(
+                    self.tools_dir,
+                    manifest_verifier=self.registry.manifest_verifier,
+                )
+            except Exception as e:
+                # A rescan failure must surface, never silently shrink the
+                # tool set (ADR-006 consequence).
+                report["error"] = f"registry rescan failed: {e}"
+                return report
+            if {spec.name for spec in self.registry.list_tools()} != before:
+                self.transport.send(
+                    {
+                        "jsonrpc": protocol.JSONRPC_VERSION,
+                        "method": "notifications/tools/list_changed",
+                    }
+                )
+        return report
+
+    def _evaluate_tool_request(
+        self, request_path: Path, current_names: set[str]
+    ) -> tuple[bool, str]:
+        """Validate one request file; returns (accepted, name-or-reason)."""
+        try:
+            request = json.loads(request_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            return False, f"unreadable request: {e}"
+        if not isinstance(request, dict):
+            return False, "request must be a JSON object"
+        wasm_ref = request.get("wasm_path")
+        manifest = request.get("manifest")
+        if not isinstance(wasm_ref, str) or not wasm_ref:
+            return False, "request requires a non-empty wasm_path"
+        if not isinstance(manifest, dict):
+            return False, "request requires a manifest object"
+        # (a) Path allowlist: the module must live INSIDE the allowlisted
+        # requests dir — a request can never reference host FS paths.
+        requests_dir = self.tool_requests_dir
+        assert requests_dir is not None  # caller guarantees
+        try:
+            wasm_abs = Path(wasm_ref).resolve(strict=True)
+        except OSError as e:
+            return False, f"wasm_path unresolvable: {e}"
+        if not wasm_abs.is_relative_to(requests_dir):
+            return False, (
+                f"wasm_path {wasm_ref!r} resolves outside the allowlisted "
+                "requests dir"
+            )
+        if wasm_abs.suffix != ".wasm":
+            return False, "wasm_path must point at a .wasm module"
+        # (b) Verify-before-register: signed-tools mode is mandatory for
+        # dynamic loads, and the manifest must describe THESE bytes.
+        verifier = self.registry.manifest_verifier
+        if verifier is None:
+            return False, (
+                "tool requests require signed-tools mode "
+                "(--require-signed-tools / manifest_verifier)"
+            )
+        if not verify_manifest(manifest, verifier):
+            return False, "manifest signature invalid (unsigned/tampered)"
+        declared = manifest.get("wasm_sha256")
+        if not isinstance(declared, str) or declared != tool_wasm_sha256(wasm_abs):
+            return False, (
+                "module hash mismatch — the signed manifest does not "
+                "describe these bytes"
+            )
+        # (c) Registry policy: the profile must exist; sidecar grants can
+        # only narrow the profile (enforced in engine._config_for).
+        profile = manifest.get("profile", "llm")
+        try:
+            get_profile(profile)
+        except ValueError as e:
+            return False, str(e)
+        stem = wasm_abs.stem
+        if stem in current_names or (self.tools_dir / f"{stem}.wasm").exists():
+            return False, f"tool name collision: {stem!r} already registered"
+        # Install: copy the module into the registry dir + drop the signed
+        # sidecar next to it.
+        shutil.copyfile(wasm_abs, self.tools_dir / f"{stem}.wasm")
+        (self.tools_dir / f"{stem}.json").write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        return True, stem
 
     def _build_call_result(self, outcome: CellOutcome) -> dict[str, Any]:
         result = outcome.result

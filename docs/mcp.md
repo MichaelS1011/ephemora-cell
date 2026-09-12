@@ -230,6 +230,18 @@ tools directory if you want them alongside your own).
   canonicalization the execution records use, so a tampered grant cannot
   pass. Needs the optional `tools-signing` extra (`cryptography`); in-host
   deployments can instead pass a custom `manifest_verifier` callable.
+- **Governed dynamic loading (`--tool-requests-dir DIR`, ADR-006)** — with
+  signed-tools mode on, the operator points the server at a requests
+  directory. A guest or client can only DROP a
+  `<name>.tool.request.json` file there (a request names a `.wasm`
+  inside that directory plus its signed manifest with `wasm_sha256`);
+  the HOST invokes `Server.process_tool_requests()`, which verifies the
+  manifest, re-hashes the module, checks the profile and installs
+  accepted tools — then rescans and emits
+  `notifications/tools/list_changed` (`initialize` advertises
+  `listChanged: True` once a requests dir is configured). Rejected
+  requests stay on disk with a reason in the report — never silent. The
+  agent proposes; the host disposes.
 
 ## Integrating with MCP clients
 

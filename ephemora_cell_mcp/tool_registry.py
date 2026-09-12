@@ -29,6 +29,7 @@ Registry notes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -42,6 +43,10 @@ DEFAULT_INPUT_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
 # Manifest fields that carry the signature itself (never part of the
 # signing input).
 _SIGNATURE_FIELDS = ("alg", "signature")
+
+# Governed-load request files (ADR-006): the guest/client drops
+# <name>.tool.request.json into the operator-allowlisted requests dir.
+TOOL_REQUEST_SUFFIX = ".tool.request.json"
 
 
 def manifest_payload(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +113,18 @@ def verify_manifest(
         return bool(verifier(canonical, signature))
     except Exception:
         return False
+
+
+def tool_wasm_sha256(wasm_path: str | Path) -> str:
+    """Lowercase hex SHA-256 of a module — the binding between a signed
+    manifest and the exact bytes it describes (ADR-006): the digest is a
+    manifest field, hence covered by the manifest signature, and a
+    register-time re-hash proves the module is those bytes."""
+    digest = hashlib.sha256()
+    with open(wasm_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def ed25519_verifier_from_pem(pem_path: str) -> Callable[[bytes, bytes], bool]:
