@@ -76,6 +76,7 @@ class Server:
         tools_dir: str | Path | None = None,
         transport=None,
         engine: CellToolEngine | None = None,
+        pooled: bool = False,
     ) -> None:
         """Create the server.
 
@@ -87,6 +88,10 @@ class Server:
             transport: Object with ``read_line() -> str|None`` and
                 ``send(dict)``. Defaults to real stdio.
             engine: Cell execution engine (injectable for tests).
+            pooled: Trusted fast path (decision D3) — disable the
+                sandbox-dir I/O byte wall so the pooled engine serves each
+                call (~0.5 ms/call). Explicit operator choice; ``get-policy``
+                attests the relaxed wall. Ignored when ``engine`` is given.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
@@ -94,7 +99,7 @@ class Server:
             tools_dir = Path(tools_dir).resolve()
         self.tools_dir = Path(tools_dir)
         self.transport = transport if transport is not None else StdioTransport()
-        self.engine = engine if engine is not None else CellToolEngine()
+        self.engine = engine if engine is not None else CellToolEngine(pooled=pooled)
         self.registry = ToolRegistry(self.tools_dir)
 
     # --- public API -------------------------------------------------
