@@ -48,9 +48,7 @@ def grade_submission(
     }
 
 
-def _verdict(
-    result: ExecutionResult, expect_stdout: str | None
-) -> tuple[str, str]:
+def _verdict(result: ExecutionResult, expect_stdout: str | None) -> tuple[str, str]:
     if result.status is ExecutionStatus.SUCCESS:
         if expect_stdout is not None and result.stdout != expect_stdout:
             return "fail", "output mismatch"
