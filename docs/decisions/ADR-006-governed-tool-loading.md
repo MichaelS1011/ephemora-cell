@@ -1,6 +1,12 @@
 # ADR-006: Governed Dynamic Tool Loading (Request-File, Verify-Before-Register)
 
-- **Status:** Proposed (implementation targeted after 1.0.1)
+- **Status:** Partially adopted — the verify-before-register gate shipped
+  2026-09-12 (decision D1): `tool_registry.sign_manifest` /
+  `verify_manifest` (SEP-2787-style over RFC 8785 JCS), signed-tools
+  registry enforcement (fail-closed, incl. bare `.wasm` without sidecar),
+  server flag `--require-signed-tools` + `sign_tool` utility. The
+  request-file dynamic load (rescan + `list_changed`) builds on this gate
+  and follows.
 - **Date:** 2026-09-05
 - **Context:** MCP clients surface per-server tool pickers and meta tools
   (see Microsoft Wassette's `list-components` / `load-component` /

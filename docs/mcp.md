@@ -219,6 +219,17 @@ tools directory if you want them alongside your own).
   cap stay enforced. An explicit operator choice — the relaxed wall is
   attested in `get-policy` (`io_budget_bytes: null`), so report and
   enforcement cannot drift.
+- **`--require-signed-tools PUBKEY.pem` (ADR-006 verify-before-register)** —
+  third-party tool directories can run in signed-tools mode: every
+  `<toolname>.json` sidecar must carry an Ed25519 manifest signature and
+  bare `.wasm` files without a sidecar are rejected too (fail closed).
+  Sign sidecars with `python -m ephemora_cell_mcp.sign_tool
+  tools/echo.json --key ed25519_private.pem`; the server verifies against
+  the operator's public key at load. The signature covers the full
+  manifest (description, profile, `allow_dirs`) over the same RFC 8785
+  canonicalization the execution records use, so a tampered grant cannot
+  pass. Needs the optional `tools-signing` extra (`cryptography`); in-host
+  deployments can instead pass a custom `manifest_verifier` callable.
 
 ## Integrating with MCP clients
 

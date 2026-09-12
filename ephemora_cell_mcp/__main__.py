@@ -34,15 +34,41 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--require-signed-tools",
+        default=None,
+        metavar="PUBKEY_PEM",
+        help=(
+            "ADR-006 verify-before-register: Ed25519 public key (PEM file); "
+            "every tool sidecar must carry a valid manifest signature and "
+            "unsigned/tampered tools are rejected at load. Needs the "
+            "optional 'cryptography' package (tools-signing extra). Sign "
+            "sidecars with: python -m ephemora_cell_mcp.sign_tool"
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
     )
     args = parser.parse_args(argv)
 
+    verifier = None
+    if args.require_signed_tools:
+        from .tool_registry import ed25519_verifier_from_pem
+
+        try:
+            verifier = ed25519_verifier_from_pem(args.require_signed_tools)
+        except (OSError, ValueError, RuntimeError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+
     from .server import Server
 
-    Server(tools_dir=args.tools_dir, pooled=args.pooled).serve()
+    Server(
+        tools_dir=args.tools_dir,
+        pooled=args.pooled,
+        manifest_verifier=verifier,
+    ).serve()
     return 0
 
 
