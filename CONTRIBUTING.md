@@ -15,6 +15,25 @@ source .venv/bin/activate  # Linux/macOS
 pip install -e ".[dev]"
 ```
 
+Requires Python >= 3.10 (3.12 recommended). Homebrew's system Python is
+PEP 668 externally-managed — always install into the venv, never with a
+bare `pip3 install`.
+
+Alternative with [uv](https://docs.astral.sh/uv/) (no pip in the venv
+needed — this is how the maintainer's local `.venv` is managed):
+
+```bash
+uv venv --python 3.12
+uv pip install -e ".[dev]"
+```
+
+## Toolchain Versions
+
+CI verifies the `build` recipes with **Zig 0.13.0**, Go 1.22 and WASI SDK
+25. Newer Zig releases change `std` APIs regularly — if a guest build fails
+locally, compare `zig version` against the CI pin first (the builder prints
+the same hint).
+
 ## Running Tests
 
 ```bash
