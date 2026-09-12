@@ -75,13 +75,13 @@ print(result.elapsed_ms)      # wall time
 print(result.fuel_consumed)   # compute actually used
 ```
 
-![Ephemora Cell demo — install, run, JSON report, attack blocked](assets/demo.gif)
+![Ephemora Cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
 
-*Real CLI session: install, first run, machine-readable `--json` report with the security baseline, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
+*Real CLI session: install, first run, machine-readable `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
 
 ![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
 
-*Same eight attack primitives, measured live in one run (2026-09-02): a stock `python:3.12-slim` container lets every one through (0/8 blocked), the Ephemora Cell boundary blocks all eight (8/8). Reproduce both columns:*
+*Same eight attack primitives, measured live (Docker probe 2026-09-02, Cell probe 2026-09-12 — now with a positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), the Ephemora Cell boundary blocks all eight (8/8). Reproduce both columns:*
 
 ```bash
 python3 assets/demo_attack_probe.py    # left column  -> 0/8 blocked (stock Docker)
@@ -229,6 +229,24 @@ This repository ships a composite action: run a WASM module in the Cell sandbox 
 ```
 
 Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. This repo dogfoods the action on every push: [`.github/workflows/action-demo.yml`](.github/workflows/action-demo.yml) runs a benign module and feeds the same module a 100-unit fuel budget, asserting live that the sandbox stops it and accounts every unit.
+
+## Verifying. Not claimed.
+
+Around the sandbox sits a verifiable trust chain for third-party tools:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/trust-chain-dark.svg">
+  <img src="assets/trust-chain-light.svg" alt="Trust chain: vendor signs manifest, host verifies fail-closed, Cell sandbox runs, signed execution record">
+</picture>
+
+- **Signed tool manifests.** Third-party tools ship an Ed25519-signed manifest (RFC 8785 JCS); the server verifies before registering and rejects unsigned, tampered or hash-mismatched tools fail-closed — a bare `.wasm` without a manifest never loads in signed-tools mode. `ephemora-cell-mcp --require-signed-tools pub.pem`, sign with `python -m ephemora_cell_mcp.sign_tool`.
+- **Governed dynamic loading.** An agent can only *propose* a tool — a `tool.request.json` dropped into an operator-allowlisted directory; the host verifies signature, module hash and policy, then installs and announces it (`notifications/tools/list_changed`). The agent proposes; the host disposes ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)).
+- **Signed execution records.** Any run folds into a tamper-evident record covering status, fuel, timing and the attested security baseline — rewrite one field and verification fails. Runnable demo: `python examples/signed_record_demo.py`.
+- **Trusted fast path.** `ephemora-cell-mcp --pooled` serves verified tools from the pooled engine at ~0.5 ms per call instead of ~12 ms (measured) — the relaxed I/O wall is attested in `get-policy`.
+
+![Trust chain in 15 seconds — attested run, fuel bomb stopped at 100/100, signed record survives verification until one field is rewritten, tampered manifest rejected fail-closed](assets/trust-chain.gif)
+
+*Every frame is a verbatim capture from a real run — reproduce them from a clone. Fuel numbers are exact (budgets are enforced); see [SECURITY.md](SECURITY.md) for the platform note on fuel costs.*
 
 ## Architecture
 
