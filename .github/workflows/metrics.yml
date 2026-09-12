@@ -22,6 +22,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The snapshot script appends to (and de-duplicates) the existing
+      # history, so restore it from the metrics branch BEFORE collecting —
+      # main has no metrics/history.jsonl, and writing a fresh single-line
+      # file would truncate the archive to one row per run.
+      - name: Restore existing history from metrics branch
+        run: |
+          mkdir -p metrics
+          if git ls-remote --exit-code --heads origin metrics > /dev/null; then
+            git fetch origin metrics
+            git show origin/metrics:metrics/history.jsonl > metrics/history.jsonl
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
