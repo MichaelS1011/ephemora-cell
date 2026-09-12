@@ -20,13 +20,17 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from ephemora_cell_mcp import Server
 from ephemora_cell_mcp.sign_tool import main as sign_tool_main
 from ephemora_cell_mcp.tool_registry import (
+    TOOL_REQUEST_SUFFIX,
     ToolRegistry,
     ed25519_verifier_from_pem,
     sign_manifest,
+    tool_wasm_sha256,
     verify_manifest,
 )
+from ephemora_cell_mcp.transport import MemoryTransport
 
 MANIFEST = {
     "name": "widget",
@@ -176,3 +180,191 @@ class TestSignToolCLI:
         tools = _tools_dir(tmp_path, dict(MANIFEST))
         rc = sign_tool_main([str(tools / "widget.json"), "--key", "/absent.pem"])
         assert rc == 2
+
+
+class TestGovernedLoad:
+    """ADR-006 request-file loading: the agent proposes, the host disposes.
+
+    Server.process_tool_requests() enforces verify-before-register: path
+    allowlist, manifest signature (covering the module digest), module
+    hash re-check, registry policy — then rescan + list_changed.
+    """
+
+    @staticmethod
+    def _drop_request(
+        key,
+        requests_dir,
+        *,
+        stem="widget",
+        tamper=False,
+        unsigned=False,
+        manifest_extra=None,
+    ):
+        """Vendor side: drop a module + its (signed) request into DIR."""
+        wasm = requests_dir / f"{stem}.wasm"
+        wasm.write_bytes(WASM_STUB)
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(wasm)
+        if manifest_extra:
+            manifest.update(manifest_extra)
+        if not unsigned:
+            manifest = sign_manifest(manifest, lambda data: key.sign(data))
+        if tamper:
+            wasm.write_bytes(WASM_STUB + b"\x00tampered-after-signing")
+        request_file = requests_dir / f"{stem}{TOOL_REQUEST_SUFFIX}"
+        request_file.write_text(
+            json.dumps({"wasm_path": str(wasm), "manifest": manifest}),
+            encoding="utf-8",
+        )
+        return request_file
+
+    @staticmethod
+    def _server(tmp_path, pub, *, with_verifier=True, with_requests=True):
+        tools = tmp_path / "srv_tools"
+        tools.mkdir(exist_ok=True)
+        requests = tmp_path / "requests"
+        requests.mkdir(exist_ok=True)
+        transport = MemoryTransport()
+        server = Server(
+            tools_dir=tools,
+            transport=transport,
+            manifest_verifier=(
+                ed25519_verifier_from_pem(str(pub)) if with_verifier else None
+            ),
+            tool_requests_dir=requests if with_requests else None,
+        )
+        return server, transport, tools, requests
+
+    def test_request_installs_tool_and_notifies(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, transport, tools, requests = self._server(tmp_path, pub)
+        request_file = self._drop_request(key, requests)
+        report = server.process_tool_requests()
+        assert report["accepted"] == ["widget"]
+        assert report["rejected"] == []
+        assert [t.name for t in server.registry.list_tools()] == ["widget"]
+        # the request is consumed; module + signed sidecar are installed
+        assert not request_file.exists()
+        assert (tools / "widget.wasm").read_bytes() == WASM_STUB
+        assert json.loads((tools / "widget.json").read_text())["signature"]
+        # the registry change is announced
+        assert any(
+            m.get("method") == "notifications/tools/list_changed"
+            for m in transport.outbox
+        )
+
+    def test_tampered_module_rejected(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, transport, _tools, requests = self._server(tmp_path, pub)
+        request_file = self._drop_request(key, requests, tamper=True)
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert "hash mismatch" in report["rejected"][0]["reason"]
+        assert [t.name for t in server.registry.list_tools()] == []
+        # rejected requests stay on disk for operator inspection
+        assert request_file.exists()
+        assert transport.outbox == []
+
+    def test_unsigned_manifest_rejected(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, _, _, requests = self._server(tmp_path, pub)
+        self._drop_request(key, requests, unsigned=True)
+        report = server.process_tool_requests()
+        assert "signature invalid" in report["rejected"][0]["reason"]
+
+    def test_path_escape_rejected(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, _, _, requests = self._server(tmp_path, pub)
+        # a module OUTSIDE the allowlisted dir is unreachable by request
+        outside = tmp_path / "evil.wasm"
+        outside.write_bytes(WASM_STUB)
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(outside)
+        signed = sign_manifest(manifest, lambda data: key.sign(data))
+        (requests / "evil.tool.request.json").write_text(
+            json.dumps({"wasm_path": str(outside), "manifest": signed}),
+            encoding="utf-8",
+        )
+        report = server.process_tool_requests()
+        assert "outside the allowlisted" in report["rejected"][0]["reason"]
+
+    def test_unknown_profile_rejected(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, _, _, requests = self._server(tmp_path, pub)
+        self._drop_request(key, requests, manifest_extra={"profile": "nope"})
+        report = server.process_tool_requests()
+        assert "Unknown profile" in report["rejected"][0]["reason"]
+
+    def test_name_collision_never_overwrites(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, _, tools, requests = self._server(tmp_path, pub)
+        self._drop_request(key, requests, stem="widget")
+        assert server.process_tool_requests()["accepted"] == ["widget"]
+        original = (tools / "widget.wasm").read_bytes()
+        # second request for the same stem — different bytes with a VALID
+        # signature over exactly those bytes (v2), so only the collision
+        # rule can reject it
+        wasm_v2 = requests / "widget.wasm"
+        wasm_v2.write_bytes(WASM_STUB + b"\x00version-2")
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(wasm_v2)
+        signed_v2 = sign_manifest(manifest, lambda data: key.sign(data))
+        (requests / "widget.tool.request.json").write_text(
+            json.dumps({"wasm_path": str(wasm_v2), "manifest": signed_v2}),
+            encoding="utf-8",
+        )
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert "collision" in report["rejected"][0]["reason"]
+        # the registered module was not replaced
+        assert (tools / "widget.wasm").read_bytes() == original
+
+    def test_requires_signed_mode(self, keypair, tmp_path):
+        key, _, pub = keypair
+        server, _, _, requests = self._server(tmp_path, pub, with_verifier=False)
+        self._drop_request(key, requests)
+        report = server.process_tool_requests()
+        assert "signed-tools mode" in report["rejected"][0]["reason"]
+
+    def test_no_requests_dir_is_a_noop(self, keypair, tmp_path):
+        _, _, pub = keypair
+        server, transport, _, _ = self._server(tmp_path, pub, with_requests=False)
+        assert server.process_tool_requests() == {"accepted": [], "rejected": []}
+        assert transport.outbox == []
+
+    def test_initialize_advertises_list_changed(self, keypair, tmp_path):
+        _, _, pub = keypair
+        server, _, _, _ = self._server(tmp_path, pub)
+        assert (
+            server._handle_initialize({})["capabilities"]["tools"]["listChanged"]
+            is True
+        )
+        plain, _, _, _ = self._server(tmp_path, pub, with_requests=False)
+        assert (
+            plain._handle_initialize({})["capabilities"]["tools"]["listChanged"]
+            is False
+        )
+
+    def test_sign_tool_wasm_binding_end_to_end(self, keypair, tmp_path):
+        """sign_tool --wasm injects the digest; the request chain accepts."""
+        _, priv, pub = keypair
+        server, transport, _tools, requests = self._server(tmp_path, pub)
+        wasm = requests / "widget.wasm"
+        wasm.write_bytes(WASM_STUB)
+        sidecar = requests / "widget.json"
+        sidecar.write_text(json.dumps(dict(MANIFEST)), encoding="utf-8")
+        assert (
+            sign_tool_main([str(sidecar), "--key", str(priv), "--wasm", str(wasm)]) == 0
+        )
+        signed = json.loads(sidecar.read_text(encoding="utf-8"))
+        assert signed["wasm_sha256"] == tool_wasm_sha256(wasm)
+        (requests / "widget.tool.request.json").write_text(
+            json.dumps({"wasm_path": str(wasm), "manifest": signed}),
+            encoding="utf-8",
+        )
+        report = server.process_tool_requests()
+        assert report["accepted"] == ["widget"]
+        assert any(
+            m.get("method") == "notifications/tools/list_changed"
+            for m in transport.outbox
+        )

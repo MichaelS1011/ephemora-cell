@@ -45,6 +45,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("manifest", help="path to the <toolname>.json sidecar")
     parser.add_argument("--key", required=True, help="Ed25519 private key (PEM file)")
     parser.add_argument("--alg", default="EdDSA", help="JWS alg id (default EdDSA)")
+    parser.add_argument(
+        "--wasm",
+        default=None,
+        metavar="MODULE.wasm",
+        help=(
+            "bind the manifest to a module: adds wasm_sha256 (SHA-256 of "
+            "the .wasm bytes, covered by the signature) — required before "
+            "governed dynamic loading (ADR-006 tool requests)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -69,6 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(manifest, dict):
         print("error: manifest must be a JSON object", file=sys.stderr)
         return 2
+
+    if args.wasm:
+        from .tool_registry import tool_wasm_sha256
+
+        try:
+            manifest["wasm_sha256"] = tool_wasm_sha256(args.wasm)
+        except OSError as e:
+            print(f"error: cannot read module: {e}", file=sys.stderr)
+            return 2
 
     from .tool_registry import sign_manifest
 

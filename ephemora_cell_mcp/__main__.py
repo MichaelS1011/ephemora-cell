@@ -46,6 +46,18 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--tool-requests-dir",
+        default=None,
+        metavar="DIR",
+        help=(
+            "governed dynamic loading (ADR-006): the host evaluates "
+            "*.tool.request.json files dropped into DIR via "
+            "process_tool_requests() — verify-before-register, then rescan "
+            "+ notifications/tools/list_changed; requires "
+            "--require-signed-tools. initialize advertises listChanged"
+        ),
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
@@ -68,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         tools_dir=args.tools_dir,
         pooled=args.pooled,
         manifest_verifier=verifier,
+        tool_requests_dir=args.tool_requests_dir,
     ).serve()
     return 0
 
