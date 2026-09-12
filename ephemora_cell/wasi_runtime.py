@@ -18,7 +18,7 @@ import re
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
@@ -1154,34 +1154,48 @@ class WASISandbox:
 def run_wasm(
     module_path: str,
     *,
-    max_memory_mb: int = 128,
-    max_fuel: int = 1_000_000,
-    timeout_seconds: int = 30,
-    allow_dirs: tuple[str, ...] = (),
-    allow_env: tuple[tuple[str, str], ...] = (),
+    config: WASIConfig | None = None,
+    max_memory_mb: int | None = None,
+    max_fuel: int | None = None,
+    timeout_seconds: int | None = None,
+    allow_dirs: tuple[str, ...] | None = None,
+    allow_env: tuple[tuple[str, str], ...] | None = None,
     args: list[str] | None = None,
     stdin_data: str | None = None,
     use_subprocess: bool = False,
     abi: str = "auto",
-    memory64: bool = False,
+    memory64: bool | None = None,
 ) -> ExecutionResult:
     """Convenience wrapper for single-shot WASM execution.
 
     Args:
+        config: Full :class:`WASIConfig` — carries every knob the flat
+            parameters don't reach (io budgets, disk quota, GC-heap knob,
+            sandbox base dir, thread/memory64 baseline). Flat keyword
+            arguments, when given, override the matching ``config``
+            fields; with neither, WASIConfig defaults apply. For state
+            stores, engine-pool control and external interrupts use
+            :meth:`WASISandbox.run` directly.
         stdin_data: Data to provide on stdin (subject to STDIN_MAX_BYTES).
         abi: "auto" (default — detects components by magic bytes),
             "preview1" or "component".
         memory64: Enable Wasm 3.0 memory64 (64-bit address space) for this
             run. Off by default.
     """
-    config = WASIConfig(
-        max_memory_mb=max_memory_mb,
-        max_fuel=max_fuel,
-        timeout_seconds=timeout_seconds,
-        allow_dirs=allow_dirs,
-        allow_env=allow_env,
-        memory64=memory64,
-    )
+    if config is None:
+        config = WASIConfig()
+    if max_memory_mb is not None:
+        config = replace(config, max_memory_mb=max_memory_mb)
+    if max_fuel is not None:
+        config = replace(config, max_fuel=max_fuel)
+    if timeout_seconds is not None:
+        config = replace(config, timeout_seconds=timeout_seconds)
+    if allow_dirs is not None:
+        config = replace(config, allow_dirs=allow_dirs)
+    if allow_env is not None:
+        config = replace(config, allow_env=allow_env)
+    if memory64 is not None:
+        config = replace(config, memory64=memory64)
     sandbox = WASISandbox(config=config)
     result = sandbox.run(
         module_path,

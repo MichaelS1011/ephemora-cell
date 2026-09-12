@@ -212,6 +212,46 @@ class TestRunWasm:
         assert result.status == ExecutionStatus.FUEL_EXHAUSTED
         assert result.fuel_consumed == 100
 
+    def test_run_wasm_config_overload(self, tmp_path):
+        """Decision D2 (audit F2b): run_wasm accepts a full WASIConfig —
+        the I/O-budget, disk-quota and GC-heap knobs are reachable from
+        the convenience wrapper, not only from WASISandbox."""
+        loop = wasmtime.wat2wasm(b'(module (func (export "_start") (loop $l br $l)))')
+        wasm_path = tmp_path / "loop2.wasm"
+        wasm_path.write_bytes(loop)
+        result = run_wasm(str(wasm_path), config=WASIConfig(max_fuel=100))
+        assert result.status == ExecutionStatus.FUEL_EXHAUSTED
+        assert result.fuel_consumed == 100
+
+    def test_run_wasm_flat_flags_override_config(self, tmp_path):
+        """Flat keyword arguments override the matching config fields."""
+        loop = wasmtime.wat2wasm(b'(module (func (export "_start") (loop $l br $l)))')
+        wasm_path = tmp_path / "loop3.wasm"
+        wasm_path.write_bytes(loop)
+        result = run_wasm(
+            str(wasm_path),
+            config=WASIConfig(max_fuel=50_000_000),
+            max_fuel=100,
+        )
+        assert result.status == ExecutionStatus.FUEL_EXHAUSTED
+        assert result.fuel_consumed == 100
+
+    def test_run_wasm_config_carries_io_knobs(self, tmp_path):
+        """The ADR-002 knobs flow through the overload without error (and
+        with io_budget_bytes=None the pooled path serves the run)."""
+        wasm_path = tmp_path / "ok.wasm"
+        wasm_path.write_bytes(wasmtime.wat2wasm(b'(module (func (export "_start")))'))
+        result = run_wasm(
+            str(wasm_path),
+            config=WASIConfig(
+                io_cpu_seconds=10.0,
+                io_budget_bytes=None,
+                disk_quota_bytes=None,
+                max_gc_heap_mb=64,
+            ),
+        )
+        assert result.status == ExecutionStatus.SUCCESS
+
     def test_run_wasm_defaults(self):
         result = run_wasm("/nonexistent.wasm")
         assert result.status == ExecutionStatus.ERROR
