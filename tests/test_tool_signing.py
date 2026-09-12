@@ -17,14 +17,6 @@ from pathlib import Path
 
 import pytest
 
-# The signing chain needs the optional tools-signing extra; consumers
-# running bare pytest skip instead of erroring. CI installs the extra, so
-# these tests run for real there (not green-by-skip).
-cryptography = pytest.importorskip("cryptography")
-
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ephemora_cell_mcp import Server
@@ -53,6 +45,13 @@ WASM_STUB = b"\x00asm\x01\x00\x00\x01"
 
 @pytest.fixture()
 def keypair(tmp_path):
+    # The signing chain needs the optional tools-signing extra; consumers
+    # running bare pytest skip instead of erroring. CI installs the extra,
+    # so these tests run for real there (not green-by-skip).
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
     key = Ed25519PrivateKey.generate()
     priv = tmp_path / "ed25519_private.pem"
     pub = tmp_path / "ed25519_public.pem"
@@ -381,6 +380,7 @@ def test_signed_record_demo_detects_tampering():
     """The runnable demo (examples/signed_record_demo.py) must print
     verify=True for the intact record and verify=False after tampering —
     the recipes-doc claim stays backed by a live run."""
+    pytest.importorskip("cryptography")
     repo_root = os.path.join(os.path.dirname(__file__), "..")
     proc = subprocess.run(
         [sys.executable, "examples/signed_record_demo.py"],
