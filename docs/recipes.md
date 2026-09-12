@@ -5,18 +5,36 @@ Additional usage recipes beyond the [README](../README.md#use-cases) examples.
 ## Choosing preopen directories (`allow_dirs`)
 
 `allow_dirs` entries are realpath-canonicalized and denied if they resolve
-into a blocked root. On **macOS this matters more than on Linux**: `/tmp` and
-`/var` are symlinks into `/private`, which is a blocked root, so
-`allow_dirs=("/tmp",)` is rejected by design:
+into a blocked root (`/etc`, `/usr`, `/proc`, ...). The macOS temp roots are
+allowed explicitly for Linux parity: `/tmp` and `tempfile.mkdtemp()`
+directories resolve to `/private/tmp` / `/private/var/folders/...` and are
+accepted. Everything else under `/private` (e.g. `/private/etc`) stays
+forbidden, as do entries swapped into a forbidden location between
+validation and grant (grant-time revalidation):
 
 ```text
-ValueError: allow_dirs entry '/tmp' is forbidden: canonical path
-'/private/tmp' resolves into blocked location '/private'
+ValueError: allow_dirs entry '/private/etc' is forbidden: canonical path
+'/private/etc' resolves into blocked location '/private'
 ```
 
-Create a real directory instead (e.g. `./workspace` or
-`~/data/agent-scratch`) and pass its absolute path. The rejection is the
-symlink-escape defense working as intended, not a bug.
+The canonical check is the authority — a symlink that resolves outside the
+allowed roots is rejected.
+
+## Reading `run --json` output
+
+`--json` prints exactly one JSON document on **stdout** (the
+`ExecutionReport` schema plus `stdin_capped`); guest stdout and stderr are
+routed to **stderr** so the document stays parseable:
+
+```bash
+ephemora-cell run tool.wasm --json 1>report.json 2>guest.log
+python -m json.tool report.json
+```
+
+Without the redirections the report is still the only thing on stdout — the
+guest output appears on the terminal's stderr channel, which trips up
+`ephemora-cell run tool.wasm --json | python -m json.tool` only if the guest
+writes to stderr *and* the shell merges streams (`2>&1`).
 
 ## Serverless Functions (Edge/Cloud)
 

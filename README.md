@@ -95,7 +95,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 - **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
   canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
-- **Sub-millisecond warm execution** — 0.16 ms guest / 0.46 ms end-to-end (pooled, measured) makes sandboxing every call affordable instead of exceptional.
+- **Sub-millisecond warm execution** — 0.17 ms guest / 0.48 ms end-to-end (pooled, measured; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
 ## What is enforced
 
@@ -210,7 +210,7 @@ Three things most MCP tool servers don't give you:
 
 - **Isolation you can inspect.** The native `get-policy` tool returns the effective sandbox policy per tool — fuel budget, memory limit, preopens, network policy — computed from the same code path that enforces it, so the report and the enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and the WASI surface does not even expose sockets to try.
 - **Compatibility proven, not assumed.** The shipped server is verified in CI against the official MCP Python SDK on every push (`initialize`, `tools/list`, a real `tools/call` with execution `_meta`), with per-client setup documented for Claude Desktop, VS Code, Codex, OpenCode, and Hermes.
-- **Isolation priced for every call.** ~0.89 ms per warm tool call (measured; [comparison](docs/comparison-mcp-servers.md)) — sandboxing *every* call becomes the default, not a trade-off.
+- **Isolation priced for every call.** 0.48 ms per pooled warm run (library path); the shipped stdio MCP server enforces the ADR-002 I/O wall through a per-run engine and sits at ~12 ms per tool call (both measured; [comparison](docs/comparison-mcp-servers.md)) — sandboxing *every* call becomes the default, not a trade-off.
 
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 

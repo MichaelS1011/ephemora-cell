@@ -17,7 +17,14 @@ We take security vulnerabilities seriously. If you discover a security issue in 
 
 ### How to Report
 
-**Report via:** LinkedIn DM to Michael Soppa — https://www.linkedin.com/in/michael-soppa
+**Preferred: GitHub Private Vulnerability Reporting** — open the
+[Security tab](https://github.com/MichaelS1011/ephemora-cell/security/advisories/new)
+and file a private report. It stays confidential (visible only to the
+maintainers), supports the coordinated patch/disclose workflow, and credit
+is handled inside the advisory.
+
+**Secondary channel:** LinkedIn DM to Michael Soppa — https://www.linkedin.com/in/michael-soppa
+(only if GitHub is not an option for you).
 
 Please include:
 - A clear description of the vulnerability
@@ -179,6 +186,11 @@ revision in `requirements.txt` (`wasmtime==47.0.1`).
 - The `wasmtime` release train is reviewed quarterly against the sandbox
   requirements (fuel metering, epoch interruption, WASI Preview1)
 - Next scheduled LTS review: **Q3/2027**
+- **GC-heap gate trigger:** when a wasmtime-py release exposes a GC-heap
+  limiter (`ResourceLimiter`) or a `wasm_gc` engine flag in the Python
+  bindings, add the corresponding enforcement for `max_gc_heap_mb`
+  (recorded only today — see Known Limitations) to that upgrade's
+  validation checklist
 
 **Process:** Bumping the pinned `requirements.txt` revision requires a passing
 `pytest` run plus a clean `pip-audit` before merge.
