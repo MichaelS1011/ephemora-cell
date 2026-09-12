@@ -112,6 +112,32 @@ async def execute_wasm(req: WASMRequest):
     return {"status": result.status, "stdout": result.stdout, "elapsed_ms": result.elapsed_ms}
 ```
 
+**Trusted fast path (pooled).** The snippet above builds a fresh sandbox
+per request — the honest default for untrusted input, carrying the
+ADR-002 I/O wall and its per-run engine (1.06 ms median, measured,
+`benchmarks/results/`). For modules you *trust* (your own, signed — see
+the governed-loading section in [docs/mcp.md](mcp.md)), keep one sandbox
+with a pooled engine and skip the byte wall:
+
+```python
+from ephemora_cell import WASIConfig, WASISandbox
+from dataclasses import replace
+
+pooled_config = replace(WASIConfig(max_fuel=500_000), io_budget_bytes=None)
+sandbox = WASISandbox(config=pooled_config)  # module-level, one per process
+
+@app.post("/execute-trusted")
+async def execute_trusted(req: WASMRequest):
+    result = await asyncio.to_thread(sandbox.run, req.wasm_path)
+    return {"status": result.status, "stdout": result.stdout, "elapsed_ms": result.elapsed_ms}
+```
+
+Pooled warm runs measured 0.48 ms end-to-end (median, n=1000) — roughly
+2,000 sequential runs per core per second derived from that figure; with
+a shared engine, concurrent calls on one sandbox instance are not
+isolated from each other (single-tenant process), so keep one sandbox
+per worker process and route untrusted input through the walled path.
+
 ## Verifiable execution records (sign/verify)
 
 Every run folds into an `ExecutionReport` — status, fuel, timing and the
