@@ -362,7 +362,7 @@ class Server:
         before = {spec.name for spec in self.registry.list_tools()}
         installed = 0
         for request_path in sorted(requests_dir.glob(f"*{TOOL_REQUEST_SUFFIX}")):
-            ok, detail = self._evaluate_tool_request(request_path, before)
+            ok, detail = self._evaluate_tool_request(request_path, requests_dir, before)
             if ok:
                 report["accepted"].append(detail)
                 installed += 1
@@ -392,9 +392,15 @@ class Server:
         return report
 
     def _evaluate_tool_request(
-        self, request_path: Path, current_names: set[str]
+        self,
+        request_path: Path,
+        requests_dir: Path,
+        current_names: set[str],
     ) -> tuple[bool, str]:
-        """Validate one request file; returns (accepted, name-or-reason)."""
+        """Validate one request file; returns (accepted, name-or-reason).
+
+        ``requests_dir`` is the caller's resolved, non-None allowlist root.
+        """
         try:
             request = json.loads(request_path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
@@ -409,8 +415,6 @@ class Server:
             return False, "request requires a manifest object"
         # (a) Path allowlist: the module must live INSIDE the allowlisted
         # requests dir — a request can never reference host FS paths.
-        requests_dir = self.tool_requests_dir
-        assert requests_dir is not None  # caller guarantees
         try:
             wasm_abs = Path(wasm_ref).resolve(strict=True)
         except OSError as e:
