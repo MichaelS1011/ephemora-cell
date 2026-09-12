@@ -59,6 +59,30 @@ STDIN_MAX_BYTES = 9_216
 # WASI errno returned to the guest once the output budget is exhausted.
 _WASI_ERRNO_NOSPC = 51
 
+# macOS temp roots: /tmp and /var/folders are symlinks into /private, so the
+# canonical allowlist would reject the very directories tempfile.mkdtemp()
+# hands out — breaking parity with Linux, where /tmp is allowed. These two
+# canonical prefixes are allowed explicitly; every other /private location
+# (etc, usr, ...) stays forbidden. Shared by the preview1 and component paths.
+_CANONICAL_EXCEPTIONS: tuple[str, ...] = (
+    "/private/tmp",
+    "/private/var/folders",
+)
+
+
+def _under_canonical_exception(dir_path: str) -> bool:
+    """True when ``dir_path`` names a macOS temp root.
+
+    The dangerous-dirs STRING denylist contains "/private"; without this
+    exception that string would filter out /private/tmp even though the
+    canonical check (the authority) allows it.
+    """
+    return any(
+        dir_path == exc or dir_path.startswith(exc + "/")
+        for exc in _CANONICAL_EXCEPTIONS
+    )
+
+
 # Process-wide engine pool. Created lazily on first use because
 # engine_pool imports this module (circular import guard).
 _ENGINE_POOL = None
@@ -712,8 +736,9 @@ class WASISandbox:
                             + (("\n" + stderr_captured) if stderr_captured else "")
                         ),
                         stdout=_read_capped_output(stdout_path),
-                        sandbox_dir=sandbox_dir,
                         elapsed_ms=(time.monotonic() - start_time) * 1000,
+                        fuel_consumed=self._fuel_consumed(store),
+                        sandbox_dir=sandbox_dir,
                         effective_preopens=effective_preopens,
                     )
                 if _is_memory_fault_trap(trap_msg):
@@ -834,6 +859,7 @@ class WASISandbox:
                     stdout=stdout,
                     stderr=_limit_output(str(e) + stderr_from_file),
                     elapsed_ms=elapsed_ms,
+                    fuel_consumed=self._fuel_consumed(store),
                     sandbox_dir=sandbox_dir,
                     state_bytes=(
                         state_store.total_bytes if state_store is not None else None
@@ -881,6 +907,20 @@ class WASISandbox:
 
     # --- Helper methods for testing (P0 #1) ---
 
+    def _fuel_consumed(self, store) -> int | None:
+        """Fuel units consumed at call time (None = unmetered run).
+
+        An out-of-fuel trap proves the budget was spent; if the store
+        refuses a fuel read past the trap, report the full budget instead
+        of an unaccounted None.
+        """
+        if self._config.max_fuel is None:
+            return None
+        try:
+            return self._config.max_fuel - store.get_fuel()
+        except Exception:
+            return self._config.max_fuel
+
     def _create_test_wasm(self, wat_bytes: bytes, filename: str) -> Path:
         """Write raw WASM bytes to the sandbox dir for testing.
 
@@ -904,9 +944,14 @@ class WASISandbox:
         ``canon`` is expected to already be realpath-normalized. "/" is always
         forbidden; every other forbidden location is checked as a realpath
         prefix, closing symlink-based bypasses such as /private/etc on macOS.
+        The macOS temp roots (``_CANONICAL_EXCEPTIONS``) are allowed
+        explicitly.
         """
         if canon == "/":
             return "/"
+        for exc in _CANONICAL_EXCEPTIONS:
+            if canon == exc or canon.startswith(exc + "/"):
+                return None
         for f in cls._FORBIDDEN_CANONICAL:
             if canon == f or canon.startswith(f + "/"):
                 return f
@@ -939,6 +984,8 @@ class WASISandbox:
         if not allow_dirs:
             return
         for d in allow_dirs:
+            if _under_canonical_exception(d):
+                continue
             if d in self._DANGEROUS_DIRS or any(
                 d == dd or d.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
             ):
@@ -1005,7 +1052,8 @@ class WASISandbox:
         """Filter allow_dirs down to entries that pass the canonical allowlist.
 
         Entries whose realpath lands in a forbidden location are dropped, as
-        are plain string matches against the denylist.
+        are plain string matches against the denylist (except the macOS temp
+        roots, which the canonical check decides).
         """
         if not allow_dirs:
             return ()
@@ -1017,7 +1065,8 @@ class WASISandbox:
             if d in self._DANGEROUS_DIRS or any(
                 d == dd or d.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
             ):
-                continue
+                if not _under_canonical_exception(d):
+                    continue
             safe.append(d)
         return tuple(safe)
 

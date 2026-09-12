@@ -526,13 +526,35 @@ class TestSecurity4_4_Dangerous_Dir_Bypass:
         with pytest.raises(ValueError, match="forbidden"):
             WASISandbox(config=config)
 
-    def test_tmp_rejected_on_macos(self):
-        """allow_dirs="/tmp" must be rejected on macOS: realpath -> /private/tmp."""
+    def test_macos_tmp_parity_allowed(self):
+        """Regression (2026-09-12 audit F3): /tmp realpaths to /private/tmp on
+        macOS, so tempfile.mkdtemp() dirs used to hard-fail the canonical
+        allowlist while Linux /tmp was always allowed. The macOS temp roots
+        (/private/tmp, /private/var/folders) are now allowed explicitly;
+        everything else under /private stays forbidden (see
+        test_private_etc_rejected)."""
         if sys.platform != "darwin":
             pytest.skip("Only meaningful where /tmp is a symlink into /private")
-        config = WASIConfig(allow_dirs=("/tmp",))
-        with pytest.raises(ValueError, match="forbidden"):
-            WASISandbox(config=config)
+        d = tempfile.mkdtemp(prefix="ephemora_tmp_parity_")
+        try:
+            sandbox = WASISandbox(config=WASIConfig(allow_dirs=(d,)))
+            assert sandbox._filter_dangerous_dirs((d,)) == (d,)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_private_tmp_string_survives_denylist(self):
+        """A configured /private/tmp/... string must survive the /private
+        STRING denylist entry — the canonical check is the authority, and it
+        allows the macOS temp roots."""
+        if sys.platform != "darwin":
+            pytest.skip("Only meaningful where /tmp is a symlink into /private")
+        d = str(Path(tempfile.mkdtemp(prefix="ephemora_privtmp_")).resolve())
+        try:
+            assert d.startswith("/private/")
+            sandbox = WASISandbox(config=WASIConfig(allow_dirs=(d,)))
+            assert d in sandbox._filter_dangerous_dirs((d,))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
     def test_filter_drops_forbidden_keeps_safe(self):
         """Filter: /etc and /usr are dropped, /data stays."""

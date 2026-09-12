@@ -58,6 +58,7 @@ from .wasi_runtime import (
     WASISandbox,
     _is_memory_fault_trap,
     _read_capped_output,
+    _under_canonical_exception,
 )
 
 __all__ = ["ComponentSandbox", "is_component_binary"]
@@ -444,7 +445,11 @@ class ComponentSandbox:
             if d in WASISandbox._DANGEROUS_DIRS or any(
                 d == dd or d.startswith(dd + "/") for dd in WASISandbox._DANGEROUS_DIRS
             ):
-                continue
+                # macOS temp roots (/private/tmp, /private/var/folders) pass
+                # the canonical check — the /private string denylist entry
+                # must not drop them here either (audit 2026-09-12 F3).
+                if not _under_canonical_exception(d):
+                    continue
             safe.append(d)
         return tuple(safe)
 

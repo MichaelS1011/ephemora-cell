@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dataclasses import FrozenInstanceError
 
 import pytest
+import wasmtime
 
 from ephemora_cell import (
     ExecutionResult,
@@ -199,6 +200,17 @@ class TestRunWasm:
         )
         assert result.status in (ExecutionStatus.ERROR, ExecutionStatus.SUCCESS)
         assert result.elapsed_ms >= 0
+
+    def test_fuel_exhaustion_reports_consumed_fuel(self, tmp_path):
+        """Regression (2026-09-12 audit F1): FUEL_EXHAUSTED used to report
+        fuel_consumed=None — the cost went unaccounted exactly on the most
+        expensive runs. The trap itself proves the budget was spent."""
+        loop = wasmtime.wat2wasm(b'(module (func (export "_start") (loop $l br $l)))')
+        wasm_path = tmp_path / "loop.wasm"
+        wasm_path.write_bytes(loop)
+        result = run_wasm(str(wasm_path), max_fuel=100)
+        assert result.status == ExecutionStatus.FUEL_EXHAUSTED
+        assert result.fuel_consumed == 100
 
     def test_run_wasm_defaults(self):
         result = run_wasm("/nonexistent.wasm")
