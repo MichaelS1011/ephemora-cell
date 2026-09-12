@@ -62,7 +62,11 @@ Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platf
 - **I/O costs minimal fuel:** `fd_write` calls run on the host and consume ~27 fuel/write
   on the stdout path (~1.18MB theoretical before exhaustion at default 1M fuel); preopen
   *file* writes measure ~7.3 fuel/write (`benchmarks/io_dos/`) — in both cases the shared
-  10 KB output byte-budget (ENOSPC) caps captured output far earlier
+  10 KB output byte-budget (ENOSPC) caps captured output far earlier. NOTE (2026-09-12):
+  fuel is **not cross-platform deterministic** — wasmtime charges different per-instruction
+  costs per backend/arch (e.g. one `fd_write` hello measured ~16.4k units on macOS arm64
+  vs ~12 total on Linux x86_64). Fuel budgets are enforced correctly everywhere; they are
+  only comparable within one platform.
 - **GC heap not byte-bounded:** `Store.set_limits` limits linear memory only. `WASIConfig.max_gc_heap_mb` is recorded in the security baseline (observability); wasmtime-py 47 has no GC-heap limiter binding, so fuel remains the effective GC memory bound (see `benchmarks/pocs/README.md`)
 - **No memory zeroing:** WASM memory is reclaimed by the Python GC, not cryptographically wiped
 - **Single-tenant:** No multi-tenant isolation between concurrent modules in the same process

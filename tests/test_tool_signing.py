@@ -16,6 +16,12 @@ import sys
 from pathlib import Path
 
 import pytest
+
+# The signing chain needs the optional tools-signing extra; consumers
+# running bare pytest skip instead of erroring. CI installs the extra, so
+# these tests run for real there (not green-by-skip).
+cryptography = pytest.importorskip("cryptography")
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
