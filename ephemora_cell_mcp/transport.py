@@ -21,7 +21,9 @@ MAX_LINE_BYTES = 10 * 1024 * 1024
 class StdioTransport:
     """Line-oriented NDJSON over the process' stdin/stdout."""
 
-    def __init__(self, stdin=None, stdout=None, max_line_bytes: int = MAX_LINE_BYTES) -> None:
+    def __init__(
+        self, stdin=None, stdout=None, max_line_bytes: int = MAX_LINE_BYTES
+    ) -> None:
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
         self._max_line_bytes = max_line_bytes
@@ -55,9 +57,7 @@ class MemoryTransport:
     """In-process transport for tests: preloaded inbox, captured outbox."""
 
     def __init__(self, inbox: list[dict[str, Any]] | None = None) -> None:
-        self._inbox: list[str] = [
-            json.dumps(message) for message in (inbox or [])
-        ]
+        self._inbox: list[str] = [json.dumps(message) for message in (inbox or [])]
         self.outbox: list[dict[str, Any]] = []
 
     def read_line(self) -> str | None:
