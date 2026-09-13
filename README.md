@@ -20,11 +20,8 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
   <a href="https://github.com/MichaelS1011/ephemora-cell">
     <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status">
   </a>
-  <a href="https://pypistats.org/packages/ephemora-cell">
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/MichaelS1011/ephemora-cell/metrics/metrics/downloads.json" alt="PyPI downloads (30d)">
-  </a>
-  <a href="https://github.com/MichaelS1011/ephemora-cell/blob/metrics/metrics/history.jsonl">
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/MichaelS1011/ephemora-cell/metrics/metrics/clones.json" alt="GitHub clones (14d)">
+  <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers">
+    <img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell" alt="GitHub stars">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers">
     <img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell?style=flat" alt="GitHub stars">
