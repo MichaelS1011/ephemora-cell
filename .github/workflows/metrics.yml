@@ -75,7 +75,10 @@ jobs:
               mv "/tmp/$badge" "metrics/$badge"
             fi
           done
-          git add metrics/history.jsonl metrics/clones.json metrics/downloads.json
+          # downloads.json only exists when the pypistats fetch succeeded
+          # (null-tolerant badge); never fail the snapshot on its absence.
+          git add metrics/history.jsonl metrics/clones.json
+          git add metrics/downloads.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "no change for $(date -u +%F)"
           else
