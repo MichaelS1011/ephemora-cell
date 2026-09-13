@@ -48,16 +48,14 @@ SCENES = [
     ("ephemora-cell run examples/hello.wasm", [
         ("Hello from Ephemora Cell!", TEXT),
     ]),
-    ("ephemora-cell run examples/hello.wasm --isolated --json", [
+    ("ephemora-cell run hello.wasm --isolated --json", [
         ("{", MUTED),
-        ('  "status": "success",', TEXT),
-        ('  "fuel_consumed": 16397,', TEXT),
-        ('  "fuel_budget": 1000000,  "fuel_utilization": 0.0164,', TEXT),
-        ('  "stdout_bytes": 26,  "warnings": [],', TEXT),
+        ('  "status": "success",  "exit_code": 0,', TEXT),
+        ('  "fuel_consumed": 16397,  "fuel_budget": 1000000,', TEXT),
         ('  "security_baseline": { "preopens": ["/sandbox"], ... }', CYAN),
         ("}", MUTED),
     ]),
-    ("ephemora-cell run examples/fuel_bomb.wasm --isolated --fuel 100 --json", [
+    ("ephemora-cell run fuel_bomb.wasm --isolated --fuel 100 --json", [
         ("{", MUTED),
         ('  "status": "fuel_exhausted",', RED),
         ('  "fuel_consumed": 100,', GREEN),
@@ -76,7 +74,7 @@ SCENES = [
 
 PAUSE_CMD = 8
 PAUSE_OUT = 5
-TYPE_SPEED = 2  # chars per frame
+TYPE_SPEED = 6  # chars per frame — long commands per-keystroke frames dominate GIF size
 
 
 def frame(history, current_cmd, typed, out_lines, out_reveal):
@@ -90,17 +88,34 @@ def frame(history, current_cmd, typed, out_lines, out_reveal):
         d.ellipse([MARGIN + 18 + i * 26, MARGIN + 16, MARGIN + 34 + i * 26, MARGIN + 32], fill=c)
     d.text((MARGIN + 110, MARGIN + 14), "ephemora-cell — zsh", font=TITLE_FONT, fill=MUTED)
 
-    y = MARGIN + 64
+    # Soft scroll: build the full transcript, render only the lines that fit
+    # (a 5-scene history overflows the frame — a real terminal scrolls too).
+    lines = []
     for cmd, outs in history:
-        d.text((MARGIN + 20, y), "➜ ~ " + cmd, font=FONT, fill=PROMPT); y += LH
-        for t, c in outs:
-            d.text((MARGIN + 34, y), t, font=FONT, fill=c); y += LH
-        y += 8
+        lines.append(("prompt", cmd))
+        lines += [("out", t, c) for t, c in outs]
+        lines.append(("gap", ""))
     if current_cmd is not None:
-        d.text((MARGIN + 20, y), "➜ ~ " + current_cmd[:typed] + ("▌" if (typed // TYPE_SPEED) % 2 else ""), font=FONT, fill=PROMPT)
-        y += LH
-        for t, c in out_lines[:out_reveal]:
-            d.text((MARGIN + 34, y), t, font=FONT, fill=c); y += LH
+        cursor = "▌" if (typed // TYPE_SPEED) % 2 else ""
+        lines.append(("prompt", current_cmd[:typed] + cursor))
+        lines += [("out", t, c) for t, c in out_lines[:out_reveal]]
+    avail = H - (MARGIN + 64) - 14
+    height = sum(LH if it[0] != "gap" else 8 for it in lines)
+    while height > avail and lines:
+        height -= LH if lines[0][0] != "gap" else 8
+        lines.pop(0)
+    visible = lines
+
+    y = MARGIN + 64
+    for item in visible:
+        if item[0] == "prompt":
+            d.text((MARGIN + 20, y), "➜ ~ " + item[1], font=FONT, fill=PROMPT)
+            y += LH
+        elif item[0] == "out":
+            d.text((MARGIN + 34, y), item[1], font=FONT, fill=item[2] or TEXT)
+            y += LH
+        else:  # gap — the original 8 px scene spacing
+            y += 8
     return img
 
 
@@ -115,6 +130,7 @@ def build_frames():
             frames += [frame(history, cmd, len(cmd), outs, r)] * (PAUSE_OUT if r == len(outs) else 2)
         frames += [frame(history, cmd, len(cmd), outs, len(outs))] * 14
         history.append((cmd, outs))
+        history = history[-1:]  # one-scene window: worst case (prev + current) always fits the frame, so reveal frames never shift the whole screen
     frames += [frame(history, None, 0, [], 0)] * 22  # hold final state
     return frames
 
@@ -125,9 +141,9 @@ if __name__ == "__main__":
         for i, f in enumerate(frames):
             f.save(f"{td}/{i:04d}.png")
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-framerate", "20",
+            ["ffmpeg", "-y", "-loglevel", "error", "-framerate", "16",
              "-i", f"{td}/%04d.png", "-vf",
-             "split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse=dither=bayer:bayer_scale=4",
+             "split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:new=1",
              str(OUT)],
             check=True,
         )
