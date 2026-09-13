@@ -28,6 +28,7 @@ PYPI_PACKAGE = "ephemora-cell"
 GITHUB_REPO = "MichaelS1011/ephemora-cell"
 OUT = Path("metrics/history.jsonl")
 BADGE_OUT = Path("metrics/clones.json")
+DOWNLOADS_BADGE_OUT = Path("metrics/downloads.json")
 
 
 def _update_clones_badge(snap: dict) -> None:
@@ -45,6 +46,30 @@ def _update_clones_badge(snap: dict) -> None:
                 "schemaVersion": 1,
                 "label": "clones (14d)",
                 "message": str(count),
+                "color": "blue",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _update_downloads_badge(snap: dict) -> None:
+    """Refresh metrics/downloads.json (shields.io endpoint schema) from live
+    PyPI data — the README badge reads this instead of shields' pypistats
+    source, so a pypistats rate limit can never render an error string on
+    the README. On a failed pypistats fetch the previous badge file is left
+    untouched, so the README keeps its last known value."""
+    last_month = (snap.get("pypi") or {}).get("last_month")
+    if last_month is None:
+        return
+    DOWNLOADS_BADGE_OUT.parent.mkdir(parents=True, exist_ok=True)
+    DOWNLOADS_BADGE_OUT.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "label": "downloads (30d)",
+                "message": f"{last_month:,}".replace(",", " "),
                 "color": "blue",
             }
         )
@@ -131,6 +156,7 @@ def main() -> int:
     _pypi_snapshot(snap)
     _github_snapshot(snap, token)
     _update_clones_badge(snap)
+    _update_downloads_badge(snap)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
