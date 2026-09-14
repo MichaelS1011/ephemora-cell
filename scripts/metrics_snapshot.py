@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,42 @@ GITHUB_REPO = "MichaelS1011/ephemora-cell"
 OUT = Path("metrics/history.jsonl")
 BADGE_OUT = Path("metrics/clones.json")
 DOWNLOADS_BADGE_OUT = Path("metrics/downloads.json")
+
+# pypistats etiquette: a single daily run should never hammer the endpoint.
+# On a transient 429/5xx we back off and retry a few times; if it still fails
+# the caller keeps the last-known-good badge (see _update_*_badge null guards),
+# so a rate-limit degrades to "badge shows yesterday's number", never a crash
+# and never a blanked/public-reset metric. GET is idempotent, so retry is safe.
+_PYPI_RETRIES = 4
+_PYPI_BASE_BACKOFF_S = (
+    3.0  # ponytail: fixed backoff, no jitter; add jitter if multiple publishers
+)
+#                                             # share this endpoint. Only ONE publisher exists today.
+
+
+def _get_pypi_with_backoff(url: str) -> dict:
+    """GET a PyPI stats URL, retrying 429/5xx with exponential backoff.
+
+    Returns the parsed body on success; raises the last error if all attempts
+    fail (caller degrades to last-known-good). 404 is treated as a hard miss
+    (package truly unknown) and is NOT retried.
+    """
+    last: Exception | None = None
+    for attempt in range(_PYPI_RETRIES):
+        try:
+            return _get(url)
+        except urllib.error.HTTPError as e:  # nosec B310 - fixed https host, see _get
+            last = e
+            if e.code == 404:  # hard miss: package not found; don't retry
+                raise
+            if e.code not in (429, 403, 500, 502, 503):
+                raise  # non-transient (e.g. 4xx auth) — don't burn retries
+        except Exception as e:  # urlopen network blip — retry
+            last = e
+        if attempt < _PYPI_RETRIES - 1:
+            time.sleep(_PYPI_BASE_BACKOFF_S * (2**attempt))  # 3,6,12s
+    assert last is not None  # loop ran >=1 attempt; _PYPI_RETRIES>=1
+    raise last
 
 
 def _update_clones_badge(snap: dict) -> None:
@@ -99,10 +137,10 @@ def _get(url: str, token: str | None = None, timeout: int = 30) -> dict:
 
 def _pypi_snapshot(snap: dict) -> None:
     try:
-        recent = _get(f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/recent")[
-            "data"
-        ]
-        per_day = _get(
+        recent = _get_pypi_with_backoff(
+            f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/recent"
+        )["data"]
+        per_day = _get_pypi_with_backoff(
             f"https://pypistats.org/api/packages/{PYPI_PACKAGE}/overall?mirrors=false"
         ).get("data", [])
         snap["pypi"] = {
@@ -175,5 +213,48 @@ def main() -> int:
     return 0
 
 
+def _self_check() -> None:
+    """Assert-based guard for the 429 backoff logic (no pytest)."""
+    import urllib.error
+
+    calls = {"n": 0}
+
+    def flaky_429(url, token=None, timeout=30):
+        calls["n"] += 1
+        if calls["n"] < 3:  # fail twice with 429, then succeed
+            raise urllib.error.HTTPError(
+                url=url, code=429, msg="Too Many Requests", hdrs=None, fp=None
+            )
+        return {"ok": True}
+
+    orig = _get
+    try:
+        globals()["_get"] = flaky_429
+        globals()["_PYPI_BASE_BACKOFF_S"] = 0.0  # fast test path
+        assert _get_pypi_with_backoff("https://pypistats.org/x") == {"ok": True}
+        assert calls["n"] == 3, calls  # proves it retried through two 429s
+
+        # 404 = hard miss, must NOT retry
+        calls["n"] = 0
+
+        def hard_404(url, token=None, timeout=30):
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                url=url, code=404, msg="Not Found", hdrs=None, fp=None
+            )  # type: ignore
+
+        globals()["_get"] = hard_404
+        try:
+            _get_pypi_with_backoff("https://pypistats.org/y")
+            raise AssertionError("404 should have raised")
+        except urllib.error.HTTPError as e:
+            assert e.code == 404
+        assert calls["n"] == 1, calls  # proves no retry on 404
+    finally:
+        globals()["_get"] = orig
+    print("self-check: 429-retry + 404-hard-miss OK")
+
+
 if __name__ == "__main__":
+    _self_check()
     raise SystemExit(main())

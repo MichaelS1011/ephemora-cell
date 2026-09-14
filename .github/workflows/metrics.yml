@@ -1,10 +1,11 @@
 name: metrics
 
-# Daily traction snapshot (PyPI downloads, GitHub stars/forks/traffic)
-# appended to metrics/history.jsonl on the `metrics` branch, plus shields.io
-# endpoint JSONs (metrics/clones.json, metrics/downloads.json) for the README
-# badges. Read-only for main; the product never phones home (see
-# scripts/metrics_snapshot.py).
+# Daily traction snapshot (PyPI downloads, GitHub stars/forks/traffic):
+# publishes the current-aggregate badge JSONs (metrics/clones.json,
+# metrics/downloads.json) for the README badges. The day-level series
+# (history.jsonl) is intentionally NOT published — the badges already carry
+# the current numbers (minimum-viable-disclosure; see AGENTS decision log).
+# Read-only for main; the product never phones home (scripts/metrics_snapshot.py).
 
 on:
   schedule:
@@ -24,18 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The snapshot script appends to (and de-duplicates) the existing
-      # history, so restore it from the metrics branch BEFORE collecting —
-      # main has no metrics/history.jsonl, and writing a fresh single-line
-      # file would truncate the archive to one row per run.
-      - name: Restore existing history from metrics branch
-        run: |
-          mkdir -p metrics
-          if git ls-remote --exit-code --heads origin metrics > /dev/null; then
-            git fetch origin metrics
-            git show origin/metrics:metrics/history.jsonl > metrics/history.jsonl
-          fi
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -52,32 +41,48 @@ jobs:
           TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
         run: python scripts/metrics_snapshot.py
 
-      - name: Persist on metrics branch
+      - name: Persist badges on metrics branch
         run: |
           git config user.name "ephemora-cell-metrics-bot"
           git config user.email "MichaelS1011@users.noreply.github.com"
-          mv metrics/history.jsonl /tmp/history.jsonl
+          # Stash freshly collected badges (checkout of metrics would otherwise
+          # clobber them); main never carries metrics/, so this is branch-only.
+          mkdir -p /tmp/badges
           for badge in clones.json downloads.json; do
             if [ -f "metrics/$badge" ]; then
-              mv "metrics/$badge" "/tmp/$badge"
+              mv "metrics/$badge" "/tmp/badges/$badge"
             fi
           done
-          if git ls-remote --exit-code --heads origin metrics > /dev/null; then
+          # The snapshot script writes metrics/history.jsonl fresh into the
+          # main work-tree; the metrics branch still tracks that path, so it
+          # must be cleared before `git switch metrics` or git aborts the
+          # switch ("untracked working tree file would be overwritten"). It is
+          # not part of what we publish anymore (see the rm --ignore-unmatch below).
+          rm -f metrics/history.jsonl 2>/dev/null || true
+          if git ls-remote --exit-code --heads origin metrics >/dev/null; then
             git fetch origin metrics
             git switch metrics
           else
             git switch --orphan metrics
           fi
           mkdir -p metrics
-          mv /tmp/history.jsonl metrics/history.jsonl
           for badge in clones.json downloads.json; do
-            if [ -f "/tmp/$badge" ]; then
-              mv "/tmp/$badge" "metrics/$badge"
+            if [ -f "/tmp/badges/$badge" ]; then
+              mv "/tmp/badges/$badge" "metrics/$badge"
             fi
           done
+          # Decision (2026-09-14): the day-level series is intentionally no
+          # longer published — the aggregate badges carry the current numbers and
+          # per-day uniques are a mineable derivative metric. This is a forward-
+          # delete on a non-default orphan branch: nothing is force-pushed and no
+          # public ref is rewound, so it is safe. NOTE the prior history.jsonl
+          # blobs stay reachable via this branch's own earlier commits (history is
+          # not rewritten here) — if those values were ever sensitive, treat them
+          # as public-permanent and do NOT reintroduce them.
+          git rm --ignore-unmatch --quiet metrics/history.jsonl 2>/dev/null || true
           # downloads.json only exists when the pypistats fetch succeeded
           # (null-tolerant badge); never fail the snapshot on its absence.
-          git add metrics/history.jsonl metrics/clones.json
+          git add metrics/clones.json
           git add metrics/downloads.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "no change for $(date -u +%F)"
