@@ -40,6 +40,16 @@ def _parse_env_pairs(items: list[str]) -> list[tuple[str, str]]:
     return pairs
 
 
+def _flatten(groups):
+    """Flatten repeated nargs="*" flags ([["a=b"], ["b=c"]] -> ["a=b", "b=c"])."""
+    if groups is None:
+        return None
+    flat = []
+    for group in groups:
+        flat.extend(group)
+    return flat
+
+
 def _resolve_config(args) -> WASIConfig:
     """Build the run config.
 
@@ -56,7 +66,9 @@ def _resolve_config(args) -> WASIConfig:
     else:
         base = WASIConfig()
 
-    allow_env = () if args.allow_env is None else _parse_env_pairs(args.allow_env)
+    allow_env = (
+        () if args.allow_env is None else _parse_env_pairs(_flatten(args.allow_env))
+    )
     overrides: dict = {}
     if args.memory_mb is not None:
         overrides["max_memory_mb"] = args.memory_mb
@@ -64,8 +76,9 @@ def _resolve_config(args) -> WASIConfig:
         overrides["max_fuel"] = args.fuel
     if args.timeout is not None:
         overrides["timeout_seconds"] = args.timeout
-    if args.allow_dirs not in (None, ()):
-        overrides["allow_dirs"] = tuple(args.allow_dirs)
+    allow_dirs_flat = _flatten(args.allow_dirs)
+    if allow_dirs_flat:
+        overrides["allow_dirs"] = tuple(allow_dirs_flat)
     if allow_env:
         overrides["allow_env"] = allow_env
     if args.memory64:
@@ -197,7 +210,7 @@ def cmd_benchmark(args):
         max_memory_mb=args.memory_mb,
         max_fuel=args.fuel,
         timeout_seconds=args.timeout,
-        allow_dirs=tuple(args.allow_dirs) if args.allow_dirs else (),
+        allow_dirs=tuple(_flatten(args.allow_dirs) or ()),
     )
 
     sandbox = WASISandbox(config=config)
@@ -329,8 +342,16 @@ def main():
         default=None,
         help="timeout in seconds (overrides --profile; default 30)",
     )
-    p_run.add_argument("--allow-dirs", nargs="*", default=None)
-    p_run.add_argument("--allow-env", nargs="*", default=None, metavar="NAME=VALUE")
+    p_run.add_argument(
+        "--allow-dirs",
+        action="append",
+        nargs="*",
+        default=None,
+        help="host dir to preopen (optionally host::guest-name); " "repeatable",
+    )
+    p_run.add_argument(
+        "--allow-env", action="append", nargs="*", default=None, metavar="NAME=VALUE"
+    )
     p_run.add_argument(
         "--stdin",
         metavar="FILE",
@@ -374,7 +395,7 @@ def main():
     p_bench.add_argument("--memory-mb", type=int, default=128)
     p_bench.add_argument("--fuel", type=int, default=1_000_000)
     p_bench.add_argument("--timeout", type=int, default=30)
-    p_bench.add_argument("--allow-dirs", nargs="*", default=[])
+    p_bench.add_argument("--allow-dirs", action="append", nargs="*", default=[])
     p_bench.add_argument("--json", action="store_true")
     p_bench.add_argument("args", nargs="*")
     p_bench.set_defaults(func=cmd_benchmark)

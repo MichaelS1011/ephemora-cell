@@ -206,3 +206,39 @@ class TestGrantTimeRevalidation:
                 sandbox.run(str(_write_module(home_dir)), use_engine_pool=False)
         finally:
             sandbox.cleanup()
+
+
+class TestHostToGuestMapping:
+    """host::guest preopen mapping (wasmtime --dir host::guest convention).
+
+    wasi-libc resolves relative guest paths against the preopen named "/",
+    so the mapping is required for standard WASI binaries. Validation must
+    stay on the HOST side; the guest name is only a label.
+    """
+
+    def test_guest_sees_mapped_name(self, home_dir):
+        data = home_dir / "mapped"
+        data.mkdir()
+        config = WASIConfig(max_fuel=1_000_000, allow_dirs=(f"{data}::/",))
+        sandbox = WASISandbox(config=config)
+        try:
+            result = sandbox.run(str(_write_module(home_dir)))
+        finally:
+            sandbox.cleanup()
+        assert result.status == ExecutionStatus.SUCCESS
+        assert str(data.resolve()) in result.effective_preopens
+
+    def test_forbidden_host_rejected_even_with_guest_alias(self):
+        with pytest.raises(ValueError, match="forbidden"):
+            WASISandbox(config=WASIConfig(allow_dirs=("/etc::/",)))
+
+    def test_split_dir_mapping(self):
+        from ephemora_cell.wasi_runtime import WASISandbox as WS
+
+        assert WS._split_dir_mapping("/tmp/x::/") == ("/tmp/x", "/")
+        assert WS._split_dir_mapping("/tmp/x::/data") == ("/tmp/x", "/data")
+        # plain entries and malformed separators pass through unchanged
+        assert WS._split_dir_mapping("/tmp/x") == ("/tmp/x", "/tmp/x")
+        assert WS._split_dir_mapping("::") == ("::", "::")
+        assert WS._split_dir_mapping("a::") == ("a::", "a::")
+        assert WS._split_dir_mapping("::b") == ("::b", "::b")

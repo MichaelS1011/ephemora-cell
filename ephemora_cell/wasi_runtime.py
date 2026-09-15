@@ -972,6 +972,21 @@ class WASISandbox:
         return os.path.realpath(os.path.expanduser(dir_path))
 
     @staticmethod
+    def _split_dir_mapping(entry: str) -> tuple[str, str]:
+        """Split an allow_dirs entry into (host_path, guest_name).
+
+        Entries may use the wasmtime-style ``host::guest`` mapping (needed
+        when the guest expects the preopen under a specific name, e.g. "/"
+        for wasi-libc relative-path resolution); a plain entry preopens the
+        host path under its own name. Validation always applies to the
+        HOST side; the guest name is only a label inside the sandbox.
+        """
+        host, sep, guest = entry.partition("::")
+        if not sep or not host or not guest:
+            return entry, entry
+        return host, guest
+
+    @staticmethod
     def _validate_allow_dirs(allow_dirs: tuple[str, ...]) -> None:
         """Fail fast if any allow_dirs entry is canonically forbidden.
 
@@ -979,7 +994,8 @@ class WASISandbox:
             ValueError: with the offending entry and its canonical path.
         """
         for d in allow_dirs:
-            canon = WASISandbox._canonicalize(d)
+            host, _ = WASISandbox._split_dir_mapping(d)
+            canon = WASISandbox._canonicalize(host)
             match = WASISandbox._forbidden_canonical_match(canon)
             if match is not None:
                 raise ValueError(
@@ -997,10 +1013,12 @@ class WASISandbox:
         if not allow_dirs:
             return
         for d in allow_dirs:
-            if _under_canonical_exception(d):
+            host, _ = WASISandbox._split_dir_mapping(d)
+            if _under_canonical_exception(host):
                 continue
-            if d in WASISandbox._DANGEROUS_DIRS or any(
-                d == dd or d.startswith(dd + "/") for dd in WASISandbox._DANGEROUS_DIRS
+            if host in WASISandbox._DANGEROUS_DIRS or any(
+                host == dd or host.startswith(dd + "/")
+                for dd in WASISandbox._DANGEROUS_DIRS
             ):
                 import warnings
 
@@ -1040,7 +1058,8 @@ class WASISandbox:
         """
         granted: list[str] = []
         for dir_path in safe_dirs:
-            canon = WASISandbox._canonicalize(dir_path)
+            host_path, guest_name = WASISandbox._split_dir_mapping(dir_path)
+            canon = WASISandbox._canonicalize(host_path)
             if WASISandbox._forbidden_canonical_match(canon) is not None:
                 import warnings
 
@@ -1054,7 +1073,7 @@ class WASISandbox:
                 continue
             if not os.path.isdir(canon):
                 continue
-            wasi_cfg.preopen_dir(canon, dir_path)
+            wasi_cfg.preopen_dir(canon, guest_name)
             granted.append(canon)
         if sandbox_dir is not None:
             wasi_cfg.preopen_dir(sandbox_dir, "/sandbox")
@@ -1072,13 +1091,14 @@ class WASISandbox:
             return ()
         safe: list[str] = []
         for d in allow_dirs:
-            canon = self._canonicalize(d)
+            host, _ = self._split_dir_mapping(d)
+            canon = self._canonicalize(host)
             if self._forbidden_canonical_match(canon) is not None:
                 continue
-            if d in self._DANGEROUS_DIRS or any(
-                d == dd or d.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
+            if host in self._DANGEROUS_DIRS or any(
+                host == dd or host.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
             ):
-                if not _under_canonical_exception(d):
+                if not _under_canonical_exception(host):
                     continue
             safe.append(d)
         return tuple(safe)

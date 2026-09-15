@@ -130,3 +130,57 @@ class TestMainNoCommand:
         code, out = _run(monkeypatch, capsys, [])
         assert code == 1
         assert "usage" in out.out.lower()
+
+
+class TestRepeatedFlagAccumulation:
+    """Repeated --allow-env/--allow-dirs must accumulate, not overwrite.
+
+    Regression (found by the wasi-testsuite conformance run 2026-09-14):
+    argparse nargs="*" REPLACES the value on each flag occurrence, so
+    `--allow-env a=b --allow-env b=c` silently dropped all but the last
+    grant. The CLI now uses action="append" and flattens the groups.
+    """
+
+    def test_flatten(self):
+        from ephemora_cell.cli import _flatten
+
+        assert _flatten(None) is None
+        assert _flatten([]) == []
+        assert _flatten([["a=b"], ["b=c"], ["d=e"]]) == ["a=b", "b=c", "d=e"]
+
+    def test_allow_env_accumulates(self, monkeypatch, capsys):
+        # env var count seen by the guest must be 2, not 1
+        import wasmtime as wt
+
+        env_count_wat = """
+        (module
+          (import "wasi_snapshot_preview1" "environ_sizes_get"
+            (func $sizes (param i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+          (memory (export "memory") 1)
+          (func (export "_start")
+            (call $sizes (i32.const 0) (i32.const 4)) drop
+            (i32.eqz (i32.load (i32.const 0)))
+            (if (then i32.const 1 call $exit))
+            (i32.eq (i32.load (i32.const 0)) (i32.const 2))
+            (if (then i32.const 0 call $exit))
+            i32.const 1
+            call $exit
+          )
+        )
+        """
+        import os
+        import tempfile
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
+        tmp.write(wt.wat2wasm(env_count_wat))
+        tmp.close()
+        try:
+            code, out = _run(
+                monkeypatch,
+                capsys,
+                ["run", tmp.name, "--allow-env", "A=1", "--allow-env", "B=2"],
+            )
+            assert code == 0, (code, out)
+        finally:
+            os.unlink(tmp.name)
