@@ -1,0 +1,49 @@
+{
+  "pinned_commit": "609c446139956ff30239f87cb18af1dc6128bed2",
+  "date": "2026-09-14",
+  "totals": {
+    "pass": 72,
+    "expected_fail": 1,
+    "unexpected_pass": 0,
+    "fail": 0,
+    "skip": 55
+  },
+  "per_suite": {
+    "WASI AssemblyScript tests [wasm32-wasip1] [ephemora-cell]": {
+      "pass": 12,
+      "expected_fail": 0,
+      "unexpected_pass": 0,
+      "fail": 0,
+      "skip": 0
+    },
+    "WASI Rust tests [ephemora-cell]": {
+      "pass": 0,
+      "expected_fail": 0,
+      "unexpected_pass": 0,
+      "fail": 0,
+      "skip": 0
+    },
+    "WASI Rust tests [wasm32-wasip1] [ephemora-cell]": {
+      "pass": 46,
+      "expected_fail": 0,
+      "unexpected_pass": 0,
+      "fail": 0,
+      "skip": 0
+    },
+    "WASI Rust tests [wasm32-wasip3] [ephemora-cell]": {
+      "pass": 0,
+      "expected_fail": 0,
+      "unexpected_pass": 0,
+      "fail": 0,
+      "skip": 55
+    },
+    "WASI C tests [wasm32-wasip1] [ephemora-cell]": {
+      "pass": 14,
+      "expected_fail": 1,
+      "unexpected_pass": 0,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "raw": "wasi-testsuite-609c44613995-2026-09-14.json"
+}

@@ -1,0 +1,25 @@
+# By-design blocked / documented-deviation WASI surfaces.
+#
+# Declared via the suite's native expectations mechanism:
+#   action = "skip"        -> not run at all
+#   expected = "fail"      -> run, expect non-zero exit (xfail)
+#
+# Every entry MUST carry a reason tied to a documented Cell policy
+# (README "What is enforced", SECURITY.md). This file is NOT a dumping
+# ground for real conformance bugs — those get fixed or documented as
+# findings in conformance/README.md.
+
+version = 1
+
+[[suite]]
+name = "WASI C tests [wasm32-wasip1]"
+
+[[suite.test]]
+name = "sock_shutdown-invalid_fd"
+expected = "fail"
+# The test asserts EBADF for shutdown(fd=3), assuming a runtime with NO
+# preopens. Cell always preopens its sandbox scratch dir as fd 3
+# (default-deny filesystem posture: the only writable surface), so fd 3
+# is a directory and sock_shutdown returns ENOTSOCK. The network surface
+# itself stays closed — no socket APIs are granted — which is the
+# property Cell claims; only the errno of this negative test differs.

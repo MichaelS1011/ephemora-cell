@@ -1,0 +1,45 @@
+name: WASI Conformance
+
+# Non-blocking evidence job: runs the official WebAssembly/wasi-testsuite
+# preview-1 suite against the ephemora-cell CLI. Deliberately NOT a gate —
+# the suite is external and its HEAD moves; the pinned-commit harness keeps
+# runs reproducible, weekly scheduling catches drift early.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1" # Mondays 05:00 UTC, after the weekly CI schedule
+
+jobs:
+  wasi-testsuite:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+          # test-runner deps (suite pins: colorama, requests)
+          python -m pip install colorama requests
+
+      - name: Run wasi-testsuite (pinned)
+        run: |
+          python conformance/run_wasi_testsuite.py
+
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasi-conformance-results
+          path: |
+            conformance/results/*.json
