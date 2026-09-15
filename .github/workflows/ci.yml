@@ -62,6 +62,13 @@ jobs:
         run: |
           python integration/test_nemoclaw_isolation.py --json
 
+      # Order-of-magnitude latency regression guard (loose thresholds by
+      # design — shared runners are noisy; fuel assertion is invariance
+      # within the run, not absolute counts, which are per-platform).
+      - name: Benchmark guard (order-of-magnitude latency + fuel invariance)
+        run: |
+          python benchmarks/benchmark_guard.py
+
   coverage:
     runs-on: ubuntu-latest
     steps:

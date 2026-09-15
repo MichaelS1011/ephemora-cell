@@ -1,6 +1,33 @@
 # Performance — Detail (reproducible)
 
-**Current 2026-08-25 — Mac M5, wasmtime 47.0.1, HELLO_WAT, WASIConfig(max_fuel=100k)**
+**Current 2026-09-14 — Mac M5, wasmtime 47.0.1, `examples/hello.wasm`, n=1000 after 50 warmup (`pool_vs_budget.py`)**
+
+| Scenario | Wall median | Wall p95 | Wall min | Guest median |
+|----------|-----------|----------|----------|--------------|
+| Pooled (`io_budget_bytes=None`) | 0.514 ms | 0.891 ms | 0.438 ms | 0.174 ms |
+| Default (per-run engine, 64 MiB I/O budget) | 0.941 ms | 1.153 ms | 0.809 ms | 0.606 ms |
+
+Raw: `benchmarks/results/2026-09-14/pool_vs_budget.json` (`measured:true`)
+
+**Cold/warm + overhead 2026-09-14 — `pov_benchmark.py`, HELLO_WAT (max_fuel=100k), n=300 each, first run discarded**
+
+| Mode | Guest median | Guest p95 | Wall median | Wall p95 |
+|------|-------------|-----------|-------------|----------|
+| Cold (fresh sandbox per run) | 0.590 ms | 0.957 ms | 0.994 ms | 1.447 ms |
+| Warm (cached engine) | 0.550 ms | 0.791 ms | 0.926 ms | 1.313 ms |
+
+Sandbox overhead (warm wall median − guest median): **0.376 ms** — fuel metering, epoch deadline, preopen grant, output capture.
+Raw: `benchmarks/results/2026-09-14/pov_benchmark.json` (`cold_start_raw`/`warm_start_raw` arrays included)
+
+## Fuel boundary 2026-09-14 (`fuel_boundary.py`, macOS arm64)
+
+CPU: **13.0 fuel/iteration, R² = 1.000** (7 successful points, 100–1M iterations);
+exhaustion boundary at default 1M fuel: 76,923 CPU iterations / 49,181 fd_writes
+(1.50 MB). I/O: 226.4 fuel per 32-byte fd_write, R² = 1.000. Fuel counts are
+deterministic per module+platform but NOT comparable across platforms/wasmtime
+builds. Raw: `benchmarks/results/2026-09-14/fuel_boundary.json`.
+
+**2026-08-25 — Mac M5, wasmtime 47.0.1, HELLO_WAT, WASIConfig(max_fuel=100k)**
 
 ## Tail N=1000
 | Mode | Median | P95 | P99 | P999 | Mean | StdDev |
@@ -15,7 +42,22 @@ Raw: `benchmarks/results/2026-08-25/09_tail_*.json` (1000 raw_ms)
 | Mac M5 | 0.55ms | 0.83ms | 0.98ms | 0.57ms | 0.28ms | ±0.03ms |
 | DGX Spark GB10 | 7.70ms | 12.5ms | 13.3ms | 8.26ms | 3.10ms | ±0.35ms |
 
-## vs Docker (2026-08-30, live, `measured:true`)
+## vs Docker (2026-09-14, live, `measured:true`)
+
+Mac M5, Docker daemon 28.5.1, `docker run --rm` cold start with minimal payload
+(warmup run excluded, n=100 per image via `--docker-runs 100`). Reproducible:
+`python benchmarks/competitive_benchmark.py`. Raw:
+`benchmarks/results/2026-09-14/competitive_benchmark.json`
+(`docker_measured:true`).
+
+| Runtime | Mean | P95 | vs Cell cold (0.485 ms) |
+|---------|------|-----|-------------------------|
+| Docker python:3.12-slim | 185.89 ms | 215.50 ms | **383× slower** |
+| Docker node:24-alpine | 176.84 ms | 207.90 ms | **365× slower** |
+| Ephemora Cell cold | 0.485 ms | 0.670 ms | baseline |
+| Ephemora Cell warm | 0.432 ms | 0.704 ms | 430× faster than Docker python |
+
+## vs Docker (2026-08-30, live, `measured:true` — historical reference)
 
 Mac M5, Docker 28.5.1, `docker run --rm` cold start with minimal payload
 (warmup pull excluded, n=7 per image). Reproducible:
@@ -34,7 +76,7 @@ Mac M5, Docker 28.5.1, `docker run --rm` cold start with minimal payload
 
 > **Historical:** the 2026-08-06 figures below predate the live-measurement
 > workflow (no raw JSON was committed for that run). They are kept for
-> continuity; the reproducible reference is the live 2026-08-30 table above.
+> continuity; the reproducible reference is the live 2026-09-14 table above.
 
 | Runtime | Mean | Median | vs Cell |
 |---------|------|--------|---------|

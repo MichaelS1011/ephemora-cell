@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ephemora_cell import WASIConfig, WASISandbox
 
-N = 1000
 WARMUP = 50
 WASM = Path(__file__).resolve().parents[1] / "examples" / "hello.wasm"
 
@@ -36,7 +35,7 @@ SCENARIOS = {
 }
 
 
-def measure(name: str, config: WASIConfig) -> dict:
+def measure(name: str, config: WASIConfig, n: int = 1000) -> dict:
     sandbox = WASISandbox(config=config)
     try:
         for _ in range(WARMUP):
@@ -44,7 +43,7 @@ def measure(name: str, config: WASIConfig) -> dict:
             assert result.status.name == "SUCCESS", result.stderr[:200]
         walls = []
         elapsed = []
-        for _ in range(N):
+        for _ in range(n):
             t0 = time.perf_counter()
             result = sandbox.run(str(WASM))
             walls.append((time.perf_counter() - t0) * 1000)
@@ -52,6 +51,7 @@ def measure(name: str, config: WASIConfig) -> dict:
         walls.sort()
         elapsed.sort()
         return {
+            "n": n,
             "wall_ms_median": round(statistics.median(walls), 4),
             "wall_ms_p95": round(walls[int(0.95 * len(walls))], 4),
             "wall_ms_min": round(walls[0], 4),
@@ -62,6 +62,14 @@ def measure(name: str, config: WASIConfig) -> dict:
 
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--n", type=int, default=1000,
+                        help="timed runs per scenario (default 1000)")
+    args = parser.parse_args()
+    n = args.n
+
     out = {
         "measured": True,
         "source": "measurement",
@@ -70,12 +78,12 @@ def main() -> None:
         "python": platform.python_version(),
         "wasmtime": _pkg_version("wasmtime"),
         "guest": "examples/hello.wasm",
-        "n": N,
+        "n": n,
         "warmup": WARMUP,
         "scenarios": {},
     }
     for name, config in SCENARIOS.items():
-        out["scenarios"][name] = measure(name, config)
+        out["scenarios"][name] = measure(name, config, n)
         print(f"{name}:")
         for key, value in out["scenarios"][name].items():
             print(f"  {key}: {value}")

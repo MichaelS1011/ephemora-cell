@@ -10,16 +10,27 @@ Benchmarks:
   7. Docker Cold Start Comparison (container runtime vs Ephemora Cell)
 
 Output: JSON + Markdown Table
+
+Cold/warm record BOTH the wall time around WASISandbox.run() and the
+guest's elapsed_ms, so sandbox overhead (wall - guest) is explicit. The
+output JSON carries environment metadata (measured:true convention) and
+is written to benchmarks/results/<date>/pov_benchmark.json.
 """
 import json
 import os
+import platform
 import statistics
 import sys
 import tempfile
 import textwrap
+import time
+from datetime import date, datetime
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
+
 import wasmtime
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ephemora_cell import WASISandbox, WASIConfig, run_wasm, ExecutionStatus
 
 # === Payloads ===
@@ -96,8 +107,12 @@ def compile_wat(wat):
 
 
 def bench_cold_start(wasm_bytes, count=300):
-    """Cold start: new Sandbox each run (first run discarded as warm-up)."""
-    latencies = []
+    """Cold start: new Sandbox each run (first run discarded as warm-up).
+
+    Returns (elapsed_ms_list, wall_ms_list).
+    """
+    elapsed_ms = []
+    walls = []
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm_bytes)
     tmp.close()
@@ -114,16 +129,22 @@ def bench_cold_start(wasm_bytes, count=300):
             timeout_seconds=5,
             max_memory_mb=32,
         ))
+        t0 = time.perf_counter()
         result = sandbox.run(tmp.name)
-        latencies.append(result.elapsed_ms)
+        walls.append((time.perf_counter() - t0) * 1000)
+        elapsed_ms.append(result.elapsed_ms)
         sandbox.cleanup()
     os.unlink(tmp.name)
-    return latencies
+    return elapsed_ms, walls
 
 
 def bench_warm_start(wasm_bytes, count=300):
-    """Warm start: reuse Sandbox (engine cached, first run discarded)."""
-    latencies = []
+    """Warm start: reuse Sandbox (engine cached, first run discarded).
+
+    Returns (elapsed_ms_list, wall_ms_list).
+    """
+    elapsed_ms = []
+    walls = []
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm_bytes)
     tmp.close()
@@ -134,11 +155,13 @@ def bench_warm_start(wasm_bytes, count=300):
     ))
     sandbox.run(tmp.name)
     for _ in range(count):
+        t0 = time.perf_counter()
         result = sandbox.run(tmp.name)
-        latencies.append(result.elapsed_ms)
+        walls.append((time.perf_counter() - t0) * 1000)
+        elapsed_ms.append(result.elapsed_ms)
     sandbox.cleanup()
     os.unlink(tmp.name)
-    return latencies
+    return elapsed_ms, walls
 
 
 def bench_block_rate(count=10):
@@ -238,22 +261,36 @@ def run_benchmarks(label="Local"):
     print(f"Ephemora Cell PoV Benchmarks — {label}")
     print(f"{'='*60}\n")
 
-    results = {"platform": label}
+    results = {
+        "measured": True,
+        "source": "measurement",
+        "date": str(date.today()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "python": platform.python_version(),
+        "wasmtime": _pkg_version("wasmtime"),
+        "platform_label": label,
+    }
 
     # 1. Cold Start
     print("[1/5] Cold Start (300 runs)...")
     hello_wasm = compile_wat(HELLO_WAT)
-    cold = bench_cold_start(hello_wasm, 300)
+    cold, cold_walls = bench_cold_start(hello_wasm, 300)
     results["cold_start"] = stats(cold)
     results["cold_start_raw"] = cold
+    results["cold_start_wall"] = stats(cold_walls)
     print(f"  Mean: {results['cold_start']['mean_ms']}ms | P95: {results['cold_start']['p95_ms']}ms | P99: {results['cold_start']['p99_ms']}ms")
 
     # 2. Warm Start
     print("[2/5] Warm Start (300 runs, cached engine)...")
-    warm = bench_warm_start(hello_wasm, 300)
+    warm, warm_walls = bench_warm_start(hello_wasm, 300)
     results["warm_start"] = stats(warm)
     results["warm_start_raw"] = warm
-    print(f"  Mean: {results['warm_start']['mean_ms']}ms | P95: {results['warm_start']['p95_ms']}ms")
+    results["warm_start_wall"] = stats(warm_walls)
+    # Sandbox overhead: wall time around run() minus the guest's own elapsed time.
+    results["overhead_warm_ms"] = round(
+        results["warm_start_wall"]["median_ms"] - results["warm_start"]["median_ms"], 3
+    )
+    print(f"  Mean: {results['warm_start']['mean_ms']}ms | P95: {results['warm_start']['p95_ms']}ms | Overhead(wall-guest): {results['overhead_warm_ms']}ms")
 
     # 3. Block Rate
     print("[3/5] Block Rate (4 attacks × 10 runs)...")
@@ -302,11 +339,17 @@ def run_benchmarks(label="Local"):
 
 def main():
     result = run_benchmarks("macOS-M5")
-    out_path = "/tmp/ephemora_cell-benchmarks-mac.json"
+    results_dir = (
+        Path(__file__).resolve().parents[1]
+        / "benchmarks"
+        / "results"
+        / str(date.today())
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out_path = results_dir / "pov_benchmark.json"
     with open(out_path, "w") as f:
         json.dump(result, f, indent=2)
     print(f"\nResults saved to {out_path}")
-    print(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

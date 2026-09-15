@@ -9,8 +9,13 @@ Produces reproducible fuel-vs-output curves.
 """
 import json
 import os
+import platform
 import sys
 import tempfile
+from datetime import date, datetime
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
+
 import wasmtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -206,15 +211,28 @@ def main():
     print("Ephemora Cell Fuel Metering Boundary Characterization")
     print("=" * 60)
 
-    results = {}
+    results = {
+        "measured": True,
+        "source": "measurement",
+        "date": str(date.today()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "python": platform.python_version(),
+        "wasmtime": _pkg_version("wasmtime"),
+        "note": (
+            "Fuel is deterministic for a given module+platform, but absolute "
+            "values are NOT comparable across platforms/wasmtime builds "
+            "(see SECURITY.md)."
+        ),
+    }
 
     # 1. CPU fuel curve (linear region)
     cpu_steps = [100, 1_000, 10_000, 50_000, 100_000, 500_000, 1_000_000, 5_000_000]
     cpu_curve = fuel_curve("CPU-bound (i32.add)", cpu_wasm, cpu_steps)
     results["cpu_curve"] = cpu_curve
 
-    # Avg fuel per CPU iteration (from successful runs only)
-    cpu_success = [c for c in cpu_curve if c["fuel_consumed"] is not None]
+    # Avg fuel per CPU iteration (from successful runs only; fuel_consumed
+    # is also reported on FUEL_EXHAUSTED, so filter on status)
+    cpu_success = [c for c in cpu_curve if c["status"] == "success"]
     avg_cpu_per_iter = (
         sum(c["fuel_consumed"] / c["iterations"] for c in cpu_success) / len(cpu_success)
         if cpu_success else 0
@@ -225,7 +243,7 @@ def main():
     io_curve = fuel_curve("I/O-bound (fd_write 32B)", io_wasm, io_steps, fuel_budget=20_000_000)
     results["io_curve"] = io_curve
 
-    io_success = [c for c in io_curve if c["fuel_consumed"] is not None]
+    io_success = [c for c in io_curve if c["status"] == "success"]
     avg_io_per_write = (
         sum(c["fuel_consumed"] / c["iterations"] for c in io_success) / len(io_success)
         if io_success else 0
@@ -280,7 +298,12 @@ def main():
         print(f"    I/O:   {io_boundary['max_iterations']:,} writes before FUEL_EXHAUSTED")
         print(f"    I/O:   {io_bytes:,} bytes ({io_bytes/1024/1024:.2f} MB)")
 
-    out = "/tmp/ephemora_cell-fuel-boundary.json"
+    results_dir = (
+        Path(__file__).resolve().parents[1]
+        / "benchmarks" / "results" / str(date.today())
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out = results_dir / "fuel_boundary.json"
     with open(out, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nFull data: {out}")

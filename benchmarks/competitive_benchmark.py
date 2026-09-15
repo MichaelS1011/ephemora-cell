@@ -8,13 +8,19 @@ Benchmarks:
   5. Docker comparison (python:3.12-slim, node:24-alpine)
   6. Summary table
 """
+import argparse
 import json
 import os
+import platform
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
+from datetime import date, datetime
+from importlib.metadata import version as _pkg_version
+from pathlib import Path
+
 import wasmtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -242,27 +248,44 @@ def measure_local_baseline(count=7) -> dict:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runs", type=int, default=300,
+                        help="Cell/pure-wasmtime runs per scenario (default 300)")
+    parser.add_argument("--docker-runs", type=int, default=100,
+                        help="Timed docker runs per image after warmup (default 100)")
+    args = parser.parse_args()
+
     label = os.environ.get("BENCH_LABEL", "macOS-M5")
     print(f"Ephemora Cell Competitive Benchmarks — {label}")
     print("=" * 60)
 
-    results = {"platform": label}
+    results = {
+        "measured": True,
+        "source": "measurement",
+        "date": str(date.today()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "python": platform.python_version(),
+        "wasmtime": _pkg_version("wasmtime"),
+        "platform_label": label,
+        "runs": args.runs,
+        "docker_runs": args.docker_runs,
+    }
 
     # 1. Cold
-    print("\n[1/4] Ephemora Cell cold (300 runs)...")
-    cs = stats(bench_ephemora_cell_cold(300))
+    print(f"\n[1/4] Ephemora Cell cold ({args.runs} runs)...")
+    cs = stats(bench_ephemora_cell_cold(args.runs))
     results["ephemora_cell_cold"] = cs
     print(f"  Mean: {cs['mean_ms']}ms | P95: {cs['p95_ms']}ms | P99: {cs['p99_ms']}ms")
 
     # 2. Warm
-    print("\n[2/4] Ephemora Cell warm (300 runs)...")
-    ws = stats(bench_ephemora_cell_warm(300))
+    print(f"\n[2/4] Ephemora Cell warm ({args.runs} runs)...")
+    ws = stats(bench_ephemora_cell_warm(args.runs))
     results["ephemora_cell_warm"] = ws
     print(f"  Mean: {ws['mean_ms']}ms | P95: {ws['p95_ms']}ms")
 
     # 3. Pure wasmtime
-    print("\n[3/4] Pure wasmtime (300 runs)...")
-    ps = stats(bench_pure_wasmtime(300))
+    print(f"\n[3/4] Pure wasmtime ({args.runs} runs)...")
+    ps = stats(bench_pure_wasmtime(args.runs))
     results["pure_wasmtime"] = ps
     print(f"  Mean: {ps['mean_ms']}ms | P95: {ps['p95_ms']}ms")
 
@@ -279,12 +302,12 @@ def main():
     print(f"  (Note: {results['overhead_note']})")
 
     # Firecracker reference — literature-based comparison
-    fc_times = bench_firecracker_cold(300)
+    fc_times = bench_firecracker_cold(args.runs)
     if fc_times is not None:
         fc = stats(fc_times)
         results["firecracker_cold"] = fc
         results["firecracker_measured"] = True
-        print(f"\n[4/5] Firecracker cold (300 runs, KVM)...")
+        print(f"\n[4/5] Firecracker cold ({args.runs} runs, KVM)...")
         print(f"  Mean: {fc['mean_ms']}ms | P95: {fc['p95_ms']}ms | P99: {fc['p99_ms']}ms")
     else:
         # Literature value — Northflank 18.01.2026, 125ms boot
@@ -297,7 +320,7 @@ def main():
 
     # Docker reference (live measurement)
     if docker_available():
-        docker = measure_docker_baseline()
+        docker = measure_docker_baseline(args.docker_runs)
         if docker:
             results["docker"] = docker
             results["docker_measured"] = True
@@ -339,7 +362,12 @@ def main():
         print("Note: Firecracker literature 125ms — live KVM measurement requires Ubuntu 24.04 + /dev/kvm (GHA/EC2 metal)")
     print()
 
-    out = f"/tmp/ephemora_cell-competitive-{label.lower().replace('-', '')}.json"
+    results_dir = (
+        Path(__file__).resolve().parents[1]
+        / "benchmarks" / "results" / str(date.today())
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out = results_dir / "competitive_benchmark.json"
     with open(out, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Saved: {out}")

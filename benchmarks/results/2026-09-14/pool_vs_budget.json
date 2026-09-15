@@ -1,0 +1,25 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-14",
+  "generated_at": "2026-09-14T19:11:41",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "guest": "examples/hello.wasm",
+  "n": 1000,
+  "warmup": 50,
+  "scenarios": {
+    "pooled_warm (io_budget_bytes=None)": {
+      "wall_ms_median": 0.5142,
+      "wall_ms_p95": 0.8912,
+      "wall_ms_min": 0.4375,
+      "guest_elapsed_ms_median": 0.1736
+    },
+    "default (io_budget_bytes=64MiB, per-run engine)": {
+      "wall_ms_median": 0.9405,
+      "wall_ms_p95": 1.1532,
+      "wall_ms_min": 0.8087,
+      "guest_elapsed_ms_median": 0.6057
+    }
+  }
+}

@@ -1,0 +1,229 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-14",
+  "generated_at": "2026-09-14T19:20:16",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "note": "Fuel is deterministic for a given module+platform, but absolute values are NOT comparable across platforms/wasmtime builds (see SECURITY.md).",
+  "cpu_curve": [
+    {
+      "iterations": 100,
+      "status": "success",
+      "fuel_consumed": 1304,
+      "elapsed_ms": 1.172,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.04
+    },
+    {
+      "iterations": 1000,
+      "status": "success",
+      "fuel_consumed": 13004,
+      "elapsed_ms": 0.57,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.004
+    },
+    {
+      "iterations": 10000,
+      "status": "success",
+      "fuel_consumed": 130004,
+      "elapsed_ms": 0.547,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.0
+    },
+    {
+      "iterations": 50000,
+      "status": "success",
+      "fuel_consumed": 650004,
+      "elapsed_ms": 0.467,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.0
+    },
+    {
+      "iterations": 100000,
+      "status": "success",
+      "fuel_consumed": 1300004,
+      "elapsed_ms": 0.504,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.0
+    },
+    {
+      "iterations": 500000,
+      "status": "success",
+      "fuel_consumed": 6500004,
+      "elapsed_ms": 0.594,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.0
+    },
+    {
+      "iterations": 1000000,
+      "status": "success",
+      "fuel_consumed": 13000004,
+      "elapsed_ms": 0.748,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 13.0
+    },
+    {
+      "iterations": 5000000,
+      "status": "fuel_exhausted",
+      "fuel_consumed": 20000000,
+      "elapsed_ms": 0.914,
+      "stdout_bytes": 0,
+      "fuel_per_iter": 4.0
+    }
+  ],
+  "io_curve": [
+    {
+      "iterations": 10,
+      "status": "success",
+      "fuel_consumed": 16589,
+      "elapsed_ms": 1.411,
+      "stdout_bytes": 320,
+      "fuel_per_iter": 1658.9
+    },
+    {
+      "iterations": 100,
+      "status": "success",
+      "fuel_consumed": 18389,
+      "elapsed_ms": 3.657,
+      "stdout_bytes": 3200,
+      "fuel_per_iter": 183.89
+    },
+    {
+      "iterations": 500,
+      "status": "success",
+      "fuel_consumed": 26389,
+      "elapsed_ms": 9.757,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 52.778
+    },
+    {
+      "iterations": 1000,
+      "status": "success",
+      "fuel_consumed": 36389,
+      "elapsed_ms": 9.723,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 36.389
+    },
+    {
+      "iterations": 5000,
+      "status": "success",
+      "fuel_consumed": 116389,
+      "elapsed_ms": 10.629,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 23.278
+    },
+    {
+      "iterations": 10000,
+      "status": "success",
+      "fuel_consumed": 216389,
+      "elapsed_ms": 12.079,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 21.639
+    },
+    {
+      "iterations": 50000,
+      "status": "success",
+      "fuel_consumed": 1016389,
+      "elapsed_ms": 18.83,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 20.328
+    },
+    {
+      "iterations": 100000,
+      "status": "success",
+      "fuel_consumed": 2016389,
+      "elapsed_ms": 27.776,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 20.164
+    },
+    {
+      "iterations": 500000,
+      "status": "success",
+      "fuel_consumed": 10016389,
+      "elapsed_ms": 103.556,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 20.033
+    }
+  ],
+  "mixed_curve": [
+    {
+      "iterations": 100,
+      "status": "success",
+      "fuel_consumed": 18791,
+      "elapsed_ms": 4.505,
+      "stdout_bytes": 3200,
+      "fuel_per_iter": 187.91
+    },
+    {
+      "iterations": 500,
+      "status": "success",
+      "fuel_consumed": 28391,
+      "elapsed_ms": 10.061,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 56.782
+    },
+    {
+      "iterations": 1000,
+      "status": "success",
+      "fuel_consumed": 40391,
+      "elapsed_ms": 10.176,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 40.391
+    },
+    {
+      "iterations": 5000,
+      "status": "success",
+      "fuel_consumed": 136391,
+      "elapsed_ms": 10.396,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 27.278
+    },
+    {
+      "iterations": 10000,
+      "status": "success",
+      "fuel_consumed": 256391,
+      "elapsed_ms": 11.02,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 25.639
+    },
+    {
+      "iterations": 50000,
+      "status": "success",
+      "fuel_consumed": 1216391,
+      "elapsed_ms": 18.732,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 24.328
+    },
+    {
+      "iterations": 100000,
+      "status": "success",
+      "fuel_consumed": 2416391,
+      "elapsed_ms": 28.198,
+      "stdout_bytes": 9984,
+      "fuel_per_iter": 24.164
+    }
+  ],
+  "cpu_boundary_1m": {
+    "fuel_budget": 1000000,
+    "max_iterations": 76923,
+    "fuel_consumed_at_success": 1000000,
+    "status_at_success": "success",
+    "status_at_fail": "fuel_exhausted",
+    "elapsed_success_ms": 0.348,
+    "elapsed_fail_ms": 0.422
+  },
+  "io_boundary_1m": {
+    "fuel_budget": 1000000,
+    "max_iterations": 49181,
+    "fuel_consumed_at_success": 1000000,
+    "status_at_success": "success",
+    "status_at_fail": "fuel_exhausted",
+    "elapsed_success_ms": 19.302,
+    "elapsed_fail_ms": 19.088
+  },
+  "r_squared": {
+    "cpu": 1.0,
+    "io": 1.0
+  }
+}

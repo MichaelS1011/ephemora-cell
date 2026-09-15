@@ -89,7 +89,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 - **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
   canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
-- **Sub-millisecond warm execution** — 0.17 ms guest / 0.48 ms end-to-end (pooled, measured; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
+- **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
 ## What is enforced
 
@@ -98,7 +98,7 @@ Every execution runs under explicit limits — no opt-in security:
 | Resource | Default |
 |---|---|
 | WASM memory | 128 MB (`Store.set_limits`) |
-| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000) |
+| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000; 2026-09-14 re-measured, macOS arm64 — fuel counts are per-platform, not cross-platform) |
 | Wall-clock timeout | 30 s (epoch interruption) |
 | Captured stdout/stderr | 10 KB |
 | Network | disabled — no socket APIs in WASI |
@@ -131,12 +131,14 @@ Full details: [SECURITY.md](SECURITY.md) (policy, execution-path control matrix,
 
 **Sandbox every execution without paying container-scale startup costs.**
 
-| Scenario (n=1000, `hello.wasm`, Mac M5, wasmtime 47.0.1) | Wall median | Wall p95 | Guest median |
+| Scenario (2026-09-14, n=1000, `hello.wasm`, Mac M5, wasmtime 47.0.1) | Wall median | Wall p95 | Guest median |
 |------|--------|------|------|
-| **Pooled engine** (`io_budget_bytes=None`, trusted runs) | **0.46 ms** | 0.60 ms | 0.16 ms |
-| **Default path** (`io_budget_bytes=64 MiB`, per-run engine) | 0.92 ms | 1.26 ms | 0.60 ms |
+| **Pooled engine** (`io_budget_bytes=None`, trusted runs) | **0.51 ms** | 0.89 ms | 0.17 ms |
+| **Default path** (`io_budget_bytes=64 MiB`, per-run engine) | 0.94 ms | 1.15 ms | 0.61 ms |
 
-Live cold-start comparison (2026-08-30, same Mac): `docker run` python:3.12-slim 171 ms vs Cell 0.40 ms = **427×** — this is a container-cold-start vs invoked-WASM comparison for this benchmark workload, not a general claim that WASM is always faster than Docker.
+Cold vs. warm (2026-09-14, n=300 each, fresh sandbox per run vs. cached engine, first run discarded): cold median **0.59 ms** guest / 0.99 ms wall, warm median **0.55 ms** guest / 0.93 ms wall — sandbox overhead (warm wall − guest) ≈ **0.38 ms**.
+
+Live cold-start comparison (2026-09-14, same Mac, n=100 per image after warmup): `docker run` python:3.12-slim 185.9 ms vs Cell 0.49 ms = **383×** — this is a container-cold-start vs invoked-WASM comparison for this benchmark workload, not a general claim that WASM is always faster than Docker.
 
 Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competitive_benchmark.py` (raw results with `measured:true` committed under `benchmarks/results/`). Agentic workloads and more: [docs/performance.md](docs/performance.md).
 
