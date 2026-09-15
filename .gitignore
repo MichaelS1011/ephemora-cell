@@ -42,3 +42,15 @@ docs/diagrams/
 benchmarks/results/**/00_INDEX.md
 ephemora_cell_mcp/tools_src/*/target/
 ROADMAP_*.md
+
+# wasi-testsuite checkout at pinned commit (fetched by conformance harness)
+.conformance_cache/
+
+# Internal notes & local artifacts — never publish (IP)
+CEO_NOTE_*.md
+CMO_NOTE_*.md
+RELEASE_*_TODO.md
+.video_agent/
+uv.lock
+docs/ephemora-cell-whitepaper.typ
+docs/linkedin_oss_benchmarks_*.md
