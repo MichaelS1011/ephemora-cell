@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Repeated `--allow-env` / `--allow-dirs` CLI flags no longer overwrite each
+  other (argparse accumulation bug; found by the first external
+  wasi-testsuite conformance run, fixed with regression tests).
+- `allow_dirs` entries now support wasmtime-style `host::guest` preopen
+  naming so wasi-libc-built binaries resolve relative paths against `/`;
+  host-side validation and TOCTOU revalidation are unchanged.
+
+### Added
+
+- WASI preview-1 conformance harness against the official, pinned
+  wasi-testsuite (`conformance/`, 72 pass / 1 documented xfail / 0 fail)
+  with a weekly non-blocking CI job.
+- Order-of-magnitude benchmark guard in CI (latency thresholds + fuel
+  invariance within a run).
+
 ## [1.0.1] - 2026-09-11
 
 Release metadata and MCP surface hardening. Repo-committed code is
