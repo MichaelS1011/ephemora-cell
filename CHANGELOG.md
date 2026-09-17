@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-17
+
+### Fixed
+
+- Black formatting for `ephemora_cell/__init__.py` hybrid wrapper (long line split).
+
+## [1.0.2] - 2026-09-17
+
+### Added
+
+- MCP Registry publication as `io.github.MichaelS1011/ephemora-cell-mcp` (`server.json`, PyPI `mcp-name` in README). Published to `registry.modelcontextprotocol.io` (1.0.2 active).
+- GitHub Topics expanded 11 -> 17 (`wasmtime`, `wasi-preview1`, `wasm-sandbox`, `mcp-server`, `capability-based-security`, `code-execution`).
+
 ### Fixed
 
 - Repeated `--allow-env` / `--allow-dirs` CLI flags no longer overwrite each
@@ -14,9 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `allow_dirs` entries now support wasmtime-style `host::guest` preopen
   naming so wasi-libc-built binaries resolve relative paths against `/`;
   host-side validation and TOCTOU revalidation are unchanged.
-
-### Added
-
+- CLI `--no-memory64` to override `analytical` profile (`memory64=True`).
+- `allow_dirs` non-existent paths now warn (`RuntimeWarning`) instead of silent skip.
+- `_HybridExecutionResult` unifies `run_isolated` return type (`result.status` + `result["status"]`).
+- Builder unified Rust default output to `project/<crate>.wasm` like Go/C/Zig.
 - WASI preview-1 conformance harness against the official, pinned
   wasi-testsuite (`conformance/`, 72 pass / 1 documented xfail / 0 fail)
   with a weekly non-blocking CI job.
