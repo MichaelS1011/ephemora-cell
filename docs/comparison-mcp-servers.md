@@ -142,7 +142,7 @@ wasmtime refuses the symlink escape at the engine level
 (`Operation not permitted (os error 63)`). A side finding: on macOS,
 the Node server's realpath check fails for `/var`/`/tmp` symlinks
 (even valid reads are blocked) — the allowlist logic is
-OS-sensitive. Reproduction: PoC scripts in the repo, log in the ADRs.
+OS-sensitive. Reproduction: [`benchmarks/mcp_cve_replay.py`](../benchmarks/mcp_cve_replay.py) — a deterministic harness that pins the vulnerable server version, replays both attack paths via a real MCP stdio client against the same fixtures, and runs positive controls on both sides. Live re-run 2026-09-17 (`benchmarks/results/2026-09-17/mcp_cve_replay.json`, `measured:true`): the vulnerable reference leaked both intents (symlink and prefix), the Cell engine blocked all of them (ENOTCAPABLE/EPERM at the engine level) with the granted-capability control succeeding.
 
 ### 5.2 Limits enforcement (engine + MCP channel)
 
