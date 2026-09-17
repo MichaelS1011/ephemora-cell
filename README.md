@@ -393,7 +393,7 @@ Found an execution path that violates the documented security boundary — an es
 
 **Languages** · [docs/languages.md](docs/languages.md) — compile matrix · [docs/egress_patterns.md](docs/egress_patterns.md) — sanctioned API-call patterns
 
-**Enterprise** · [docs/enterprise.md](docs/enterprise.md) — when the hosted control plane is worth having
+**Enterprise** · [docs/enterprise.md](docs/enterprise.md) — isolation vs. operation: when that conversation is worth having
 
 **Changes** · [CHANGELOG.md](CHANGELOG.md)
 
