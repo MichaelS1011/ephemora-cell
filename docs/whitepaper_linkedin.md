@@ -4,6 +4,8 @@
 
 Version 1.0.0 · Apache-2.0 · Open Source · `pip install ephemora-cell`
 
+© 2026 **Ephemora AG** (in formation), Zug, Switzerland — both Ephemora Cell (open source) and Ephemora Enterprise (proprietary) are developed under Ephemora AG.
+
 ---
 
 ## The Problem
