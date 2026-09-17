@@ -56,6 +56,20 @@ Uses the suite's native TOML expectations (`expected = "fail"` / `action =
   network surface itself stays closed — no socket APIs are granted — which
   is the property Cell claims; only the errno of this negative test differs.
 
+## Known runner-level instability (ubuntu CI)
+
+The weekly CI runs on `ubuntu-latest` x86_64 and has shown rare
+wasmtime-py 47.0.1 engine aborts (exit -6, "panic in a function that
+cannot unwind") on **varying** filesystem tests: `path_open_dirfd_not_dir`
+(run 2026-09-15) and `fopen-with-no-access` (run 2026-09-17) — each 71/72,
+each a different test, neither reproducible locally on macOS arm64 nor in
+a clean linux/amd64 container against the same binary. This is engine-level
+instability on shared runners, not a Cell conformance defect; the failing
+test changes, so no per-test expectation entry is made (that would pin the
+wrong test and add xpass noise on macOS). Tracked as watch-item for the
+next wasmtime upgrade; the committed per-date result JSONs record the raw
+outcomes.
+
 Entries must always carry a reason tied to a documented policy. Real
 conformance bugs do not belong here — they are fixed or reported as
 findings. Two real bugs found and fixed during the first triage run:
