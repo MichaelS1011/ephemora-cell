@@ -101,6 +101,8 @@ python  benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora C
 
 ## Secure MCP tool execution
 
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/v0/servers?search=ephemora-cell-mcp) *listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI).*
+
 Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signable execution records:
 
 ```bash
