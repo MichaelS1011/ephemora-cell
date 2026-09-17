@@ -97,7 +97,7 @@ job `mcp-sdk-interop`).
    microVM latency (E2B: network round trip + ~100 ms–1 s startup), no
    container latency (Docker wrapper: +490 ms).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 386 CI-enforced
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 424 CI-enforced
    tests with security gates (pip-audit, SBOM, bandit) and an active release
    line; Wassette itself declares itself "not production ready".
 
@@ -204,7 +204,7 @@ as "Verified. Not claimed."
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 386 tests today. Containment mock run `docker_socket`:
+comprises 424 tests today. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.
 Artifacts: `benchmarks/results/cross-platform-results.json`.

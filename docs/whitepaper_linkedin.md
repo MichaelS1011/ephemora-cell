@@ -2,7 +2,7 @@
 
 **The execution layer for untrusted, AI-generated code**
 
-Version 1.0.0 · Apache-2.0 · Open Source · `pip install ephemora-cell`
+Version 1.0.3 · 2026-09-17 · Apache-2.0 · Open Source · `pip install ephemora-cell`
 
 © 2026 **Ephemora AG** (in formation), Zug, Switzerland — both Ephemora Cell (open source) and Ephemora Enterprise (proprietary) are developed under Ephemora AG.
 
@@ -51,7 +51,7 @@ On top of that: OS-level hardening in the worker process (rlimits, disk quota, I
 
 ## Engineering Quality
 
-- **386 tests, 85% statement coverage**, coverage gate at 80% — CI-enforced on every push
+- **424 tests, 85% statement coverage**, coverage gate at 80% — CI-enforced on every push
 - CI: tests on Python 3.10/3.11/3.12, pip-audit, SBOM, bandit, fuzzing workflow
 - **Exactly one runtime dependency**: `wasmtime` — no framework zoo
 - MCP server included: dependency-free stdio server, tools are WASM modules, execution reports carry `wasmtime_version` as an auditable witness; signing primitive (`ExecutionReport.sign()`, SEP-2787-style) present
