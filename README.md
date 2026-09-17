@@ -62,42 +62,122 @@ Every tool call answers three questions at once — attached to the result as `_
 
 ## Quick Start
 
-```bash
-pip install ephemora-cell
+Three commands: install Cell, run something untrusted, read its audited receipt.
 
-# Run your first isolated module (grab the repo's examples, or bring any .wasm):
-git clone https://github.com/MichaelS1011/ephemora-cell.git
-ephemora-cell run ephemora-cell/examples/hello.wasm
+**1 — Install** (use a virtualenv; on Ubuntu ≥ 23.04 / Fedora a bare `pip install`
+is refused by PEP 668. Windows: use Git Bash or WSL, and `python` instead of `python3`):
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+python -m pip install ephemora-cell
+```
+
+**2 — Run something untrusted** (the repo ships examples, or bring any `.wasm`):
+
+```bash
+git clone https://github.com/MichaelS1011/ephemora-cell.git && cd ephemora-cell
+ephemora-cell run examples/hello.wasm
 ```
 
 ```text
 Hello from Ephemora Cell!
 ```
 
+**3 — Read the audited receipt** — same run, machine-readable. Here a hostile module
+(`examples/fuel_bomb.wasm`) is given a 100-unit fuel budget and stopped, exactly as
+budgeted:
+
+```bash
+ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --json
+```
+
+```json
+{
+  "status": "fuel_exhausted",
+  "exit_code": 0,
+  "fuel_consumed": 100,
+  "fuel_budget": 100,
+  "stdout_bytes": 0
+}
+```
+
+Same from Python — every result carries status, cost and captured output:
+
 ```python
 from ephemora_cell import run_wasm
 
-result = run_wasm("my_module.wasm")
+result = run_wasm("examples/hello.wasm", max_fuel=1_000_000, timeout_seconds=30)
 print(result.stdout)          # captured output (10 KB cap)
 print(result.status.name)     # SUCCESS
 print(result.elapsed_ms)      # wall time
 print(result.fuel_consumed)   # compute actually used
 ```
 
+**Where to next:** agent/tool isolation → [Secure MCP tool execution](#secure-mcp-tool-execution) (3-line setup) · CI gating for untrusted PRs → [GitHub Action](#untrusted-pr-code-in-github-actions) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
+
 ![Ephemora Cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
 
 *Real CLI session: install, first run, machine-readable `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
+
+## Why this matters
+
+Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
+
+- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
+  canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
+- **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
+- **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
+
+## What is enforced
+
+Every execution runs under explicit limits — no opt-in security:
+
+| Resource | Default |
+|---|---|
+| WASM memory | 128 MB (`Store.set_limits`) |
+| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000; 2026-09-14 re-measured, macOS arm64 — fuel counts are per-platform, not cross-platform) |
+| Wall-clock timeout | 30 s (epoch interruption) |
+| Captured stdout/stderr | 10 KB |
+| Network | disabled — no socket APIs in WASI |
+| Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
+| Process exec / fork | unavailable in WASI |
+| Threading | disabled (`wasm_threads=False`) |
+
+Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
+
+## Security
+
+The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)):
+
+| Attack class | Docker | Ephemora Cell |
+|---|---|---|
+| Shell (`os.system`) / fork / network sockets | ALLOWED | **BLOCKED** — APIs don't exist in WASI |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — import-level rejection |
+| Host filesystem (`/etc/passwd`) | ALLOWED | **BLOCKED** — preopen default-deny |
+| Symlink escape | ALLOWED | **BLOCKED** — dangerous directory filter |
+| Multi-threading | ALLOWED | **BLOCKED** — `wasm_threads=False` |
+| Environment access | ALLOWED | **BLOCKED** — controlled via `allow_env` |
+
+**Result: 8/8 attack vectors blocked (live-verified); Docker baselines are measured live per run — never hardcoded.**
 
 ![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
 
 *Same eight attack primitives, measured live (Docker probe 2026-09-02, Cell probe 2026-09-12 — now with a positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), the Ephemora Cell boundary blocks all eight (8/8). Reproduce both columns:*
 
 ```bash
-python3 assets/demo_attack_probe.py    # left column  -> 0/8 blocked (stock Docker)
-python  benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora Cell)
+python assets/demo_attack_probe.py    # left column  -> 0/8 blocked (stock Docker)
+python benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora Cell)
 ```
 
-> **How the 8/8 is measured.** *Environment:* MacBook Pro M5, macOS arm64, wasmtime 47.0.1 · *Docker probe (2026-09-02):* stock `python:3.12-slim` via `docker run --rm` — the measured exit code decides ALLOWED vs BLOCKED, nothing hardcoded · *Cell probe (2026-09-12):* `verify_8_vectors.py` against the live runtime, same eight attack intents expressed per platform (WASM guests for the Cell side, `python3 -c` bodies for Docker; verification method detailed in [`docs/security_posture.md`](docs/security_posture.md)) · *Workload:* self-contained payloads, no downloads, no credentials · *Attack classes:* shell (`os.system`), fork, network socket, fsync, host filesystem read (`/etc/passwd`), symlink escape, threading, environment leak · *Positive control:* each blocked vector is paired with a granted-capability control that **must succeed** on the same sandbox config (e.g. the symlink test's real target file must open errno 0) — if the control fails, the harness is broken, not the sandbox, and the run does not count · raw per-vector evidence: `benchmarks/results/2026-09-02/01_docker_attack_probe.json` + `02_cell_8_vector_verify.json`.
+**How the 8/8 is measured.**
+
+- **Environment:** MacBook Pro M5, macOS arm64, wasmtime 47.0.1
+- **Docker probe (2026-09-02):** stock `python:3.12-slim` via `docker run --rm` — the measured exit code decides ALLOWED vs BLOCKED, nothing hardcoded
+- **Cell probe (2026-09-12):** `verify_8_vectors.py` against the live runtime, same eight attack intents expressed per platform (WASM guests for the Cell side, `python3 -c` bodies for Docker; verification method detailed in [`docs/security_posture.md`](docs/security_posture.md))
+- **Workload:** self-contained payloads, no downloads, no credentials
+- **Attack classes (8):** shell (`os.system`), fork, network socket, fsync, host filesystem read (`/etc/passwd`), symlink escape, threading, environment leak
+- **Positive control:** each blocked vector is paired with a granted-capability control that **must succeed** on the same sandbox config (e.g. the symlink test's real target file must open errno 0) — if the control fails, the harness is broken, not the sandbox, and the run does not count
+- **Raw evidence:** `benchmarks/results/2026-09-02/01_docker_attack_probe.json` + `02_cell_8_vector_verify.json`
 
 ## Secure MCP tool execution
 
@@ -142,47 +222,6 @@ Three things most MCP tool servers don't give you:
   The agent may only *propose* a capability ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)); the host verifies signature, module hash and policy out-of-band before anything runs; the runtime enforces per execution and returns evidence. No arrow in that chain points backwards — there is no tool-call path that widens a grant, and `get-policy` reports exactly what the enforcement path applies (reads are tools; writes are not).
 
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
-
-## Why this matters
-
-Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
-
-- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
-  canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
-- **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
-- **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
-
-## What is enforced
-
-Every execution runs under explicit limits — no opt-in security:
-
-| Resource | Default |
-|---|---|
-| WASM memory | 128 MB (`Store.set_limits`) |
-| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000; 2026-09-14 re-measured, macOS arm64 — fuel counts are per-platform, not cross-platform) |
-| Wall-clock timeout | 30 s (epoch interruption) |
-| Captured stdout/stderr | 10 KB |
-| Network | disabled — no socket APIs in WASI |
-| Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
-| Process exec / fork | unavailable in WASI |
-| Threading | disabled (`wasm_threads=False`) |
-
-Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
-
-## Security
-
-The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)):
-
-| Attack class | Docker | Ephemora Cell |
-|---|---|---|
-| Shell (`os.system`) / fork / network sockets | ALLOWED | **BLOCKED** — APIs don't exist in WASI |
-| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — import-level rejection |
-| Host filesystem (`/etc/passwd`) | ALLOWED | **BLOCKED** — preopen default-deny |
-| Symlink escape | ALLOWED | **BLOCKED** — dangerous directory filter |
-| Multi-threading | ALLOWED | **BLOCKED** — `wasm_threads=False` |
-| Environment access | ALLOWED | **BLOCKED** — controlled via `allow_env` |
-
-**Result: 8/8 attack vectors blocked (live-verified); Docker baselines are measured live per run — never hardcoded.**
 
 This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.
 

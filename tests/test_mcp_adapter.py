@@ -75,7 +75,7 @@ def test_initialize_handshake(server_with):
     assert response["result"]["protocolVersion"] == "2025-06-18"
     assert response["result"]["capabilities"] == {"tools": {"listChanged": False}}
     assert response["result"]["serverInfo"]["name"] == "ephemora-cell-mcp"
-    assert response["result"]["serverInfo"]["version"] == "1.0.1"
+    assert response["result"]["serverInfo"]["version"] == "1.0.3"
 
 
 def test_initialized_notification_gets_no_response(server_with):
@@ -409,7 +409,7 @@ def test_initialize_echoes_arbitrary_id(server_with):
 
 
 def test_bundled_package_has_version():
-    assert __version__ == "1.0.1"
+    assert __version__ == "1.0.3"
 
 
 class TestMcpHardening:
