@@ -45,6 +45,7 @@ from .wasi_runtime import (
 )
 from .wasm_inspector import ModuleInfo, inspect_module
 
+
 class _HybridExecutionResult(ExecutionResult):
     """ExecutionResult that also supports dict-style access for backwards compat.
 
@@ -92,7 +93,12 @@ def run_isolated(
     if max_wasm_bytes is None:
         max_wasm_bytes = DEFAULT_MAX_WASM_BYTES
     raw = _run_isolated_dict(
-        wasm_path, config, args=args, stdin_data=stdin_data, max_wasm_bytes=max_wasm_bytes, abi=abi
+        wasm_path,
+        config,
+        args=args,
+        stdin_data=stdin_data,
+        max_wasm_bytes=max_wasm_bytes,
+        abi=abi,
     )
     base = WASISandbox._result_from_report(raw)
     # Convert to hybrid so both access styles work
