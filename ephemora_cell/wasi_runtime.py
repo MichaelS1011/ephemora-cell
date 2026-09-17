@@ -297,7 +297,15 @@ class WASISandbox:
     """
 
     # Dangerous directories that are NEVER preopened (P0 #2)
-    # These are system-critical directories that could expose host state
+    # These are system-critical directories that could expose host state.
+    # NOTE: "/private" is on the STRING denylist, but macOS temp roots
+    # (/private/tmp, /private/var/folders) are explicitly ALLOWED via the
+    # canonical exception list _CANONICAL_EXCEPTIONS. The STRING check is
+    # only a pre-filter; the authority is the canonical realpath check in
+    # _forbidden_canonical_match() which allows those two prefixes. This
+    # two-layer design (string denylist + canonical allowlist) is intentional:
+    # string matching is fast and catches obvious mistakes, canonical matching
+    # closes symlink bypasses (e.g. /tmp -> /private/tmp on macOS).
     _DANGEROUS_DIRS: frozenset[str] = frozenset(
         [
             "/dev",
@@ -1072,6 +1080,14 @@ class WASISandbox:
                 )
                 continue
             if not os.path.isdir(canon):
+                import warnings
+
+                warnings.warn(
+                    f"Preopen skipped: directory does not exist: {dir_path!r} "
+                    f"(canonical: {canon!r}) — guest path {guest_name!r} will not be available",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 continue
             wasi_cfg.preopen_dir(canon, guest_name)
             granted.append(canon)

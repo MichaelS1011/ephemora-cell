@@ -81,8 +81,14 @@ def _resolve_config(args) -> WASIConfig:
         overrides["allow_dirs"] = tuple(allow_dirs_flat)
     if allow_env:
         overrides["allow_env"] = allow_env
-    if args.memory64:
+    memory64 = getattr(args, "memory64", False)
+    no_memory64 = getattr(args, "no_memory64", False)
+    if memory64 and no_memory64:
+        raise SystemExit("error: --memory64 and --no-memory64 are mutually exclusive")
+    if memory64:
         overrides["memory64"] = True
+    if no_memory64:
+        overrides["memory64"] = False
     if not overrides:
         return base
     return dataclasses.replace(base, **overrides)
@@ -362,6 +368,11 @@ def main():
         "--memory64",
         action="store_true",
         help="enable Wasm 3.0 memory64 (64-bit address space) — opt-in",
+    )
+    p_run.add_argument(
+        "--no-memory64",
+        action="store_true",
+        help="disable Wasm 3.0 memory64 — overrides --profile analytical which enables it",
     )
     p_run.add_argument(
         "--isolated",

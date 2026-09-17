@@ -404,6 +404,9 @@ Ephemora Cell is the open-source isolation layer (Apache 2.0, standalone — no 
 Apache 2.0 — See `LICENSE`.
 
 ---
+mcp-name: io.github.MichaelS1011/ephemora-cell-mcp
+
+---
 
 *One agent action. One bounded execution. One controlled result.*
 

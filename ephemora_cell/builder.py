@@ -126,10 +126,16 @@ def detect_recipe(source: Path, output: Path | None = None) -> BuildRecipe | Non
         produced = (
             project / "target" / "wasm32-wasip1" / "release" / f"{crate_name}.wasm"
         )
+        # Unified output path: when --out is not given, place the artifact
+        # next to the project (project/<crate>.wasm) instead of deep in
+        # target/... — this mirrors Go/C/Zig which default to
+        # source.parent/<stem>.wasm. cargo still writes to target/... (produced),
+        # build() copies it to output so both locations exist after a default build.
+        unified_default = project / f"{crate_name}.wasm"
         return BuildRecipe(
             language="rust",
             source=source,
-            output=output or produced,
+            output=output or unified_default,
             command=["cargo", "build", "--release", "--target", "wasm32-wasip1"],
             cwd=project,
             produced_path=produced,
