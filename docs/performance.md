@@ -57,6 +57,13 @@ Mac M5, Docker daemon 28.5.1, `docker run --rm` cold start with minimal payload
 | Ephemora Cell cold | 0.485 ms | 0.670 ms | baseline |
 | Ephemora Cell warm | 0.432 ms | 0.704 ms | 430× faster than Docker python |
 
+**Reading every multiplier on this page** (all three vs-Docker sections): a
+container-cold-start vs. invoked-WASM comparison for this benchmark workload on this
+machine (Docker on macOS runs in a VM) — not a general claim that WASM is always
+faster than Docker. For Wasm-based container *runtimes* — a different integration
+path — an academic measurement reports ~51 % slower startup vs. Docker (Liu et al.,
+ACM TOSEM 34(6), 2025, [doi:10.1145/3712197](https://dl.acm.org/doi/10.1145/3712197)).
+
 ## vs Docker (2026-08-30, live, `measured:true` — historical reference)
 
 Mac M5, Docker 28.5.1, `docker run --rm` cold start with minimal payload

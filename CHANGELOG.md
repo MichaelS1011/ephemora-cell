@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Performance surfaces harmonized on the current measurement (2026-09-14, n=100
+  per image, arm64): whitepaper and LinkedIn one-pager now carry 383× (was
+  427× from the n=7 2026-08-30 run) with a fixed scope caveat and a citation
+  of the differing academic measurement for Wasm-based container runtimes
+  (Liu et al., ACM TOSEM 34(6), 2025). `docs/performance.md` states the caveat
+  for every multiplier on the page. PDFs rebuilt and text-verified.
 - README: the standard path shown for untrusted code is now the isolated one —
   Quick Start runs `--isolated` (in-process stays for modules you build and
   trust), and "no opt-in security" is restated precisely: enforced limits are

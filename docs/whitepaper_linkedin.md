@@ -38,10 +38,10 @@ On top of that: OS-level hardening in the worker process (rlimits, disk quota, I
 
 ## Measured Performance (Mac M5, wasmtime 47, n = 1000)
 
-- **Warm, pooled: 0.46 ms** wall-clock median (p95: 0.60 ms)
-- Cold-start comparison (live-measured, 2026-08-30, n = 7): Docker `python:3.12-slim` 170.63 ms vs. Cell cold **0.400 ms** — a factor of **427**
-  *(Fairness note: container cold start vs. invoked WASM — not a general claim.)*
-- Fair overhead vs. pure WASI: 0.25 ms vs. 0.027 ms
+- **Warm, pooled: 0.51 ms** wall-clock median (p95: 0.89 ms, 2026-09-14, n = 1000)
+- Cold-start comparison (live-measured, 2026-09-14, n = 100 per image, arm64): Docker `python:3.12-slim` 185.9 ms vs. Cell cold **0.485 ms** — a factor of **383**
+  *(Container cold start vs. invoked WASM — not a general claim; Wasm-based container runtimes, a different integration path, measure differently: Liu et al., ACM TOSEM 34(6), 2025, doi:10.1145/3712197.)*
+- Fair overhead vs. pure WASI: 0.25 ms vs. 0.027 ms (2026-08-25)
 
 ## Security, Independently Checked
 
