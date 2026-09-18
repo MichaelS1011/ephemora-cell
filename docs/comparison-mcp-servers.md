@@ -1,6 +1,9 @@
 # ephemora-cell-mcp vs. the MCP server market
 
-> As of: 2026-08-20 · Methodology: local measurements on this machine (Section 2)
+> As of: 2026-08-20 (benchmark snapshot §2) · refreshed 2026-09-18:
+> headline latency from the 2026-09-14 measured run (§2a), MCP CVE replay
+> evidence added (§5.1), Wassette status re-verified against its README.
+> Methodology: local measurements on this machine (Section 2)
 > + cited external sources (Section 3). "Verified. Not claimed." — every number
 > comes from a real run or a source URL.
 
@@ -10,8 +13,17 @@
 MCP server in this comparison: tools run as WASM modules inside a
 Wasmtime sandbox (no host FS, no env, no network, fuel metering,
 10 KB output cap) instead of in-process with full user privileges — and that at
-competitive latency (0.89 ms tool call on a persistent channel; see §2) and a
-small footprint (52 MB RSS, 1 runtime dependency).
+competitive latency: **~0.5 ms pooled warm execution / ~12 ms per stdio
+`tools/call`** (2026-09-14, `measured:true`,
+[`benchmarks/results/2026-09-14/`](../benchmarks/results/2026-09-14/); the
+one-time 2026-08-20 snapshot in §2 measured 0.89 ms on a persistent channel)
+and a small footprint (52 MB RSS, 1 runtime dependency).
+
+Against the market's real incidents this is now measured, not argued: the
+[MCP CVE replay harness](../benchmarks/mcp_cve_replay.py) (2026-09-17) replays
+CVE-2025-53109/53110 ("EscapeRoute") and the CVE-2025-54136 class against the
+pinned vulnerable reference server and this sandbox — reference leaks, Cell
+blocks at the engine level, manifest swap fails closed (§5.1).
 
 The price of isolation is measurable: an *unsecured* in-process tool is
 ~13× faster (0.07 ms) — but it reads `/etc/passwd`, sees the
@@ -53,6 +65,8 @@ Development — not production ready". Differences that matter for agents:
 Cell meters every call (fuel) and attaches an execution witness to each
 response (`_meta.execution`, determinism and CI-verified SDK interop above),
 while Wassette's OCI pull model moves the trust decision to install time.
+(Wassette status quoted from its README as of 2026-09-18 — still "Early
+Development, not production ready".)
 
 **Determinism (echo tool, 5 calls):** fuel_consumed = 21562 constant
 (spread 0); elapsed_ms 0.43 ms median (only the first call in a fresh
@@ -73,7 +87,7 @@ job `mcp-sdk-interop`).
 |---|---|---|---|---|
 | Official servers (filesystem/fetch/git) | in-process, full rights | Node/Python | MIT, OSS | CVE-2025-53109 + CVE-2025-53110 (filesystem, symlink/prefix bypass, HIGH); CVE-2025-68143/44/45 (git → RCE chain via smudge/clean filters); fetch SSRF unpatched in PyPI (2026-06) |
 | Playwright MCP | in-process + browser subprocess | Node | MIT, OSS | SSRF/cloud metadata (Issue #1626) |
-| Microsoft Wassette | **WASM** (Wasmtime, deny-by-default) | Rust, OCI components | MIT, OSS | none found; README: "Early Development — not production ready" |
+| Microsoft Wassette | **WASM** (Wasmtime, deny-by-default) | Rust, OCI components | MIT, OSS | none found; README: "Early Development — not production ready" (re-verified 2026-09-18) |
 | mcp.run / Extism | WASM (host grants, fuel) | Extism | BSD-3 (framework); platform commercial | no registry incident found; no signature verification in base Extism |
 | E2B | Cloud microVM (Firecracker) | Go/Rust | Apache-2.0, self-hostable | no incidents; startup degradation ~100 ms→~1 s at 100 concurrent |
 | Docker/Codex sandbox | Container/namespace | Docker, bubblewrap, seccomp | OSS (Codex) | escape class evidenced (SandboxEscapeBench, arXiv 2603.02277) |
