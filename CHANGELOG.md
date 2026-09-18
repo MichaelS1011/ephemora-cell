@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Per-call evidence + attack-surface audits (comparison doc §4.1/§4.2,
+  measured 2026-09-18): the same call to every locally measurable candidate —
+  ephemora-cell-mcp returns text content plus a full `_meta.execution`
+  receipt (fuel, memory, output bytes, security baseline; sign-ready), the
+  pinned reference server returns content only, docker/subprocess return
+  stdout + exit code. Install footprints measured fresh: ephemora-cell = 2
+  distributions (package + wasmtime), 36.2 MB; server-filesystem@2025.3.28 =
+  52 package dirs / 22.2 MB node_modules (corrects the earlier "118" figure,
+  which counted an unpinned install). Evidence:
+  `benchmarks/results/2026-09-18/05_per_call_evidence.json` +
+  `06_attack_surface_audit.json`; repro scripts
+  `benchmarks/per_call_evidence.py` + `benchmarks/attack_surface_audit.py`.
+
 - SandboxEscapeBench-18 harness rebuilt as an honest structural comparison
   (supersedes the 2026-08-25 run, which counted a trivially succeeding
   proc_exit module as "BLOCKED by design"): 8 of the 18 externally defined

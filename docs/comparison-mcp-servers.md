@@ -44,7 +44,7 @@ with checked-in, re-runnable evidence. Values may shift on other machines/builds
 |---|---|---|---|---|---|---|
 | **ephemora-cell-mcp** | **45.9** | **0.89**⁴ | **52.3** | 23.95¹ | **1** (wasmtime) | **WASM sandbox (deny-by-default)** |
 | naive MCP tool (Python stdlib) | 12.3 | 0.07 | 14.9 | 0.004 | 0 | **none** (full host rights)² |
-| `@modelcontextprotocol/server-filesystem` | 70.2 | 0.32 | 75.5 | 30.32 | 118 (npm) | **none** (directory allowlist only) |
+| `@modelcontextprotocol/server-filesystem` | 70.2 | 0.32 | 75.5 | 30.32 | 52 package dirs measured 2026-09-18 (pinned v2025.3.28; earlier "118" counted an unpinned install) | **none** (directory allowlist only) |
 | Docker wrapper (external evidence) | — | +490 ms per call³ | — | — | Docker | Container (breakout-capable, see below) |
 | Microsoft Wassette | —⁵ | —⁵ | —⁵ | —⁵ | —⁵ | Wasmtime WASI-0.2 component sandbox + per-component permission grants (network/storage/env), OCI component distribution⁵ |
 
@@ -104,11 +104,12 @@ job `mcp-sdk-interop`).
    call-time socket denial are measured on the component path, not assumed.
 2. **Smallest attack surface in the market comparison:** 1 runtime dep (wasmtime),
    ~24 MB installed, no Node and no npm transitive tree (server-filesystem:
-   118 packages), no npx execution of unpinned code.
+   52 package dirs / 22.2 MB measured 2026-09-18, pinned v2025.3.28 — see
+   §4.2), no npx execution of unpinned code.
 3. **Per-call proof instead of trust:** every call carries `_meta.execution`
    (fuel_consumed, elapsed_ms, wasmtime_version) — deterministic
    fuel metering (spread 0). No other candidate in the comparison provides a
-   measurable per-call attestation.
+   measurable per-call attestation. Measured side-by-side in §4.1.
 4. **Local and offline:** no cloud round trip, no registry requirement, no
    microVM latency (E2B: network round trip + ~100 ms–1 s startup), no
    container latency (Docker wrapper: +490 ms).
@@ -132,6 +133,44 @@ job `mcp-sdk-interop`).
 - **1 runtime dep** (wasmtime) instead of 0 — won back by the sandbox.
 - **SDK 2.0 interop** for server-compatible field names is tested
   (echo tool via the SDK), not for arbitrary third-party clients.
+
+### 4.1 Per-call evidence, measured (2026-09-18)
+
+The same kind of call against every locally measurable candidate; the table
+records what the caller actually receives. Evidence:
+`benchmarks/results/2026-09-18/05_per_call_evidence.json` (`measured:true`),
+repro: `python benchmarks/per_call_evidence.py`. Framing: **ask any sandbox
+vendor for per-call signed evidence — most return an exit code.**
+
+| Candidate (call) | Caller receives | Execution receipt |
+|---|---|---|
+| **ephemora-cell-mcp** (`echo`) | text content **+ `_meta.execution`** | **YES** — fuel consumed/budget, memory, output bytes, warnings, security baseline (wasmtime version, limits, preopens); RFC 8785-canonicalizable, sign-ready |
+| **ephemora-cell-mcp** (`get-policy`) | policy report | **YES** — computed by the same code path that enforces it |
+| `server-filesystem@2025.3.28` (`read_file`) | file text | no — content only |
+| `docker run` (stock container) | stdout + exit code | no |
+| plain subprocess | stdout + exit code | no |
+
+Candidates without a local install path (E2B cloud, mcp.run platform,
+Wassette binary) remain literature rows in §3 — they are not measured here
+and never presented as if they were.
+
+### 4.2 Attack surface, measured (2026-09-18)
+
+What actually lands on the machine when a user installs a candidate.
+Evidence: `benchmarks/results/2026-09-18/06_attack_surface_audit.json`
+(`measured:true`), repro: `python benchmarks/attack_surface_audit.py`.
+Version + date per row; re-run before citing.
+
+| Candidate | Install footprint (measured) | Repro |
+|---|---|---|
+| ephemora-cell (PyPI, fresh venv) | **2 distributions** (package + its single dep `wasmtime`), 36.2 MB site-packages | `python3 -m venv v && v/bin/pip install ephemora-cell` |
+| server-filesystem@2025.3.28 (npm) | **52 package dirs**, 22.2 MB node_modules | `npm install @modelcontextprotocol/server-filesystem@2025.3.28` |
+| python:3.12-slim (image) | 46.8 MB uncompressed, digest in evidence | `docker pull python:3.12-slim` |
+| node:24-alpine (image) | 58.9 MB uncompressed, digest in evidence | `docker pull node:24-alpine` |
+
+> The earlier "118 npm packages" figure counted an unpinned install of the
+> filesystem server; the pinned 2025.3.28 measures 52. Both are historical —
+> the current measurement is the table above.
 
 ## 5. Live verification (2026-08-20): CVEs, limits, cross-arch
 

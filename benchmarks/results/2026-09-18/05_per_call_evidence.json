@@ -1,0 +1,64 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-18",
+  "python": "3.12.13",
+  "package": "1.0.3",
+  "marker_token": "b009704564251d64",
+  "rows": [
+    {
+      "candidate": "ephemora-cell-mcp (echo)",
+      "invocation": "stdio MCP server, bundled WASM tool",
+      "caller_receives_keys": [
+        "_meta",
+        "content"
+      ],
+      "has_execution_receipt": true,
+      "excerpt": "{\"status\": \"success\", \"exit_code\": 0, \"elapsed_ms\": 12.64, \"fuel_consumed\": 21746, \"fuel_budget\": 2000000, \"fuel_utilization\": 0.0109, \"memory_mb\": 0.0, \"stdout_bytes\": 47, \"stderr_bytes\": 0, \"warning",
+      "notes": "receipt = _meta.execution: fuel consumed/budget, memory, output bytes, security baseline (wasmtime version, limits, preopens); canonicalizable (RFC 8785) and sign-ready"
+    },
+    {
+      "candidate": "ephemora-cell-mcp (get-policy)",
+      "invocation": "read-only meta tool",
+      "caller_receives_keys": [
+        "content"
+      ],
+      "has_execution_receipt": true,
+      "excerpt": "{\"content\": [{\"type\": \"text\", \"text\": \"{\\\"name\\\": \\\"echo\\\", \\\"profile\\\": \\\"llm\\\", \\\"allow_dirs_configured\\\": [], \\\"network\\\": \\\"disabled - the WASI surface exposes no socket APIs; egress only via a ho",
+      "notes": "policy reads are tools; the report is computed by the same code path that enforces it"
+    },
+    {
+      "candidate": "@modelcontextprotocol/server-filesystem@2025.3.28 (read_file)",
+      "invocation": "stdio MCP server via npx (pinned version)",
+      "caller_receives_keys": [
+        "content"
+      ],
+      "has_execution_receipt": false,
+      "excerpt": "SAFE-b009704564251d64",
+      "notes": "returns the file content; no execution metadata, no cost, no policy attestation in the response"
+    },
+    {
+      "candidate": "docker run python:3.12-slim",
+      "invocation": "container per call",
+      "caller_receives_keys": [
+        "stdout",
+        "exit_code"
+      ],
+      "has_execution_receipt": false,
+      "excerpt": "CALLOUT-b009704564251d64\n",
+      "notes": "the caller gets stdout and the exit code \u2014 no cost, no policy, no engine version attestation"
+    },
+    {
+      "candidate": "plain subprocess (python3 -c)",
+      "invocation": "in-process host execution",
+      "caller_receives_keys": [
+        "stdout",
+        "exit_code"
+      ],
+      "has_execution_receipt": false,
+      "excerpt": "CALLOUT-b009704564251d64\n",
+      "notes": "baseline: everything the sandbox adds is the delta against this row"
+    }
+  ],
+  "pass": true
+}

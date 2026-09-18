@@ -1,0 +1,43 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-18",
+  "rows": [
+    {
+      "candidate": "ephemora-cell (pip, PyPI)",
+      "repro": "python3 -m venv v && v/bin/pip install ephemora-cell",
+      "measured_date": "2026-09-18",
+      "installed_distributions": 2,
+      "distributions": [
+        "ephemora-cell",
+        "wasmtime"
+      ],
+      "site_packages_mb": 36.2,
+      "notes": "1 runtime dependency (wasmtime); counts exclude pip/setuptools"
+    },
+    {
+      "candidate": "@modelcontextprotocol/server-filesystem@2025.3.28 (npm)",
+      "repro": "mkdir d && cd d && npm install @modelcontextprotocol/server-filesystem@2025.3.28",
+      "measured_date": "2026-09-18",
+      "package_dirs": 52,
+      "node_modules_mb": 22.2,
+      "notes": "transitive npm tree installed before the first tool call"
+    },
+    {
+      "image": "python:3.12-slim",
+      "uncompressed_mb": 46.8,
+      "digest": "python@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea",
+      "repro": "docker pull python:3.12-slim && docker image inspect python:3.12-slim",
+      "measured_date": "2026-09-18",
+      "notes": "uncompressed local image size \u2014 pulled before any tool call"
+    },
+    {
+      "image": "node:24-alpine",
+      "uncompressed_mb": 58.9,
+      "digest": "node@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf",
+      "repro": "docker pull node:24-alpine && docker image inspect node:24-alpine",
+      "measured_date": "2026-09-18",
+      "notes": "uncompressed local image size \u2014 pulled before any tool call"
+    }
+  ]
+}
