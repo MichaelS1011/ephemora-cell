@@ -95,6 +95,27 @@ Mac M5, Docker 28.5.1, `docker run --rm` cold start with minimal payload
 ## Overhead fair (same HELLO_WAT, 2026-08-25, n=300)
 Cell warm 0.25ms vs pure WASI 0.027ms = **825%** — 0.22ms for fuel, timeout, preopen, output cap. `10_overhead_fair.json`
 
+## Fuel vs epoch vs wall-clock (2026-09-18, mechanism benchmark)
+
+The three ways to stop a run, measured on three axes. Repro:
+`python benchmarks/fuel_epoch_wall.py` — evidence
+`benchmarks/results/2026-09-18/07_fuel_epoch_wall.json` (`measured:true`;
+macOS arm64, wasmtime 47.0.1 pinned — relative taxes are per-platform and a
+DIFFERENT measurement from the 0.376 ms per-call overhead above; never mixed).
+
+| Axis | Fuel | Epoch | Wall-clock (subprocess) |
+|---|---|---|---|
+| Mechanism tax (10M-iter mixed loop, n=30, raw wasmtime) | **+35.2%** | **+1.4%** | n/a — kills the process |
+| Stop point deterministic? | **yes** — `fuel_consumed` identical across 5 runs (1,000,000/1,000,000) | no — ms-scale jitter | no |
+| Overshoot at T=0.1 s (n=20, median / p95 / max) | n/a — instruction-exact stop at the budget | pooled: 10.0 / 10.1 / 10.5 ms · per-run: **5.3 / 6.3 / 6.4 ms** | 53.9 / 59.0 / 59.2 ms (spawn + teardown dominate) |
+| What it bounds | guest CPU share | wall time | process lifetime — the only layer whose blast radius also survives an engine bug (see [SECURITY.md](../SECURITY.md), engine advisories) |
+
+Reading: fuel buys a deterministic, budget-exact stop point at a real tax;
+epoch is essentially free but time-based (the per-run timer variant is
+measurably tighter than the pooled 50 ms ticks); the subprocess wall is the
+coarsest stop. Cited anchor for the fuel tax — 28–40% (wasmtime#4109) — is
+corroborated by our own 35.2%: measured, not assumed.
+
 ## Agentic 2026-08-25 (n=500 pooled, fresh)
 | Scenario | Median | P95 | P99 | Mean |
 |----------|--------|-----|-----|------|

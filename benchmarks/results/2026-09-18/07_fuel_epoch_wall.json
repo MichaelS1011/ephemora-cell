@@ -1,0 +1,69 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-18",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "platform_bound_note": "fuel numbers are per-platform (pinned wasmtime, macOS arm64) and not comparable across platforms",
+  "cited_anchors": {
+    "wasmtime_4109_fuel_overhead": "28-40% relative (cited, not ours)",
+    "epoch_cheaper_than_fuel": "verified below with our own measurement"
+  },
+  "overhead_mechanism_level": {
+    "baseline_median_ms": 8.524,
+    "runs": 30,
+    "epoch_enabled": {
+      "median_ms": 8.647,
+      "relative_tax_vs_baseline": 0.0144
+    },
+    "fuel_enabled": {
+      "median_ms": 11.524,
+      "relative_tax_vs_baseline": 0.3519
+    }
+  },
+  "precision": {
+    "timeout_s": 0.1,
+    "runs": 20,
+    "workload_iters": 2000000000,
+    "fuel": {
+      "budget": 1000000,
+      "status": "fuel_exhausted",
+      "consumed_across_runs": [
+        1000000,
+        1000000,
+        1000000,
+        1000000,
+        1000000
+      ],
+      "stop_point_deterministic": true
+    },
+    "epoch_pooled": {
+      "tick_seconds": 0.05,
+      "overshoot_ms_median": 9.96,
+      "overshoot_ms_p95": 10.12,
+      "overshoot_ms_max": 10.47,
+      "statuses": [
+        "TIMEOUT"
+      ]
+    },
+    "epoch_per_run": {
+      "mechanism": "deadline=1 + single increment at T",
+      "overshoot_ms_median": 5.25,
+      "overshoot_ms_p95": 6.34,
+      "overshoot_ms_max": 6.36,
+      "statuses": [
+        "TIMEOUT"
+      ]
+    },
+    "wall_subprocess": {
+      "mechanism": "hard process kill after T (+ spawn cost)",
+      "overshoot_ms_median": 53.91,
+      "overshoot_ms_p95": 59.03,
+      "overshoot_ms_max": 59.23,
+      "statuses": [
+        "TIMEOUT"
+      ],
+      "note": "overshoot includes process spawn/teardown \u2014 kill granularity and startup dominate; this path also carries OS-level rlimits"
+    }
+  }
+}

@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Fuel vs epoch vs wall-clock mechanism benchmark
+  (`benchmarks/fuel_epoch_wall.py`, evidence
+  `benchmarks/results/2026-09-18/07_fuel_epoch_wall.json`): the three ways to
+  stop a WASM run, measured on overhead (10M-iter mixed loop, raw wasmtime,
+  n=30: epoch +1.4%, fuel +35.2% — corroborating the cited 28–40% anchor),
+  precision (overshoot at T=0.1 s, n=20: per-run epoch 5.3 ms median,
+  pooled 10.0 ms, subprocess kill 53.9 ms incl. spawn/teardown) and
+  determinism (fuel stop-point identical across runs; time-based stops
+  jitter). Platform-bound numbers, claim-separated from the 0.376 ms
+  per-call overhead. Documented in docs/performance.md.
+
 - Per-call evidence + attack-surface audits (comparison doc §4.1/§4.2,
   measured 2026-09-18): the same call to every locally measurable candidate —
   ephemora-cell-mcp returns text content plus a full `_meta.execution`
