@@ -1,0 +1,59 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-18",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "package": "1.0.3",
+  "node": "v22.23.1",
+  "vulnerable_reference": "@modelcontextprotocol/server-filesystem@2025.3.28",
+  "classes": {
+    "reference (server-filesystem v2025.3.28)": [
+      {
+        "intent": "positive-control (granted read)",
+        "leaked": false,
+        "response": "SAFE-038ee31ac3b9e2ec"
+      },
+      {
+        "intent": "CVE-2025-53109 symlink escape",
+        "leaked": true,
+        "response": "LEAKMARKER-038ee31ac3b9e2ec"
+      },
+      {
+        "intent": "CVE-2025-53110 prefix traversal",
+        "leaked": true,
+        "response": "LEAKMARKER-038ee31ac3b9e2ec"
+      }
+    ],
+    "ephemora-cell-mcp": [
+      {
+        "intent": "positive-control (granted read)",
+        "granted": true,
+        "response": "SAFE-038ee31ac3b9e2ec"
+      },
+      {
+        "intent": "CVE-2025-53109 symlink escape",
+        "blocked": true,
+        "response": "ERRNO:032/044"
+      },
+      {
+        "intent": "CVE-2025-53110 prefix traversal (absolute)",
+        "blocked": true,
+        "response": "ERRNO:063/063"
+      },
+      {
+        "intent": "CVE-2025-53110 traversal (../)",
+        "blocked": true,
+        "response": "ERRNO:063/063"
+      }
+    ],
+    "CVE-2025-54136 class (governed loading)": {
+      "accepted_first": true,
+      "tampered_rejected": true,
+      "fail_closed": true,
+      "tamper_report": "[{'request': 'widget.tool.request.json', 'reason': 'module hash mismatch \u2014 the signed manifest does not describe these bytes'}]"
+    }
+  },
+  "marker_token": "038ee31ac3b9e2ec",
+  "pass": true
+}

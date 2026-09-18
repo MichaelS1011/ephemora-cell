@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Hardened-container baseline for the 8-vector security matrix: the same eight
+  attack intents against `python:3.12-slim` with a declared flag set
+  (`--network none --read-only --cap-drop=ALL --security-opt no-new-privileges
+  --pids-limit 64 --user 65534:65534`) — measured 2026-09-18: 6/8 still allowed,
+  both blocks are `--read-only` EROFS effects, not a guest-facing boundary.
+  New probe `benchmarks/hardened_docker_probe.py` with pre-declared expectation
+  matrix (deviations documented, never silently edited), positive control and a
+  digest-pinned arm64 image (evidence: `benchmarks/results/2026-09-18/`).
+
+### Changed
+
+- README security table compares stock Docker, hardened Docker and Cell with
+  per-row boundary-layer attribution (Layer 1 WASI surface · Layer 2 sandbox
+  policy · Layer 3 process wall) and an intent-equivalence table mapping every
+  `python3 -c` probe body to its WASM guest equivalent.
+- `assets/demo_attack_probe.py` writes dated evidence with image digest and
+  architecture (no more hardcoded result directory).
+- SECURITY.md: engine-advisory paragraph (April 2026 wasmtime advisories —
+  12 advisories, two critical sandbox escapes, both aarch64-specific, fixed
+  before the pinned 47.0.1) and an engine-upgrade gate: any wasmtime bump
+  re-runs the security evidence suite before claims are re-attested.
+
 ## [1.0.3] - 2026-09-17
 
 ### Fixed

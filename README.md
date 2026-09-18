@@ -147,37 +147,58 @@ Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64
 
 ## Security
 
-The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)):
+The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)) — measured against three boundaries, same intents, same measurement rule (exit code decides, nothing hardcoded):
 
-| Attack class | Docker | Ephemora Cell |
-|---|---|---|
-| Shell (`os.system`) / fork / network sockets | ALLOWED | **BLOCKED** — APIs don't exist in WASI |
-| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — import-level rejection |
-| Host filesystem (`/etc/passwd`) | ALLOWED | **BLOCKED** — preopen default-deny |
-| Symlink escape | ALLOWED | **BLOCKED** — dangerous directory filter |
-| Multi-threading | ALLOWED | **BLOCKED** — `wasm_threads=False` |
-| Environment access | ALLOWED | **BLOCKED** — controlled via `allow_env` |
+| Attack class | Docker | Docker (hardened¹) | Ephemora Cell | Layer |
+|---|---|---|---|---|
+| Shell (`os.system`) / fork | ALLOWED | ALLOWED | **BLOCKED** — APIs don't exist in WASI | 1 |
+| Network sockets | ALLOWED | ALLOWED — creation needs no capability | **BLOCKED** — APIs don't exist in WASI | 1 |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — import-level rejection | 2 |
+| Host filesystem (`/etc/passwd`) | ALLOWED | ALLOWED — the container's own file | **BLOCKED** — preopen default-deny | 2 |
+| Symlink escape | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — dangerous directory filter | 2 |
+| Multi-threading | ALLOWED | ALLOWED | **BLOCKED** — `wasm_threads=False` | 2 |
+| Environment access | ALLOWED | ALLOWED | **BLOCKED** — controlled via `allow_env` | 2 |
 
-**Result: 8/8 attack vectors blocked (live-verified); Docker baselines are measured live per run — never hardcoded.**
+The boundary is three layers, and the table measures them separately:
+
+- **Layer 1 — WASI surface:** the guest format itself has no shell/fork/socket entry points to call.
+- **Layer 2 — Sandbox policy (always on):** preopen default-deny, dangerous-directory filter, import traps, `wasm_threads=False`, `allow_env` — enforced per execution, not configurable away.
+- **Layer 3 — OS process wall (`--isolated`):** a disposable worker process with OS rlimits and a hard kill — the mitigation layer for engine 0-days ([SECURITY.md](SECURITY.md) documents the April 2026 wasmtime advisories).
+
+**Result: 8/8 attack vectors blocked (live-verified); both Docker baselines are measured live per run — never hardcoded.**
+
+¹ Hardened = exactly these flags — tell us which to add: `--network none --read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534` (image pinned by digest; Docker's default seccomp profile is active in **both** columns). Both hardened blocks are `--read-only` file-system effects — the flags wall the container *off*, not the guest *in*: socket creation, the container's own `/etc/passwd`, fork, threading and environment stay available to the guest.
 
 ![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
 
-*Same eight attack primitives, measured live (Docker probe 2026-09-02, Cell probe 2026-09-12 — now with a positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), the Ephemora Cell boundary blocks all eight (8/8). Reproduce both columns:*
+*Same eight attack primitives, measured live (2026-09-18 refresh, arm64 image pinned by digest; positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), a hardened container still lets 6 of 8 through — both of its blocks are `--read-only` flag effects — and the Ephemora Cell boundary blocks all eight (8/8). Reproduce all three columns:*
 
 ```bash
-python assets/demo_attack_probe.py    # left column  -> 0/8 blocked (stock Docker)
-python benchmarks/verify_8_vectors.py # right column -> 8/8 blocked (Ephemora Cell)
+python assets/demo_attack_probe.py          # stock Docker    -> 0/8 blocked
+python benchmarks/hardened_docker_probe.py  # hardened Docker -> 2/8 blocked
+python benchmarks/verify_8_vectors.py       # Ephemora Cell   -> 8/8 blocked
 ```
 
 **How the 8/8 is measured.**
 
-- **Environment:** MacBook Pro M5, macOS arm64, wasmtime 47.0.1
-- **Docker probe (2026-09-02):** stock `python:3.12-slim` via `docker run --rm` — the measured exit code decides ALLOWED vs BLOCKED, nothing hardcoded
-- **Cell probe (2026-09-12):** `verify_8_vectors.py` against the live runtime, same eight attack intents expressed per platform (WASM guests for the Cell side, `python3 -c` bodies for Docker; verification method detailed in [`docs/security_posture.md`](docs/security_posture.md))
+- **Environment:** MacBook Pro M5, macOS arm64, wasmtime 47.0.1, Docker 28.5.1
+- **Docker probes (2026-09-18, `linux/arm64` image pinned by digest):** stock via `docker run --rm`, hardened via exactly the declared flag set — the measured exit code decides ALLOWED vs BLOCKED, nothing hardcoded. Historical stock baseline (2026-09-02, `x86_64` image under emulation): `benchmarks/results/2026-09-02/`
+- **Cell probe (2026-09-18, same day):** `verify_8_vectors.py` against the live runtime — same eight attack intents, expressed natively per platform (equivalence below); verification method detailed in [`docs/security_posture.md`](docs/security_posture.md)
 - **Workload:** self-contained payloads, no downloads, no credentials
-- **Attack classes (8):** shell (`os.system`), fork, network socket, fsync, host filesystem read (`/etc/passwd`), symlink escape, threading, environment leak
 - **Positive control:** each blocked vector is paired with a granted-capability control that **must succeed** on the same sandbox config (e.g. the symlink test's real target file must open errno 0) — if the control fails, the harness is broken, not the sandbox, and the run does not count
-- **Raw evidence:** `benchmarks/results/2026-09-02/01_docker_attack_probe.json` + `02_cell_8_vector_verify.json`
+
+| # | Attack intent | Docker probe body (`python3 -c`) | Cell probe guest (WASM) |
+|---|---|---|---|
+| 1 | shell | `os.system('id …') == 0` | no exec/system entry point in the WASI import surface (live scan) |
+| 2 | fork | `os.fork()` | no fork/vfork in the import surface (live scan) |
+| 3 | socket | `socket.socket(…)` | no socket/sock_\* in the import surface (live scan) |
+| 4 | fsync | open + write + `os.fsync` | module imports `fd_psync` → trapped by the sandbox |
+| 5 | host FS | `open('/etc/passwd').read()` | `path_open('/etc/passwd')` with no preopen |
+| 6 | symlink escape | `os.symlink` + `realpath` outside | `path_open` through a symlink out of a preopened dir (control: real file opens errno 0) |
+| 7 | threading | `threading.Thread(…).start()` | shared-memory module rejected (`wasm_threads=False`) |
+| 8 | env | `'PATH' in os.environ` | env count with `allow_env=()` must be 0 |
+
+- **Raw evidence:** `benchmarks/results/2026-09-18/` (`01_hardened_docker_attack_probe.json` · `02_docker_attack_probe.json` · `03_cell_8_vector_verify.json`) + historical `benchmarks/results/2026-09-02/`
 
 **MCP CVE replays.** The official MCP reference servers have real, patched CVEs against this exact surface. [`benchmarks/mcp_cve_replay.py`](benchmarks/mcp_cve_replay.py) replays them as their original exploit paths — pinned vulnerable reference server vs. Cell, same files, positive controls on both sides (2026-09-17, `measured:true`):
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from pathlib import Path
 
 IMAGE = "python:3.12-slim"
@@ -66,12 +67,35 @@ def main() -> None:
     print(f"Docker (stock {IMAGE}): {allowed}/8 attack primitives ALLOWED")
     for v, r in out.items():
         print(f"  {v:<16} {r['status']}")
-    dest = Path(__file__).parent.parent / "benchmarks/results/2026-09-02"
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / "01_docker_attack_probe.json").write_text(
-        json.dumps({"image": IMAGE, "results": out, "allowed_count": allowed}, indent=2)
+    digest = subprocess.run(
+        ["docker", "image", "inspect", IMAGE, "--format", "{{index .RepoDigests 0}}"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    arch = subprocess.run(
+        ["docker", "image", "inspect", IMAGE, "--format", "{{.Architecture}}"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dest = (
+        Path(__file__).parent.parent / "benchmarks/results" / time.strftime("%Y-%m-%d")
     )
-    print(f"Saved: {dest/'01_docker_attack_probe.json'}")
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "02_docker_attack_probe.json").write_text(
+        json.dumps(
+            {
+                "measured": True,
+                "date": time.strftime("%Y-%m-%d"),
+                "image": IMAGE,
+                "image_digest": digest,
+                "image_architecture": arch,
+                "results": out,
+                "allowed_count": allowed,
+            },
+            indent=2,
+        )
+    )
+    print(f"Saved: {dest/'02_docker_attack_probe.json'}")
 
 
 if __name__ == "__main__":

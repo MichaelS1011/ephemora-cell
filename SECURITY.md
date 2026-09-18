@@ -196,5 +196,23 @@ revision in `requirements.txt` (`wasmtime==47.0.1`).
   (recorded only today — see Known Limitations) to that upgrade's
   validation checklist
 
+**Engine advisories (wasmtime):** the engine itself is part of the threat surface.
+The April 2026 Bytecode Alliance advisory batch (2026-04-09; 12 advisories, two
+critical sandbox escapes, both aarch64-specific: RUSTSEC-2026-0096 / CVE-2026-34971,
+a Cranelift miscompiled guest heap access enabling host memory access, and
+RUSTSEC-2026-0095, a Winch-backend memory access — fixed in 36.0.7 / 42.0.2 / 43.0.1
+/ 24.0.7; the pinned 47.0.1 contains the fixes) demonstrated that engine 0-days are
+a real in-process risk. Cell's answer is layered: security claims are bound to the
+tested engine version (`requirements.txt` pin, `wasmtime_version` attested in every
+execution record), CI watches RUSTSEC/bytecodealliance alongside pip-audit, and
+`run_isolated()` is the mitigation layer for untrusted guests (disposable worker
+process, hard kill).
+
+**Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
+`benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi
+conformance job — before security claims are re-attested. CI watch *detects* new
+advisories; this gate prevents claims from silently carrying across an engine
+version with changed enforcement behavior.
+
 **Process:** Bumping the pinned `requirements.txt` revision requires a passing
 `pytest` run plus a clean `pip-audit` before merge.

@@ -23,6 +23,29 @@ python benchmarks/verify_8_vectors.py       # 8/8 BLOCKED (live wasmtime)
 python benchmarks/compile_workloads.py      # rebuild workloads/*.wasm from WAT (reproducible)
 ```
 
+## Hardened-container baseline (2026-09-18)
+
+The same eight intents, expressed as the identical `python3 -c` bodies, run against a
+**hardened** `python:3.12-slim` container (`--network none --read-only --cap-drop=ALL
+--security-opt no-new-privileges --pids-limit 64 --user 65534:65534`, default seccomp
+profile, arm64 image pinned by digest, positive control): **6/8 still allowed** — the
+two blocks (fsync, symlink creation) are `--read-only` EROFS effects on the container's
+own filesystem, not a guest-facing boundary. Socket creation needs no capability and no
+network under these flags; the container's own `/etc/passwd` stays world-readable to the
+guest. The hardening flags wall the container *off* from the host; the guest primitives
+live inside the container world and remain available. Evidence:
+`benchmarks/results/2026-09-18/01_hardened_docker_attack_probe.json` (expectation matrix
+with documented same-day correction, positive control, digest) — probe:
+`benchmarks/hardened_docker_probe.py`. gVisor is not measurable on this host (Docker
+Desktop provides no runsc runtime); it stays an open baseline rather than an estimated
+number.
+
+Layer model used in the README table: **Layer 1** = WASI surface (no exec/fork/socket
+entry points in Preview 1), **Layer 2** = sandbox policy always on (preopen deny,
+dangerous-dir filter, import traps, `wasm_threads=False`, `allow_env`), **Layer 3** =
+OS process wall via `run_isolated()`/`--isolated` — the mitigation layer for engine
+0-days (see [SECURITY.md](../SECURITY.md), engine advisories).
+
 ## arXiv 2509.11242 — Tested Attack Surface
 
 We evaluated 11 exploitation strategies from [arXiv 2509.11242](https://arxiv.org/abs/2509.11242) against the Ephemora Cell sandbox:
