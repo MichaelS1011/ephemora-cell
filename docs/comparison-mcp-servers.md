@@ -100,6 +100,8 @@ job `mcp-sdk-interop`).
 1. **Isolation is the default architecture, not a feature flag.** The guest never
    sees host FS/env/network — this is not configurable but rather the
    sandbox intervention. (Benchmark agent: the naive counter-probe reads `/etc/passwd`.)
+   The same replay runs against WASI 0.2 components: symlink/traversal denial plus
+   call-time socket denial are measured on the component path, not assumed.
 2. **Smallest attack surface in the market comparison:** 1 runtime dep (wasmtime),
    ~24 MB installed, no Node and no npm transitive tree (server-filesystem:
    118 packages), no npx execution of unpinned code.

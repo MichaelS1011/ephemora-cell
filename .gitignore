@@ -22,6 +22,7 @@ coverage.xml
 tests/fixtures/src/*/target/
 benchmarks/pocs/*/guests/target/
 benchmarks/pocs/*/target/
+benchmarks/component_probes/src/*/target/
 
 # Internal — never publish (IP)
 docs/internal/

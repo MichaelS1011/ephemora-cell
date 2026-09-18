@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- WASI 0.2 component branch for the MCP CVE replay: the same attack intents
+  (CVE-2025-53109/53110 symlink + traversal, CVE-2025-54136 governed-load
+  tamper) are replayed against the ComponentSandbox boundary with prebuilt
+  component probes (`benchmarks/component_probes/`, sources + rebuild.sh
+  committed; CI does not rebuild). Verdicts (2026-09-18, deterministic across
+  3 runs, `abi: "component"`): symlink escape blocked (EPERM), traversal
+  blocked (no preopen base), governed-load tamper fails closed — and the
+  audit-required **network intent is measured**: the WASI 0.2 world links
+  `wasi:sockets` (unlike Preview1), a TCP connect is refused at call time
+  while the granted-read control passes in the same run.
+  Evidence: `benchmarks/results/2026-09-18/mcp_cve_replay_component.json`.
+
 - Hardened-container baseline for the 8-vector security matrix: the same eight
   attack intents against `python:3.12-slim` with a declared flag set
   (`--network none --read-only --cap-drop=ALL --security-opt no-new-privileges
@@ -19,6 +31,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Network claim corrected where it overclaimed ("no socket APIs in WASI" was
+  Preview1-true but 0.2-false): README and threat model now state — Preview1:
+  no socket APIs; WASI 0.2: linked, denied at call time (measured).
+  `wasi_02` docstring corrected likewise (unknown imports fail at instantiate
+  time; they are not defined as traps).
 - Performance surfaces harmonized on the current measurement (2026-09-14, n=100
   per image, arm64): whitepaper and LinkedIn one-pager now carry 383× (was
   427× from the n=7 2026-08-30 run) with a fixed scope caveat and a citation

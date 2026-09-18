@@ -140,7 +140,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 | Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000; 2026-09-14 re-measured, macOS arm64 — fuel counts are per-platform, not cross-platform) |
 | Wall-clock timeout | 30 s (epoch interruption) |
 | Captured stdout/stderr | 10 KB |
-| Network | disabled — no socket APIs in WASI |
+| Network | disabled — Preview1: no socket APIs; WASI 0.2: linked, denied at call time (measured) |
 | Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
 | Process exec / fork | unavailable in WASI |
 | Threading | disabled (`wasm_threads=False`) |
@@ -206,6 +206,7 @@ python benchmarks/verify_8_vectors.py       # Ephemora Cell   -> 8/8 blocked
 
 - **CVE-2025-53109/53110** ("EscapeRoute", symlink escape + prefix traversal): the vulnerable reference server **leaked** the protected file in both intents; Cell blocked both at the engine level (`EPERM`/`ENOTCAPABLE`) — with the granted-capability control reading successfully on both sides.
 - **CVE-2025-54136 class** ("MCPoison", payload swap after trust): a signed tool is accepted once, then a single tampered wasm byte makes the next governed-load request **fail closed** (hash mismatch).
+- **Same replays against WASI 0.2 components** ([evidence](benchmarks/results/2026-09-18/mcp_cve_replay_component.json), `abi: "component"`): the component path denies the same escape intents (symlink escape → `EPERM`, traversal → no preopen base) and the same governed-load tamper fails closed. The network vector gets its own intent — the WASI 0.2 world *links* `wasi:sockets` (unlike Preview1), so a TCP connect is attempted under the sandbox and **refused at call time**, with the granted-read control passing in the same run.
 
 ## Secure MCP tool execution
 

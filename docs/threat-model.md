@@ -47,7 +47,7 @@ whether guest code is *good* — only contained.
 | Guest → host compute | fuel, memory pages, wall clock | fuel metering, `Store.set_limits`, epoch interruption — enforced on **both** execution paths |
 | Sandbox dir → host disk | guest-written bytes | `io_budget_bytes` wall (both paths); `disk_quota_bytes` (RLIMIT_FSIZE) and `io_cpu_seconds` rusage watchdog on the **subprocess path only** — see the [execution-path matrix](../SECURITY.md#execution-paths--which-control-runs-where) |
 | Worker → OS (subprocess path) | process creation itself | RLIMIT_NOFILE/AS/RSS, 32 MB module cap, hard kill on timeout |
-| Sandbox → network | nothing, by default | no socket APIs in WASI Preview1 / 0.2; the [egress sidecar](egress_patterns.md) is the audited, allowlist-mediated alternative |
+| Sandbox → network | nothing, by default | WASI Preview1: no socket APIs; the WASI 0.2 world links `wasi:sockets` but connect is denied at call time (measured, CVE-replay component evidence 2026-09-18); the [egress sidecar](egress_patterns.md) is the audited, allowlist-mediated alternative |
 
 ## Residual risks (documented, accepted)
 

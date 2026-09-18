@@ -21,8 +21,11 @@ Reactor-style components (no ``run`` export) are rejected with an ERROR.
 
 Security posture matches the Preview1 sandbox: same engine baseline
 (memory64/multi-memory/threads off), same canonical allowlist for preopens,
-same byte-budgeted output capture, fuel + epoch timeout, and unknown
-imports (e.g. ``wasi:http``) are defined as traps.
+same byte-budgeted output capture, fuel + epoch timeout. Unknown imports
+(e.g. ``wasi:http``) are NOT defined as traps — they fail at instantiate
+time with "unknown import" (see the linker note in ``run``); the WASI 0.2
+world links ``wasi:sockets`` and connect is denied at call time by the
+host context (measured: benchmarks/mcp_cve_replay.py, component branch).
 
 Limitations (documented): fuel consumption *rates* differ from Preview1
 calibration (the command adapter burns fuel on every wasi hop); preopen

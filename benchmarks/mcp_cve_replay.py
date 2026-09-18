@@ -24,20 +24,31 @@ only come from actually reading the protected file.
 Usage:
     python benchmarks/mcp_cve_replay.py            # all classes
     python benchmarks/mcp_cve_replay.py --cell-only
+    python benchmarks/mcp_cve_replay.py --component-only
 
 Exit 0 when: the reference leaks both fs-CVE intents, Cell blocks all
 fs-CVE intents, all positive controls pass, and the tampered tool request
 is rejected. Exit 1 otherwise (that includes the reference NOT leaking —
 a patched reference version is a harness change, not a pass).
 
+Component branch (WASI 0.2): the same attack intents are replayed against
+the ComponentSandbox boundary with prebuilt component probes
+(benchmarks/component_probes/, rebuilt via its rebuild.sh). The WASI 0.2
+world LINKS wasi:sockets — unlike Preview1, denial must happen at call
+time, so a dedicated network intent (TCP connect to an IP literal, with a
+granted-read positive control in the same run) verifies fail-closed
+behavior as a measured fact. Evidence:
+benchmarks/results/<date>/mcp_cve_replay_component.json with abi:"component".
+
 Requires: node/npx on PATH (reference side), the 'cryptography' package
 (class 3). Nothing is downloaded at test time except the pinned npm
 package; fixtures live under $HOME, never /tmp (macOS canonical-path
-allowlist).
+allowlist). The component branch needs neither node nor the npm package.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -57,6 +68,9 @@ from ephemora_cell_mcp.server import Server  # noqa: E402
 from ephemora_cell_mcp.sign_tool import main as sign_tool_main  # noqa: E402
 
 VULNERABLE_SERVER = "@modelcontextprotocol/server-filesystem@2025.3.28"
+COMPONENT_PROBES = REPO / "benchmarks" / "component_probes"
+FS_PROBE_COMPONENT = COMPONENT_PROBES / "fs_probe.wasm"
+NET_PROBE_COMPONENT = COMPONENT_PROBES / "net_probe.wasm"
 
 FS_PROBE_WAT = r"""
 (module
@@ -340,13 +354,16 @@ def run_cell(fx: dict, work: Path) -> list[dict]:
     return out
 
 
-def run_class3(work: Path) -> dict:
+def run_class3(work: Path, probe_wasm: Path | None = None) -> dict:
     """CVE-2025-54136 class equivalent: signed tool accepted once, then a
-    tampered wasm must fail closed on the next governed request."""
+    tampered wasm must fail closed on the next governed request. The probe
+    is parameterized so the same flow runs against a WASI 0.2 component
+    (governed loading hashes raw bytes — ABI-agnostic)."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    probe_wasm = build_probe_wasm(work)
+    if probe_wasm is None:
+        probe_wasm = build_probe_wasm(work)
     tools = work / "srv_tools"  # server registry: starts EMPTY
     tools.mkdir(exist_ok=True)
     requests = work / "requests"  # vendor drop zone
@@ -437,6 +454,95 @@ def run_class3(work: Path) -> dict:
     }
 
 
+def _redact(s: str) -> str:
+    """Scrub the local home prefix from guest/stderr text before it lands in
+    committed evidence (the 1.0.1 audit fixed exactly this leak pattern)."""
+    home = os.path.expanduser("~")
+    return s.replace(home, "~") if home and home != "/" else s
+
+
+def run_cell_component(fx: dict) -> list[dict]:
+    """The same four intents as run_cell, replayed on the ComponentSandbox
+    (WASI 0.2) boundary. Preopen semantics on the component path: the guest
+    sees the HOST path (no /sandbox mount), so intents pass host-absolute
+    paths; the traversal intent keeps its relative form to show there is no
+    preopen base to traverse from. Verdict logic is identical to run_cell:
+    marker-based, positive control must succeed."""
+    from ephemora_cell import WASIConfig
+    from ephemora_cell.wasi_02 import ComponentSandbox
+
+    sandbox = ComponentSandbox(
+        config=WASIConfig(allow_dirs=(str(fx["allowed"]),), max_fuel=1_000_000)
+    )
+    intents = [
+        ("positive-control (granted read)", str(fx["allowed"] / "ok.txt")),
+        ("CVE-2025-53109 symlink escape", str(fx["allowed"] / "link_to_secret")),
+        (
+            "CVE-2025-53110 prefix traversal (absolute)",
+            str(fx["secret"] / "leak.txt"),
+        ),
+        ("CVE-2025-53110 traversal (../)", "../allowed-secret/leak.txt"),
+    ]
+    out = []
+    try:
+        for name, path in intents:
+            r = sandbox.run(
+                str(FS_PROBE_COMPONENT),
+                stdin_data=json.dumps({"params": {"path": path}}),
+            )
+            text = _redact((r.stdout or "").strip())
+            if "positive-control" in name:
+                out.append(
+                    {
+                        "intent": name,
+                        "granted": text.startswith("SAFE"),
+                        "response": text[:200],
+                    }
+                )
+            else:
+                out.append(
+                    {
+                        "intent": name,
+                        "blocked": "LEAKMARKER-" not in text,
+                        "response": text[:200],
+                    }
+                )
+    finally:
+        sandbox.cleanup()
+    return out
+
+
+def run_network_intent(fx: dict) -> dict:
+    """U4 network intent on the component path (audit requirement): the
+    WASI 0.2 world LINKS wasi:sockets — unlike Preview1 there is no
+    "API does not exist" argument, so denial MUST happen at call time. One
+    run carries its own FS positive control (granted preopen read via
+    argv). A NET:CONNECTED marker would mean the network vector is OPEN."""
+    from ephemora_cell import WASIConfig
+    from ephemora_cell.wasi_02 import ComponentSandbox
+
+    sandbox = ComponentSandbox(
+        config=WASIConfig(allow_dirs=(str(fx["allowed"]),), max_fuel=1_000_000)
+    )
+    try:
+        r = sandbox.run(
+            str(NET_PROBE_COMPONENT),
+            args=[str(fx["allowed"] / "ok.txt")],
+            stdin_data="x",
+        )
+    finally:
+        sandbox.cleanup()
+    text = _redact((r.stdout or "").strip())
+    fs_control = "FS:OK" in text.splitlines()
+    network_open = "NET:CONNECTED" in text
+    return {
+        "fs_positive_control": fs_control,
+        "network_open": network_open,
+        "fail_closed": bool(fs_control and not network_open),
+        "response": text[:200],
+    }
+
+
 def main() -> int:
     results = {
         "measured": True,
@@ -456,8 +562,9 @@ def main() -> int:
     fx = build_fixtures(work)
     results["marker_token"] = fx["token"]
 
+    comp_only = "--component-only" in sys.argv
     ok = True
-    if "--cell-only" not in sys.argv:
+    if not comp_only and "--cell-only" not in sys.argv:
         ref = run_reference(fx)
         results["classes"]["reference (server-filesystem v2025.3.28)"] = ref
         leaked = [r for r in ref if r["leaked"]]
@@ -471,40 +578,108 @@ def main() -> int:
             )
             ok = False
 
-    cell = run_cell(fx, work)
-    results["classes"]["ephemora-cell-mcp"] = cell
-    print("CELL:")
-    for r in cell:
+    if not comp_only:
+        cell = run_cell(fx, work)
+        results["classes"]["ephemora-cell-mcp"] = cell
+        print("CELL:")
+        for r in cell:
+            if "granted" in r:
+                verdict = "GRANTED" if r["granted"] else "NOT-GRANTED"
+            else:
+                verdict = "BLOCKED" if r["blocked"] else "ALLOWED"
+            print(f"  {r['intent']:38} -> {verdict}  [{r['response'][:60]}]")
+        cell_attacks = [r for r in cell if "blocked" in r]
+        control = next((r for r in cell if "granted" in r), None)
+        if not (
+            all(r["blocked"] for r in cell_attacks)
+            and control is not None
+            and control["granted"]
+        ):
+            ok = False
+
+        c3 = run_class3(work)
+        results["classes"]["CVE-2025-54136 class (governed loading)"] = c3
+        print(
+            f"CLASS 3 (manifest swap): accepted_first={c3.get('accepted_first')} "
+            f"tampered_rejected={c3.get('tampered_rejected')} "
+            f"fail_closed={c3.get('fail_closed')}"
+        )
+        if not c3.get("fail_closed"):
+            ok = False
+
+    # ---- WASI 0.2 component branch (no node/npm dependency) ------------
+    comp = {
+        "measured": True,
+        "source": "measurement",
+        "date": str(date.today()),
+        "python": platform.python_version(),
+        "wasmtime": _pkg_version("wasmtime"),
+        "package": _pkg_version("ephemora-cell"),
+        "abi": "component",
+        "probes_sha256": {
+            p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in (FS_PROBE_COMPONENT, NET_PROBE_COMPONENT)
+        },
+        "classes": {},
+    }
+    comp_ok = True
+
+    cellc = run_cell_component(fx)
+    comp["classes"]["ephemora-cell-mcp (WASI 0.2 component)"] = cellc
+    print("CELL (component):")
+    for r in cellc:
         if "granted" in r:
             verdict = "GRANTED" if r["granted"] else "NOT-GRANTED"
         else:
             verdict = "BLOCKED" if r["blocked"] else "ALLOWED"
         print(f"  {r['intent']:38} -> {verdict}  [{r['response'][:60]}]")
-    cell_attacks = [r for r in cell if "blocked" in r]
-    control = next((r for r in cell if "granted" in r), None)
+    comp_attacks = [r for r in cellc if "blocked" in r]
+    comp_control = next((r for r in cellc if "granted" in r), None)
     if not (
-        all(r["blocked"] for r in cell_attacks)
-        and control is not None
-        and control["granted"]
+        all(r["blocked"] for r in comp_attacks)
+        and comp_control is not None
+        and comp_control["granted"]
     ):
-        ok = False
+        comp_ok = False
 
-    c3 = run_class3(work)
-    results["classes"]["CVE-2025-54136 class (governed loading)"] = c3
+    neti = run_network_intent(fx)
+    comp["classes"]["network intent (wasi:sockets/tcp)"] = neti
     print(
-        f"CLASS 3 (manifest swap): accepted_first={c3.get('accepted_first')} "
-        f"tampered_rejected={c3.get('tampered_rejected')} "
-        f"fail_closed={c3.get('fail_closed')}"
+        f"NETWORK INTENT: fs_positive_control={neti['fs_positive_control']} "
+        f"network_open={neti['network_open']} fail_closed={neti['fail_closed']}"
     )
-    if not c3.get("fail_closed"):
-        ok = False
+    if not neti["fail_closed"]:
+        print("  !! NETWORK VECTOR OPEN on the component path — security finding")
+        comp_ok = False
+
+    c3c = run_class3(work, FS_PROBE_COMPONENT)
+    comp["classes"]["CVE-2025-54136 class (governed loading, component)"] = c3c
+    print(
+        f"CLASS 3 (manifest swap, component): accepted_first={c3c.get('accepted_first')} "
+        f"tampered_rejected={c3c.get('tampered_rejected')} "
+        f"fail_closed={c3c.get('fail_closed')}"
+    )
+    if not c3c.get("fail_closed"):
+        comp_ok = False
+
+    comp["pass"] = comp_ok
+    ok = ok and comp_ok
+    results["component_evidence"] = "mcp_cve_replay_component.json"
 
     results["pass"] = ok
     results_dir = REPO / "benchmarks" / "results" / str(date.today())
     results_dir.mkdir(parents=True, exist_ok=True)
-    dest = results_dir / "mcp_cve_replay.json"
-    dest.write_text(json.dumps(results, indent=2))
-    print(f"\nEvidence: {dest}  |  PASS={ok}")
+    comp_dest = results_dir / "mcp_cve_replay_component.json"
+    comp_dest.write_text(json.dumps(comp, indent=2))
+    if not comp_only:
+        # In component-only mode the Preview1 evidence file must stay
+        # untouched (it carries the npm-dependent classes of its own run).
+        dest = results_dir / "mcp_cve_replay.json"
+        dest.write_text(json.dumps(results, indent=2))
+        print(f"\nEvidence: {dest}  |  PASS={ok}")
+    else:
+        print("\n(Preview1 evidence untouched in --component-only mode)")
+    print(f"Component evidence: {comp_dest}  |  PASS={comp_ok}")
     return 0 if ok else 1
 
 
