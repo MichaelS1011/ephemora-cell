@@ -116,6 +116,15 @@ measurably tighter than the pooled 50 ms ticks); the subprocess wall is the
 coarsest stop. Cited anchor for the fuel tax — 28–40% (wasmtime#4109) — is
 corroborated by our own 35.2%: measured, not assumed.
 
+## Linux-native Docker row (CI evidence job)
+
+The macOS Docker numbers above run inside the Docker Desktop VM (caveat
+stated inline). A weekly non-blocking CI job measures the same comparison on
+an ubuntu runner, where Docker is native: `.github/workflows/benchmark-linux.yml`
+(Mondays 06:00 UTC + manual dispatch; evidence as run artifact + step summary —
+main stays bot-commit-free). The canonical table gains Linux rows once the job
+has run; until then no Linux number is claimed here.
+
 ## Agentic 2026-08-25 (n=500 pooled, fresh)
 | Scenario | Median | P95 | P99 | Mean |
 |----------|--------|-----|-----|------|

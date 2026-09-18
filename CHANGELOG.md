@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- README "vs Microsoft Wassette" positioning box: same Wasmtime engine
+  family, OCI pull model moves the trust decision to install time; Cell adds
+  what a caller can verify per call. Neutral framing, date-stamped pointer
+  to the comparison doc.
+- Weekly Linux-native Docker benchmark job
+  (`.github/workflows/benchmark-linux.yml`, ubuntu runner — Docker without
+  the Desktop VM; Mondays 06:00 UTC + dispatch, non-blocking, evidence as
+  artifact + step summary; main stays bot-commit-free). Gives the canonical
+  performance tables a measured Linux row once it has run.
+
 - Smithery deployment manifest (`smithery.yaml`): stdio start command via
   `uvx --from ephemora-cell ephemora-cell-mcp`, optional `toolsDir` config;
   governance note included (governed loading, ADR-006).

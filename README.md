@@ -266,6 +266,8 @@ Three things most MCP tool servers don't give you:
 
   The agent may only *propose* a capability ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)); the host verifies signature, module hash and policy out-of-band before anything runs; the runtime enforces per execution and returns evidence. No arrow in that chain points backwards — there is no tool-call path that widens a grant, and `get-policy` reports exactly what the enforcement path applies (reads are tools; writes are not).
 
+**vs Microsoft Wassette.** Wassette is Microsoft's capability-based runtime for MCP tools, built on the same Wasmtime engine family — the architecture thesis is converging, and its OCI pull model moves the trust decision to install time. Cell adds what a caller can *verify per call*: deterministic fuel metering, I/O budgets, and a sign-ready execution record (`_meta.execution`). Current status and the full side-by-side (Wassette re-verified 2026-09-18): [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
+
 See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
 
 This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.

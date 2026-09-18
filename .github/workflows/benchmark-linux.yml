@@ -1,0 +1,63 @@
+name: Linux Benchmark
+
+# Non-blocking evidence job: the Linux-native Docker cold-start number.
+# The README/performance tables are macOS-first (Docker Desktop runs in a
+# VM there — the caveat is stated inline); this job measures the same
+# comparison on ubuntu-latest, where Docker runs natively. Evidence lands
+# as a run artifact plus a step summary — main stays bot-commit-free
+# (same policy as the metrics branch).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC, after the conformance job
+
+jobs:
+  linux-docker-benchmark:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+
+      - name: Record tool versions
+        run: |
+          docker version --format 'docker server: {{.ServerVersion}}' | tee bench_env.txt
+          python -c "import wasmtime, ephemora_cell; print('wasmtime:', wasmtime.__version__ if hasattr(wasmtime,'__version__') else 'n/a'); print('ephemora-cell:', ephemora_cell.__version__)" | tee -a bench_env.txt
+          uname -m | tee -a bench_env.txt
+
+      - name: Run competitive benchmark (Docker native, Linux)
+        run: |
+          BENCH_LABEL=ubuntu-x86_64 python benchmarks/competitive_benchmark.py \
+            --runs 100 --docker-runs 50
+
+      - name: Collect evidence
+        run: |
+          latest=$(ls -t benchmarks/results/*/competitive_benchmark.json | head -1)
+          echo "Evidence file: $latest" >> bench_env.txt
+          echo "## Linux-native Docker cold start (ubuntu runner)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat "$latest" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat bench_env.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitive-benchmark-linux
+          path: |
+            benchmarks/results/*/competitive_benchmark.json
+            bench_env.txt
+          if-no-files-found: error
