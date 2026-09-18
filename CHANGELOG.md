@@ -19,6 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- README: the standard path shown for untrusted code is now the isolated one —
+  Quick Start runs `--isolated` (in-process stays for modules you build and
+  trust), and "no opt-in security" is restated precisely: enforced limits are
+  never opt-in; the only choice is the process boundary. The fuel-bomb receipt
+  demo runs isolated as well; CLI `--json` output is schema-identical between
+  paths (verified against a fresh PyPI install).
 - README security table compares stock Docker, hardened Docker and Cell with
   per-row boundary-layer attribution (Layer 1 WASI surface · Layer 2 sandbox
   policy · Layer 3 process wall) and an intent-equivalence table mapping every

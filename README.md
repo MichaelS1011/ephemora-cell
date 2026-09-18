@@ -76,8 +76,10 @@ python -m pip install ephemora-cell
 
 ```bash
 git clone https://github.com/MichaelS1011/ephemora-cell.git && cd ephemora-cell
-ephemora-cell run examples/hello.wasm
+ephemora-cell run examples/hello.wasm --isolated
 ```
+
+*(adds OS-level process isolation around the run, a few ms — recommended for code you didn't build)*
 
 ```text
 Hello from Ephemora Cell!
@@ -88,7 +90,7 @@ Hello from Ephemora Cell!
 budgeted:
 
 ```bash
-ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --json
+ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --isolated --json
 ```
 
 ```json
@@ -130,7 +132,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 
 ## What is enforced
 
-Every execution runs under explicit limits — no opt-in security:
+**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps) that neither the guest nor the caller can switch off. The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
 
 | Resource | Default |
 |---|---|
@@ -251,7 +253,7 @@ See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/compari
 
 This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.
 
-**The two execution paths differ materially.** `run_wasm()` runs the guest inside your process; `run_isolated()` adds OS-level walls around a disposable worker (and returns the report fields as a dict). For untrusted guests, use the isolated path:
+**The two execution paths differ materially.** `run_wasm()` runs the guest inside your process; `run_isolated()` adds OS-level walls around a disposable worker (and returns the report fields as a dict). For guests from outside your own build — agent output, third-party plugins, PR-contributed code — use the isolated path:
 
 | Control | `run_wasm()` (in-process) | `run_isolated()` (subprocess) |
 |---|---|---|
