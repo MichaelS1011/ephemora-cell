@@ -1,0 +1,24 @@
+# Smithery deployment for ephemora-cell-mcp — the stdio MCP server shipped
+# with the ephemora-cell PyPI package. uvx runs it without a global install.
+# The bundled tool set (clock + echo) needs no configuration; a custom tools
+# directory is optional and replaces the bundled set.
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      toolsDir:
+        type: string
+        description: >-
+          Optional directory replacing the bundled WASM tool set (clock +
+          echo) with your own tools. Governance still applies: the host
+          verifies signatures and hashes before any tool is registered
+          (ADR-006), and the sandbox grants no network or filesystem access
+          unless explicitly allowed host-side.
+    additionalProperties: false
+  commandFunction: |-
+    (config) => {
+      const args = ["--from", "ephemora-cell", "ephemora-cell-mcp"];
+      if (config && config.toolsDir) { args.push("--tools-dir", config.toolsDir); }
+      return { command: "uvx", args };
+    }

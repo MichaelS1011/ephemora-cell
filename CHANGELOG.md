@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Smithery deployment manifest (`smithery.yaml`): stdio start command via
+  `uvx --from ephemora-cell ephemora-cell-mcp`, optional `toolsDir` config;
+  governance note included (governed loading, ADR-006).
+- Daily metrics snapshots now carry conversion-context fields — `git_head_sha`
+  + commit subject, latest release tag, latest PyPI version — so demand spikes
+  in the public JSONL history can be attributed to the change/release that
+  shipped the day before, without archaeology. Null-tolerant like every
+  other source; live-tested.
+
+### Changed
+
+- PyPI metadata: Documentation and Changelog URLs added to `[project.urls]`
+  (previously only Homepage + Issues); keywords extended to match the GitHub
+  topics (wasmtime, code-execution, capability-based-security, untrusted-code,
+  mcp-server). Takes effect with the next upload.
+
 - Fuel vs epoch vs wall-clock mechanism benchmark
   (`benchmarks/fuel_epoch_wall.py`, evidence
   `benchmarks/results/2026-09-18/07_fuel_epoch_wall.json`): the three ways to

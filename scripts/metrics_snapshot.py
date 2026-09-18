@@ -182,6 +182,37 @@ def _github_snapshot(snap: dict, token: str | None) -> None:
             snap["github"][f"{key}_error"] = f"{type(e).__name__}: {e}"[:120]
 
 
+def _conversion_context(snap: dict, token: str | None) -> None:
+    """Correlation fields for demand attribution: which commit and which
+    release was live when this snapshot was taken. Lets the JSONL history
+    answer "what changed the day before a spike" without archaeology.
+    Null-tolerant like every other source."""
+    ctx: dict = {}
+    try:
+        head = _get(f"https://api.github.com/repos/{GITHUB_REPO}/commits/main", token)
+        ctx["git_head_sha"] = (head.get("sha") or "")[:12]
+        ctx["git_head_message"] = (
+            (head.get("commit", {}).get("message") or "").splitlines() or [""]
+        )[0][:120]
+    except Exception as e:
+        ctx["git_head_error"] = f"{type(e).__name__}: {e}"[:120]
+    try:
+        release = _get(
+            f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", token
+        )
+        ctx["latest_release_tag"] = release.get("tag_name")
+    except Exception as e:
+        ctx["latest_release_error"] = f"{type(e).__name__}: {e}"[:120]
+    try:
+        with urllib.request.urlopen(  # nosec B310 - https pinned below
+            f"https://pypi.org/pypi/{PYPI_PACKAGE}/json", timeout=30
+        ) as r:
+            ctx["pypi_latest_version"] = json.load(r).get("info", {}).get("version")
+    except Exception as e:
+        ctx["pypi_latest_version_error"] = f"{type(e).__name__}: {e}"[:120]
+    snap["context"] = ctx
+
+
 def main() -> int:
     now = datetime.now(timezone.utc)
     snap = {
@@ -193,6 +224,7 @@ def main() -> int:
     token = os.environ.get("GITHUB_TOKEN")
     _pypi_snapshot(snap)
     _github_snapshot(snap, token)
+    _conversion_context(snap, token)
     _update_clones_badge(snap)
     _update_downloads_badge(snap)
 

@@ -26,10 +26,25 @@ classifiers = [
     "Topic :: Security",
     "Topic :: Software Development :: Embedded Systems",
 ]
-keywords = ["wasm", "webassembly", "wasi", "sandbox", "isolation", "agent", "mcp"]
+keywords = [
+    "wasm",
+    "webassembly",
+    "wasi",
+    "sandbox",
+    "isolation",
+    "agent",
+    "mcp",
+    "mcp-server",
+    "wasmtime",
+    "capability-based-security",
+    "code-execution",
+    "untrusted-code",
+]
 
 [project.urls]
 Homepage = "https://github.com/MichaelS1011/ephemora-cell"
+Documentation = "https://github.com/MichaelS1011/ephemora-cell#readme"
+Changelog = "https://github.com/MichaelS1011/ephemora-cell/blob/main/CHANGELOG.md"
 Issues = "https://github.com/MichaelS1011/ephemora-cell/issues"
 
 [project.optional-dependencies]
