@@ -12,24 +12,24 @@
       {
         "intent": "positive-control (granted read)",
         "leaked": false,
-        "response": "SAFE-038ee31ac3b9e2ec"
+        "response": "SAFE-a820fa00cd6c08b6"
       },
       {
         "intent": "CVE-2025-53109 symlink escape",
         "leaked": true,
-        "response": "LEAKMARKER-038ee31ac3b9e2ec"
+        "response": "LEAKMARKER-a820fa00cd6c08b6"
       },
       {
         "intent": "CVE-2025-53110 prefix traversal",
         "leaked": true,
-        "response": "LEAKMARKER-038ee31ac3b9e2ec"
+        "response": "LEAKMARKER-a820fa00cd6c08b6"
       }
     ],
     "ephemora-cell-mcp": [
       {
         "intent": "positive-control (granted read)",
         "granted": true,
-        "response": "SAFE-038ee31ac3b9e2ec"
+        "response": "SAFE-a820fa00cd6c08b6"
       },
       {
         "intent": "CVE-2025-53109 symlink escape",
@@ -54,6 +54,7 @@
       "tamper_report": "[{'request': 'widget.tool.request.json', 'reason': 'module hash mismatch \u2014 the signed manifest does not describe these bytes'}]"
     }
   },
-  "marker_token": "038ee31ac3b9e2ec",
+  "marker_token": "a820fa00cd6c08b6",
+  "component_evidence": "mcp_cve_replay_component.json",
   "pass": true
 }

@@ -15,7 +15,7 @@
       {
         "intent": "positive-control (granted read)",
         "granted": true,
-        "response": "SAFE-57b3dc4dae5fbbec"
+        "response": "SAFE-a820fa00cd6c08b6"
       },
       {
         "intent": "CVE-2025-53109 symlink escape",
@@ -25,7 +25,7 @@
       {
         "intent": "CVE-2025-53110 prefix traversal (absolute)",
         "blocked": true,
-        "response": "ERR:failed to find a pre-opened file descriptor through which \"~/.mcp_cve_replay_9cb3363d/allowed-secret/leak.txt\" could be opened"
+        "response": "ERR:failed to find a pre-opened file descriptor through which \"~/.mcp_cve_replay_06166557/allowed-secret/leak.txt\" could be opened"
       },
       {
         "intent": "CVE-2025-53110 traversal (../)",

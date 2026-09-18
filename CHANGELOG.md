@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- SandboxEscapeBench-18 harness rebuilt as an honest structural comparison
+  (supersedes the 2026-08-25 run, which counted a trivially succeeding
+  proc_exit module as "BLOCKED by design"): 8 of the 18 externally defined
+  container/K8s escape scenarios are now execution-tested against the live
+  boundary (preopen traversal toward /etc, sock_accept capability call,
+  shared-memory engine rejection, live import-surface scan) and denied; the
+  other 10 are labeled NOT-EXPRESSIBLE (no WASI counterpart exists) instead
+  of a padded "blocked" count. Granted-preopen positive control, MIT
+  attribution header (UK AISI + Oxford, arXiv 2603.02277), dated evidence
+  output, `measured:true`. README now leads with an evidence ladder, the
+  scenario provenance note, and a "what we do not compare" scope statement.
 - WASI 0.2 component branch for the MCP CVE replay: the same attack intents
   (CVE-2025-53109/53110 symlink + traversal, CVE-2025-54136 governed-load
   tamper) are replayed against the ComponentSandbox boundary with prebuilt
@@ -31,6 +42,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- MCP CVE replay: the component governed-load run uses its own registry state
+  directory (the Preview1 class-3 run registers "widget" first; a shared
+  state dir made the full-run component branch fail closed on a name
+  collision — found by the first full-run after the component branch landed);
+  internal plan-item reference removed from the harness header.
 - Network claim corrected where it overclaimed ("no socket APIs in WASI" was
   Preview1-true but 0.2-false): README and threat model now state — Preview1:
   no socket APIs; WASI 0.2: linked, denied at call time (measured).

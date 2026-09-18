@@ -149,6 +149,20 @@ Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64
 
 ## Security
 
+**Evidence ladder** — strongest first. Every row is measured, the raw evidence is committed, and each run is reproducible:
+
+| # | Evidence | What it proves | How it is measured | Reproduce |
+|---|---|---|---|---|
+| 1 | [MCP CVE replays](benchmarks/mcp_cve_replay.py) | Real exploit paths of two patched CVEs are denied at the engine level; governed loading fails closed on a tampered payload — also verified on WASI 0.2 components, with a **measured call-time socket denial** | Pinned vulnerable reference server vs Cell, random marker tokens, positive controls on both sides | `python benchmarks/mcp_cve_replay.py` |
+| 2 | [SandboxEscapeBench-18 mapping](benchmarks/sandbox_escape_18.py) | 18 container/K8s escape scenarios mapped to WASM: **8 execution-tested and denied, 10 not expressible** on the WASI surface | Structural mapping + live attempts, granted-preopen positive control | `python benchmarks/sandbox_escape_18.py` |
+| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (matrix below) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
+| 4 | [Official WASI conformance](conformance/README.md) | 72 pass / 1 documented xfail / 0 fail against the pinned upstream suite — re-run weekly in CI | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
+| 5 | [Cross-architecture determinism](docs/comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |
+
+> **Where the 18 scenarios come from.** They are not ours: the UK AI Security Institute's *SandboxEscapeBench* ([arXiv 2603.02277](https://arxiv.org/abs/2603.02277), scenarios: [UKGovernmentBEIS/sandbox_escape_bench](https://github.com/UKGovernmentBEIS/sandbox_escape_bench), MIT) documents 18 ways code escapes container/Kubernetes sandboxes. Their benchmark tests whether AI agents can escape misconfigured containers; this suite does something narrower — each container scenario is mapped to its closest WebAssembly/WASI equivalent and executed against Cell, with no model in the loop. The result is a statement about the attack surface: the primitives those container escapes rely on (privileged modes, namespaces, cgroups, kernel primitives, raw sockets) do not exist on the WASI surface, and the scenarios with a WASM-expressible equivalent (filesystem, sockets) are denied by the live boundary. This repo covers the execution-boundary slice only; prompt-injection and agent-behavior security are different layers, out of scope for an execution sandbox by design. The Ephemora enterprise edition builds on Cell's isolation and runs a broader benchmark and assurance program for regulated environments — see [docs/enterprise.md](docs/enterprise.md).
+
+**What we do not compare — and why.** Prompt-injection suites (garak, InjecAgent) test the model and agent layer, not the execution boundary — out of scope for an execution sandbox. Cloud sandbox providers are cited from third-party sources with their source status; third-party numbers never appear in the same table as our measured cells. Startup and throughput benchmarks live in [docs/performance.md](docs/performance.md) with their scope caveats.
+
 The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)) — measured against three boundaries, same intents, same measurement rule (exit code decides, nothing hardcoded):
 
 | Attack class | Docker | Docker (hardened¹) | Ephemora Cell | Layer |

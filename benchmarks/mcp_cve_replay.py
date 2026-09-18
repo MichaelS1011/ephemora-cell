@@ -1,4 +1,4 @@
-"""MCP CVE replay harness (plan item T0-3).
+"""MCP CVE replay harness.
 
 Replays three documented MCP attack classes — as their ORIGINAL exploit
 paths, not synthetic probes — against two boundaries on the same machine,
@@ -652,7 +652,12 @@ def main() -> int:
         print("  !! NETWORK VECTOR OPEN on the component path — security finding")
         comp_ok = False
 
-    c3c = run_class3(work, FS_PROBE_COMPONENT)
+    # Separate state dir: the governed-loading registry requires an EMPTY
+    # tools dir at server start; the Preview1 class-3 run above already
+    # registered "widget" from the shared work dir.
+    comp_class3_dir = work / "comp_class3"
+    comp_class3_dir.mkdir(exist_ok=True)
+    c3c = run_class3(comp_class3_dir, FS_PROBE_COMPONENT)
     comp["classes"]["CVE-2025-54136 class (governed loading, component)"] = c3c
     print(
         f"CLASS 3 (manifest swap, component): accepted_first={c3c.get('accepted_first')} "
