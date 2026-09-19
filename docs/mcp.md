@@ -84,11 +84,41 @@ The last one returns:
 
 | Message | Behaviour |
 |---|---|
-| `initialize` | Returns `protocolVersion: "2025-06-18"`, `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: <package version>}` (single-sourced in `ephemora_cell_mcp/_version.py`; 1.0.1 as of this writing) |
+| `server/discover` | Returns `resultType: "complete"`, `supportedVersions` (all four below), `capabilities`, `instructions`, `ttlMs`/`cacheScope` and `_meta["io.modelcontextprotocol/serverInfo"]`. Answered with or without request `_meta` — this is the stdio era-probe dual-era clients use |
+| `initialize` | Legacy era: returns `protocolVersion: "2025-06-18"` (echoes a requested legacy revision), `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: <package version>}` (single-sourced in `ephemora_cell_mcp/_version.py`) |
 | `notifications/initialized` | Accepted silently (no response, per JSON-RPC notifications) |
-| `tools/list` | Tools discovered in the registry, as MCP `{name, description, inputSchema}` |
+| `tools/list` | Tools discovered in the registry, as MCP `{name, description, inputSchema}`; modern-era responses additionally carry `resultType`, `ttlMs`, `cacheScope` and `_meta.serverInfo` |
 | `tools/call` | Runs the tool's WASM module; result `content[0].text` is the guest's stdout JSON; `_meta.execution` carries the `ExecutionReport` |
 | anything else | JSON-RPC error `-32601` (method not found) |
+
+### Protocol versions & stateless operation (2026-07-28)
+
+`ephemora-cell-mcp` is a **dual-era** server (specification revision
+`2026-07-28`, "Versioning and Compatibility"):
+
+- **Modern / stateless (`2026-07-28`)** — a request whose `params._meta`
+  carries `"io.modelcontextprotocol/protocolVersion": "2026-07-28"` (plus
+  the required `io.modelcontextprotocol/clientCapabilities`) is served
+  statelessly: no `initialize` handshake, no session — every request
+  stands alone. Results gain `resultType: "complete"` and
+  `_meta["io.modelcontextprotocol/serverInfo"]`; `tools/list` additionally
+  carries the CacheableResult freshness hint (`ttlMs`: 3,600,000 static /
+  60,000 with governed loading, `cacheScope: "private"`). An unsupported
+  version is rejected with `-32022` (`UnsupportedProtocolVersion`) naming
+  `data.supported` so the client can retry on a mutually supported
+  revision.
+- **Legacy (handshake)** — requests without per-request `_meta` keep the
+  exact pre-2026-07-28 behavior: `initialize` negotiates
+  `2025-06-18` / `2025-03-26` / `2024-11-05` (the handshake never selects
+  the stateless revision), responses carry no `resultType` (older clients
+  treat absent `resultType` as `"complete"`, per spec).
+- **No MRTR** — the stateless revision's Multi Round-Trip Requests pattern
+  applies to server-initiated requests (sampling, elicitation, roots).
+  This server issues none of those (they are deprecated in `2026-07-28`),
+  so `"complete"` is the only result type it can produce.
+
+Both eras are served concurrently on the same stdio process; a client
+picks its era by how it opens (`server/discover` probe or `initialize`).
 
 Errors, cleanly separated:
 
@@ -273,10 +303,13 @@ an absolute path).
 
 ### Generic MCP clients / SDKs
 
-Any MCP client that supports the stdio transport with the
-`2025-06-18` protocol version works: `command` = your Python, `args` =
-`["-m", "ephemora_cell_mcp", "--tools-dir", "<abs>"]`. Alternatively use the
-installed entry point directly (same process, no interpreter prefix):
+Any MCP client that supports the stdio transport works: `command` = your
+Python, `args` = `["-m", "ephemora_cell_mcp", "--tools-dir", "<abs>"]`.
+Clients speaking the stateless `2026-07-28` revision (per-request
+`_meta`, optional `server/discover` probe) and clients speaking the
+handshake-era revisions (`2025-06-18` and earlier) are both served —
+see "Protocol versions & stateless operation" above. Alternatively use
+the installed entry point directly (same process, no interpreter prefix):
 
 ```bash
 ephemora-cell-mcp --tools-dir /absolute/path/to/tools

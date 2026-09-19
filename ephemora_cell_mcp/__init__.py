@@ -8,7 +8,8 @@ stdin JSON ``{"params": ...}`` and the guest's stdout JSON is returned as
 the MCP result, enriched with the Cell's ``ExecutionReport`` in ``_meta``.
 
 Dependency-free: this package implements the small JSON-RPC surface it
-needs (initialize, tools/list, tools/call, notifications/initialized)
+needs (initialize, server/discover, tools/list, tools/call,
+notifications/initialized; dual-era for the stateless 2026-07-28 revision)
 itself and only depends on ``ephemora_cell``.
 
 Example:

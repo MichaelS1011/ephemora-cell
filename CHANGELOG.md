@@ -8,6 +8,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- MCP `2026-07-28` stateless revision support in `ephemera-cell-mcp`
+  (dual-era, per the specification's "Versioning and Compatibility"):
+  the new mandatory `server/discover` method reports supported versions,
+  capabilities and identity; requests carrying
+  `_meta["io.modelcontextprotocol/protocolVersion": "2026-07-28"]` are
+  served statelessly — no initialize handshake, `resultType: "complete"`
+  envelope, per-response `_meta["io.modelcontextprotocol/serverInfo"]`,
+  and CacheableResult fields (`ttlMs`/`cacheScope`) on `tools/list`.
+  Unsupported per-request versions are rejected with
+  `UnsupportedProtocolVersion` (`-32022`) naming the supported list;
+  modern requests missing the required `clientCapabilities` get
+  `-32602`. The `initialize` handshake keeps negotiating the legacy
+  revisions only (2025-06-18 / 2025-03-26 / 2024-11-05) with unchanged
+  response shapes, and this server issues no server-initiated requests
+  (sampling/elicitation/roots are deprecated in 2026-07-28), so MRTR
+  interim results cannot occur. Covered by
+  `tests/test_mcp_2026_07_28.py`; the official-SDK interop job keeps
+  proving the legacy handshake path.
+
+- Test-bench CI job (`test-bench` in ci.yml): the documented
+  eight-attack-vector suite (`benchmarks/verify_8_vectors.py`, 8/8
+  boundary gate) and the auto-grader verdict contract
+  (`examples/auto_grader.py --strict`, new flag — exact expected
+  pass/compute-budget/memory-budget mapping, exit 1 on drift) now run on
+  every push and pull request on the pinned wasmtime baseline, so the
+  README's 8/8 claim is continuously re-proven instead of asserted once.
+
 - Deterministic conformance CI despite a documented engine flake:
   `conformance/adapters/cell_retry_wrapper.py` wraps the Cell CLI in the
   weekly WASI conformance job and reruns a test once when its process

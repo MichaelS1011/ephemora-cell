@@ -17,10 +17,42 @@ from ._version import __version__ as SERVER_VERSION  # noqa: F401
 
 JSONRPC_VERSION = "2.0"
 
-# MCP protocol version(s) this server implements. The newest is the
-# default answer when a client requests an unsupported version.
-MCP_PROTOCOL_VERSION = "2025-06-18"
-SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+# MCP protocol version(s) this server implements. Dual-era per the
+# 2026-07-28 revision ("Versioning and Compatibility"): the stateless
+# revision carries its version per request in _meta; the legacy revisions
+# establish it via the initialize handshake.
+MODERN_PROTOCOL_VERSION = "2026-07-28"
+LEGACY_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+LEGACY_DEFAULT_PROTOCOL_VERSION = LEGACY_PROTOCOL_VERSIONS[0]
+SUPPORTED_PROTOCOL_VERSIONS = (
+    MODERN_PROTOCOL_VERSION,
+    *LEGACY_PROTOCOL_VERSIONS,
+)
+
+# Reserved _meta keys of the 2026-07-28 revision (spec: basic/index#meta).
+# protocolVersion and clientCapabilities are required on every modern-era
+# request; serverInfo is the SHOULD-include response counterpart.
+META_PROTOCOL_VERSION = "io.modelcontextprotocol/protocolVersion"
+META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo"
+META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities"
+META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+
+# MCP-defined error codes (2026-07-28 reserves -32020..-32099 for the
+# specification itself).
+UNSUPPORTED_PROTOCOL_VERSION = -32022
+
+# Result envelope of the 2026-07-28 revision. This server issues no
+# server-initiated requests (sampling/elicitation/roots are deprecated in
+# 2026-07-28 and never used here), so "complete" is the only resultType it
+# emits — MRTR interim results cannot occur.
+RESULT_TYPE_COMPLETE = "complete"
+
+# CacheableResult freshness hints (2026-07-28): list endpoints must carry
+# ttlMs + cacheScope. Tool metadata is static unless governed loading
+# (ADR-006) can change the registry mid-process — that gets the shorter TTL.
+CACHE_TTL_MS_STATIC = 3_600_000
+CACHE_TTL_MS_GOVERNED = 60_000
+CACHE_SCOPE = "private"
 
 SERVER_NAME = "ephemora-cell-mcp"
 

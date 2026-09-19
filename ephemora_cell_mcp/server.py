@@ -1,15 +1,31 @@
-"""ephemora-cell-mcp Server — MCP stdio host whose tools are Cell WASM modules.
+"""ephemera-cell-mcp Server — MCP stdio host whose tools are Cell WASM modules.
 
-Protocol surface (dependency-free JSON-RPC 2.0 over NDJSON lines):
+Protocol surface (dependency-free JSON-RPC 2.0 over NDJSON lines), dual-era
+per the 2026-07-28 revision ("Versioning and Compatibility"):
 
-* ``initialize``                  -> protocolVersion/capabilities/serverInfo
+* ``server/discover``            -> supported versions/capabilities/identity
+* ``initialize``                 -> protocolVersion/capabilities/serverInfo
+  (legacy era, unchanged; selects legacy semantics even with ``_meta``)
 * ``notifications/initialized``   -> (accepted silently)
 * ``tools/list``                  -> tools discovered in the registry
 * ``tools/call``                  -> WASM execution, result + ``_meta``
 * ``tools/call get-policy``       -> native meta tool: effective sandbox
   policy per tool / for the registry (read-only; no WASM run)
 
-Every ``tools/call`` runs the tool's ``.wasm`` in the Ephemora Cell with
+Requests carrying ``_meta`` with
+``io.modelcontextprotocol/protocolVersion: "2026-07-28"`` are served
+statelessly: no initialize handshake, no session — every request stands
+alone, results gain ``resultType: "complete"`` and
+``_meta['io.modelcontextprotocol/serverInfo']``, and list endpoints carry
+the CacheableResult fields (``ttlMs``/``cacheScope``). An unsupported
+version is rejected with ``-32022`` naming the supported versions so the
+client can retry. Requests without per-request ``_meta`` keep the exact
+pre-2026-07-28 behavior for handshake-era clients. MRTR never occurs: this
+server issues no server-initiated requests (sampling/elicitation/roots are
+deprecated in 2026-07-28 and unused here), so ``"complete"`` is the only
+result type it can produce.
+
+Every ``tools/call`` runs the tool's ``.wasm`` in the Ephemera Cell with
 ``{"params": ...}`` on stdin and enriches the result with the execution
 report under ``_meta``:
 
@@ -191,6 +207,7 @@ class Server:
         method = message["method"]
         handler = {
             "initialize": self._handle_initialize,
+            "server/discover": self._handle_server_discover,
             "tools/list": self._handle_tools_list,
             "tools/call": self._handle_tools_call,
         }.get(method)
@@ -201,7 +218,28 @@ class Server:
                 )
             ]
         try:
-            return [protocol.make_result(message, handler(message.get("params")))]
+            # initialize selects legacy semantics even when _meta is present
+            # (era selection is driven by how the client opens, not by
+            # per-request metadata) — 2026-07-28 "Versioning and
+            # Compatibility".
+            if method != "initialize":
+                self._check_request_version(message)
+            result = handler(message.get("params"))
+            if method != "initialize" and self._request_is_modern(message):
+                result = self._modernize_result(method, result)
+            return [protocol.make_result(message, result)]
+        except _UnsupportedProtocolVersion as e:
+            return [
+                protocol.make_error(
+                    message,
+                    protocol.UNSUPPORTED_PROTOCOL_VERSION,
+                    "Unsupported protocol version",
+                    data={
+                        "supported": list(protocol.SUPPORTED_PROTOCOL_VERSIONS),
+                        "requested": e.requested,
+                    },
+                )
+            ]
         except _InvalidParams as e:
             return [protocol.make_error(message, protocol.INVALID_PARAMS, str(e))]
         except Exception as e:
@@ -223,17 +261,130 @@ class Server:
         # Unknown notifications are silently ignored per JSON-RPC 2.0.
         return []
 
+    # --- protocol era (2026-07-28 stateless, dual-era) ------------------
+
+    @staticmethod
+    def _request_meta(message: dict[str, Any]) -> dict[str, Any]:
+        params = message.get("params")
+        if isinstance(params, dict) and isinstance(params.get("_meta"), dict):
+            return params["_meta"]
+        return {}
+
+    def _request_is_modern(self, message: dict[str, Any]) -> bool:
+        version = self._request_meta(message).get(protocol.META_PROTOCOL_VERSION)
+        return version == protocol.MODERN_PROTOCOL_VERSION
+
+    def _check_request_version(self, message: dict[str, Any]) -> None:
+        """Validate the per-request protocol version (2026-07-28 stateless).
+
+        Requests without ``_meta`` protocol metadata keep legacy behavior
+        (handshake-era clients); requests carrying it are served statelessly
+        under the requested revision. Unsupported versions are rejected with
+        ``UnsupportedProtocolVersion`` (-32022) naming what this server does
+        support, so a modern client can retry on a mutually supported
+        version. Modern-era requests must also declare client capabilities
+        (required ``_meta`` field; missing -> -32602 per spec).
+        """
+        meta = self._request_meta(message)
+        if protocol.META_PROTOCOL_VERSION not in meta:
+            return
+        requested = meta.get(protocol.META_PROTOCOL_VERSION)
+        if not isinstance(requested, str) or not requested:
+            raise _InvalidParams(
+                f"_meta.{protocol.META_PROTOCOL_VERSION} must be a non-empty string"
+            )
+        if requested not in protocol.SUPPORTED_PROTOCOL_VERSIONS:
+            raise _UnsupportedProtocolVersion(requested)
+        if (
+            requested == protocol.MODERN_PROTOCOL_VERSION
+            and protocol.META_CLIENT_CAPABILITIES not in meta
+        ):
+            raise _InvalidParams(
+                "2026-07-28 requests require "
+                f"_meta.{protocol.META_CLIENT_CAPABILITIES}"
+            )
+
+    def _modernize_result(self, method: str, result: Any) -> Any:
+        """Apply the 2026-07-28 result envelope to a modern-era result.
+
+        Legacy-era responses keep the exact pre-2026-07-28 shape: clients of
+        older revisions must treat an absent ``resultType`` as ``"complete"``
+        — this server simply never adds it there.
+        """
+        if not isinstance(result, dict):
+            return result
+        enriched = dict(result)
+        enriched.setdefault("resultType", protocol.RESULT_TYPE_COMPLETE)
+        meta = enriched.get("_meta")
+        merged = dict(meta) if isinstance(meta, dict) else {}
+        merged.setdefault(
+            protocol.META_SERVER_INFO,
+            {"name": protocol.SERVER_NAME, "version": protocol.SERVER_VERSION},
+        )
+        enriched["_meta"] = merged
+        if method == "tools/list":
+            # CacheableResult (2026-07-28): list endpoints carry a freshness
+            # hint. A governed registry can change mid-process (ADR-006
+            # listChanged), so it gets the shorter TTL.
+            enriched.setdefault(
+                "ttlMs",
+                (
+                    protocol.CACHE_TTL_MS_GOVERNED
+                    if self.tool_requests_dir is not None
+                    else protocol.CACHE_TTL_MS_STATIC
+                ),
+            )
+            enriched.setdefault("cacheScope", protocol.CACHE_SCOPE)
+        return enriched
+
+    def _handle_server_discover(self, params: Any) -> dict[str, Any]:
+        """``server/discover`` (2026-07-28): versions, capabilities, identity.
+
+        Answered with or without request ``_meta``: a dual-era client's
+        stdio probe must receive a DiscoverResult (not an error) to identify
+        this server as modern-capable before falling back to ``initialize``.
+        The result is fully self-describing (``resultType`` + ``serverInfo``)
+        regardless of the caller's era.
+        """
+        _ = params
+        return {
+            "resultType": protocol.RESULT_TYPE_COMPLETE,
+            "supportedVersions": list(protocol.SUPPORTED_PROTOCOL_VERSIONS),
+            "capabilities": {
+                "tools": {
+                    "listChanged": self.tool_requests_dir is not None,
+                }
+            },
+            "instructions": (
+                "Tools run as WASM modules inside the Ephemora Cell "
+                "(deterministic, fuel-metered, no network). The native "
+                '"get-policy" tool reports the enforced sandbox policy — '
+                '"Verified. Not claimed."'
+            ),
+            "ttlMs": protocol.CACHE_TTL_MS_STATIC,
+            "cacheScope": protocol.CACHE_SCOPE,
+            "_meta": {
+                protocol.META_SERVER_INFO: {
+                    "name": protocol.SERVER_NAME,
+                    "version": protocol.SERVER_VERSION,
+                }
+            },
+        }
+
     def _handle_initialize(self, params: Any) -> dict[str, Any]:
         # Version negotiation: echo the client's requested version when we
         # support it, otherwise answer with our own so the client decides
-        # whether to proceed (per MCP initialization).
+        # whether to proceed (per MCP initialization). The handshake
+        # negotiates the legacy revisions only — 2026-07-28 is stateless
+        # (no initialize); modern clients announce their version per request
+        # in _meta instead.
         requested = None
         if isinstance(params, dict):
             requested = params.get("protocolVersion")
         version = (
             requested
-            if requested in protocol.SUPPORTED_PROTOCOL_VERSIONS
-            else protocol.MCP_PROTOCOL_VERSION
+            if requested in protocol.LEGACY_PROTOCOL_VERSIONS
+            else protocol.LEGACY_DEFAULT_PROTOCOL_VERSION
         )
         return {
             "protocolVersion": version,
@@ -500,3 +651,11 @@ class Server:
 
 class _InvalidParams(Exception):
     """Internal marker mapped to JSON-RPC -32602."""
+
+
+class _UnsupportedProtocolVersion(Exception):
+    """Internal marker mapped to MCP -32022 (UnsupportedProtocolVersion)."""
+
+    def __init__(self, requested: str) -> None:
+        super().__init__(requested)
+        self.requested = requested
