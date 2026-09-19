@@ -42,6 +42,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Claim wording aligned with the facts-only posture across README and the
+  comparison doc: statements now describe what Cell does and what the
+  measurements show (e.g. "What every Cell tool call carries", measured
+  install footprints, per-response fields recorded for every candidate) —
+  without comparative superlatives; quality judgments are left to the
+  reader, who can reproduce every number.
 - PyPI metadata: Documentation and Changelog URLs added to `[project.urls]`
   (previously only Homepage + Issues); keywords extended to match the GitHub
   topics (wasmtime, code-execution, capability-based-security, untrusted-code,

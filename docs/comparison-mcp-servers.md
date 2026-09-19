@@ -9,15 +9,14 @@
 
 ## 1. Key takeaway
 
-`ephemora-cell-mcp` is the only **dependency-free, locally sandboxed**
-MCP server in this comparison: tools run as WASM modules inside a
-Wasmtime sandbox (no host FS, no env, no network, fuel metering,
-10 KB output cap) instead of in-process with full user privileges — and that at
-competitive latency: **~0.5 ms pooled warm execution / ~12 ms per stdio
+`ephemora-cell-mcp` runs tools as **WASM modules inside a Wasmtime
+sandbox** (no host FS, no env, no network, fuel metering, 10 KB output
+cap) instead of in-process with full user privileges — at
+**~0.5 ms pooled warm execution / ~12 ms per stdio
 `tools/call`** (2026-09-14, `measured:true`,
 [`benchmarks/results/2026-09-14/`](../benchmarks/results/2026-09-14/); the
 one-time 2026-08-20 snapshot in §2 measured 0.89 ms on a persistent channel)
-and a small footprint (52 MB RSS, 1 runtime dependency).
+with a small footprint (52 MB RSS, 1 runtime dependency).
 
 Against the market's real incidents this is now measured, not argued: the
 [MCP CVE replay harness](../benchmarks/mcp_cve_replay.py) (2026-09-17) replays
@@ -102,14 +101,14 @@ job `mcp-sdk-interop`).
    sandbox intervention. (Benchmark agent: the naive counter-probe reads `/etc/passwd`.)
    The same replay runs against WASI 0.2 components: symlink/traversal denial plus
    call-time socket denial are measured on the component path, not assumed.
-2. **Smallest attack surface in the market comparison:** 1 runtime dep (wasmtime),
+2. **Measured install footprint:** 1 runtime dep (wasmtime),
    ~24 MB installed, no Node and no npm transitive tree (server-filesystem:
    52 package dirs / 22.2 MB measured 2026-09-18, pinned v2025.3.28 — see
    §4.2), no npx execution of unpinned code.
 3. **Per-call proof instead of trust:** every call carries `_meta.execution`
    (fuel_consumed, elapsed_ms, wasmtime_version) — deterministic
-   fuel metering (spread 0). No other candidate in the comparison provides a
-   measurable per-call attestation. Measured side-by-side in §4.1.
+   fuel metering (spread 0). The §4.1 measurement records, for every
+   candidate in the set, which response fields a caller receives.
 4. **Local and offline:** no cloud round trip, no registry requirement, no
    microVM latency (E2B: network round trip + ~100 ms–1 s startup), no
    container latency (Docker wrapper: +490 ms).
