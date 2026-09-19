@@ -1,0 +1,230 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-19",
+  "label": "dgx-aarch64-control",
+  "platform": {
+    "machine": "aarch64",
+    "system": "Linux",
+    "node": "spark-c2fb",
+    "python": "3.12.3"
+  },
+  "wasmtime": "47.0.1",
+  "ephemora_cell": "1.0.3",
+  "external_engines": {
+    "wasmer": {
+      "version": "wasmer 7.4.2",
+      "command": [
+        "wasmer",
+        "run",
+        "--enable-tail-call",
+        "/home/mimione/ephemora-coremark/benchmarks/workloads/coremark.wasm"
+      ]
+    },
+    "wasm3": {
+      "version": "Wasm3 v0.9.1 on arm64-v8a",
+      "command": [
+        "wasm3",
+        "/home/mimione/ephemora-coremark/benchmarks/workloads/coremark.wasm"
+      ]
+    }
+  },
+  "provenance": {
+    "benchmark": "CoreMark 1.01 (EEMBC)",
+    "source_repo": "https://github.com/eembc/coremark.git",
+    "pinned_commit": "1f483d5b8316753a742cbf5590caf5bd0a4e4777",
+    "build": "wasm3/wasm-coremark build.sh (unmodified), target: wasi",
+    "toolchain": "wasi-sdk-34 / clang 23.1.0",
+    "wasm_features": "Lime1 + tail-call",
+    "run_protocol": "CoreMark auto-calibrates its iteration count to a ~10 s target (observed 600k-1.1M depending on config speed); no argv (argv[1] would be SEED in this port and break self-validation)",
+    "controls": "self-validation line per run ('Correct operation validated'); crc values compare only between runs with identical auto-calibrated iteration counts"
+  },
+  "fuel_budget": 10000000000000,
+  "summary": {
+    "bare_wasmtime": {
+      "median_score": 48859.9,
+      "median_elapsed_s": 14.56,
+      "runs": 3
+    },
+    "cell_sandbox": {
+      "median_score": 44039.9,
+      "median_elapsed_s": 16.17,
+      "runs": 3
+    },
+    "cell_fuel_on": {
+      "median_score": 38491.1,
+      "median_elapsed_s": 18.503,
+      "runs": 3
+    },
+    "wasmer": {
+      "median_score": 53734.6,
+      "median_elapsed_s": 22.602,
+      "runs": 3
+    },
+    "wasm3": {
+      "median_score": 5747.4,
+      "median_elapsed_s": 21.134,
+      "runs": 3
+    },
+    "sandbox_tax_on_score_percent": -9.86,
+    "fuel_tax_on_score_percent": -12.6,
+    "wasmer_vs_bare_wasmtime_percent": 9.98,
+    "wasm3_vs_bare_wasmtime_percent": -88.24
+  },
+  "results": {
+    "bare_wasmtime": [
+      {
+        "elapsed_s": 14.537,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 48935.649621,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 1
+      },
+      {
+        "elapsed_s": 14.605,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 48784.454021,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 2
+      },
+      {
+        "elapsed_s": 14.56,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 48859.934853,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 3
+      }
+    ],
+    "cell_sandbox": [
+      {
+        "elapsed_s": 16.001,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 44510.385757,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 1
+      },
+      {
+        "elapsed_s": 16.17,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 44039.929536,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 2
+      },
+      {
+        "elapsed_s": 16.174,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 44017.313477,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 3
+      }
+    ],
+    "cell_fuel_on": [
+      {
+        "elapsed_s": 18.333,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 38837.465208,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690600300,
+        "round": 1
+      },
+      {
+        "elapsed_s": 18.503,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 38491.147036,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690600314,
+        "round": 2
+      },
+      {
+        "elapsed_s": 18.52,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 38459.073136,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690600283,
+        "round": 3
+      }
+    ],
+    "wasmer": [
+      {
+        "elapsed_s": 22.904,
+        "iterations": 1100000,
+        "status": "exit_0",
+        "score": 53676.865271,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 1
+      },
+      {
+        "elapsed_s": 22.392,
+        "iterations": 1100000,
+        "status": "exit_0",
+        "score": 54227.261523,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 2
+      },
+      {
+        "elapsed_s": 22.602,
+        "iterations": 1100000,
+        "status": "exit_0",
+        "score": 53734.551316,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 3
+      }
+    ],
+    "wasm3": [
+      {
+        "elapsed_s": 20.885,
+        "iterations": 110000,
+        "status": "exit_0",
+        "score": 5809.04098,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 1
+      },
+      {
+        "elapsed_s": 21.134,
+        "iterations": 110000,
+        "status": "exit_0",
+        "score": 5747.42672,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 2
+      },
+      {
+        "elapsed_s": 21.395,
+        "iterations": 110000,
+        "status": "exit_0",
+        "score": 5664.847049,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "round": 3
+      }
+    ]
+  }
+}

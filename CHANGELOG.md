@@ -28,6 +28,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (aarch64): the sandbox reduces the CoreMark score by **8.1-10.0%**, fuel
   metering by a further **12.5-14.6%** — on the industry-standard CPU
   workload, self-validated per run, interleaved against thermal drift.
+  External engine control columns (same binary, interleaved, versioned
+  in the evidence): wasmer 7.4.2 scored +9.98%/+15.57% vs bare wasmtime,
+  wasm3 0.9.0 (interpreter) −88.24%/−89.92% on DGX/macOS — engine choice
+  spans a ~12× range; the Cell layer sits close to the bare engine.
   Binary committed under `benchmarks/workloads/coremark.wasm`.
 
 - gVisor (runsc) boundary column — measured in CI: new job

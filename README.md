@@ -319,6 +319,20 @@ Live cold-start comparison (2026-09-14, same Mac, n=100 per image after warmup):
 
 Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competitive_benchmark.py` (raw results with `measured:true` committed under `benchmarks/results/`). Agentic workloads and more: [docs/performance.md](docs/performance.md).
 
+### Sandbox tax on an industry-standard workload (EEMBC CoreMark 1.01)
+
+The same committed `coremark.wasm` (EEMBC CoreMark 1.01, pinned sources, wasi-sdk-34) runs interleaved under three Cell configurations and, when their CLIs are on PATH, under external engines — every run must pass CoreMark's own self-validation. Scores are CoreMark's self-timed "Iterations/Sec":
+
+| Median score (n=3 interleaved) | macOS arm64 (wasmtime 47.0.1, wasmer 7.4.2, wasm3 0.9.0) | DGX Spark GB10 aarch64 |
+|---|---|---|
+| bare wasmtime (reference) | 55,204 | 48,860 |
+| **Cell sandbox** | 50,456 (**−8.60%**) | 44,040 (**−9.86%**) |
+| Cell + fuel metering | 43,054 (−14.67% vs sandbox) | 38,491 (−12.60% vs sandbox) |
+| wasmer (external control) | 63,798 (+15.57% vs bare) | 53,735 (+9.98% vs bare) |
+| wasm3 (external control, interpreter) | 5,566 (−89.92% vs bare) | 5,747 (−88.24% vs bare) |
+
+Read as facts, not a ranking: on this workload the engine choice spans a ~12× range, the Cell sandbox layer costs 8.6–10.0% over the bare engine on the same machine, and instruction-level fuel metering a further 12.5–14.7%. External engines are context, not competitors measured by Cell's API; wasmer requires `--enable-tail-call` (the build ships the upstream Lime1+tail-call feature set). Evidence with verbatim commands, versions and per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`. Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
+
 ## Any language that compiles to WASM
 
 Cell executes the `.wasm` — it does not know the source language. One-command build with actionable error hints from the measured friction matrix:
