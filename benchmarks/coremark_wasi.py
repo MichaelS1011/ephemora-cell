@@ -28,6 +28,16 @@ Configurations:
   cell_sandbox   WASISandbox with max_fuel=None — the sandbox posture
   cell_fuel_on   WASISandbox with a finite fuel budget (default posture
                  including per-instruction metering)
+  wasmer         external control run (Wasmer CLI, --enable-tail-call)
+  wasm3          external control run (wasm3 CLI, interpreter)
+
+External engines are optional control columns: when their CLIs are on
+PATH they join the same interleaved round-robin, running the SAME
+binary. Their scores put Cell's number into engine context — they are
+NOT Cell competitors measured by Cell's own API, and the run records
+each engine's version. Control 1 (self-validation) applies to external
+engines identically; control 2 (crc) matches only when the
+auto-calibrated iteration counts coincide.
 
 Claims supported: "the sandbox costs X% on CoreMark" (cell_sandbox vs
 bare_wasmtime) and "metering costs Y%" (cell_fuel_on vs cell_sandbox).
@@ -42,7 +52,9 @@ import argparse
 import json
 import platform
 import re
+import shutil
 import statistics
+import subprocess
 import sys
 import time
 from datetime import date
@@ -139,6 +151,59 @@ def _cell_run(max_fuel: int | None) -> dict:
     }
 
 
+EXTERNAL_ENGINES = {
+    # Same binary, engines' default optimizing/interpreting configs.
+    # --enable-tail-call: the build ships the Lime1+tail-call feature set
+    # (upstream build.sh), which Wasmer gates off by default.
+    "wasmer": ["wasmer", "run", "--enable-tail-call", str(WASM)],
+    "wasm3": ["wasm3", str(WASM)],
+}
+
+
+def available_engines() -> dict[str, list[str]]:
+    return {n: cmd for n, cmd in EXTERNAL_ENGINES.items() if shutil.which(cmd[0])}
+
+
+def _engine_version(name: str) -> str | None:
+    try:
+        out = subprocess.run(
+            [name, "--version"], capture_output=True, text=True, timeout=30
+        )
+        return (out.stdout or out.stderr).strip().splitlines()[0]
+    except Exception:
+        return None
+
+
+def _external_run(cmd: list[str]) -> dict:
+    out = Path("/tmp") / f"coremark_ext_{time.time_ns()}.txt"
+    t0 = time.perf_counter()
+    try:
+        with out.open("wb") as fh:
+            p = subprocess.run(cmd, stdout=fh, stderr=subprocess.DEVNULL, timeout=300)
+        elapsed = time.perf_counter() - t0
+    except subprocess.TimeoutExpired:
+        out.unlink(missing_ok=True)
+        return {
+            "elapsed_s": 300.0,
+            "iterations": None,
+            "status": "TIMEOUT",
+            "score": None,
+            "crcfinal": None,
+            "control_validated": False,
+        }
+    stdout = out.read_text(errors="replace")
+    out.unlink(missing_ok=True)
+    score, crc, iters = _score_and_crc(stdout)
+    return {
+        "elapsed_s": round(elapsed, 3),
+        "iterations": iters,
+        "status": f"exit_{p.returncode}",
+        "score": score,
+        "crcfinal": crc,
+        "control_validated": CONTROL_MARKER in stdout,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -146,18 +211,25 @@ def main() -> int:
     )
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument(
-        "--only", default="", help="bare_wasmtime|cell_sandbox|cell_fuel_on"
+        "--only", default="", help="bare_wasmtime|cell_sandbox|cell_fuel_on|<engine>"
     )
     args = ap.parse_args()
+
+    ext = available_engines()
+    for name, cmd in ext.items():
+        print(
+            f"[external control] {name} {' '.join(cmd[:2])}… (version "
+            f"{_engine_version(name)})"
+        )
+    for name in ("wasmer", "wasm3"):
+        if name not in ext:
+            print(f"[external control] {name}: CLI not on PATH — skipped")
 
     print("EEMBC CoreMark (WASI) — sandbox tax measurement (interleaved)")
     print("=" * 70)
 
-    config_names = [
-        c
-        for c in ("bare_wasmtime", "cell_sandbox", "cell_fuel_on")
-        if not args.only or c == args.only
-    ]
+    base = ("bare_wasmtime", "cell_sandbox", "cell_fuel_on")
+    config_names = [c for c in (*base, *ext) if not args.only or c == args.only]
     results: dict = {c: [] for c in config_names}
 
     for rnd in range(1, args.rounds + 1):
@@ -166,8 +238,10 @@ def main() -> int:
                 r = _bare_run()
             elif name == "cell_sandbox":
                 r = _cell_run(None)
-            else:
+            elif name == "cell_fuel_on":
                 r = _cell_run(FUEL_BUDGET)
+            else:
+                r = _external_run(ext[name])
             r["round"] = rnd
             results[name].append(r)
             print(
@@ -221,6 +295,18 @@ def main() -> int:
             print(
                 f"fuel tax on CoreMark score: {summary['fuel_tax_on_score_percent']:+.2f}%"
             )
+    for name in ext:
+        if name in summary and "bare_wasmtime" in summary:
+            a = summary["bare_wasmtime"]["median_score"]
+            b = summary[name]["median_score"]
+            if a and b:
+                summary[f"{name}_vs_bare_wasmtime_percent"] = round(
+                    (b / a - 1) * 100, 2
+                )
+                print(
+                    f"{name} vs bare wasmtime: "
+                    f"{summary[f'{name}_vs_bare_wasmtime_percent']:+.2f}%"
+                )
 
     doc = {
         "measured": True,
@@ -235,6 +321,10 @@ def main() -> int:
         },
         "wasmtime": _pkg_version("wasmtime"),
         "ephemora_cell": _pkg_version("ephemora-cell"),
+        "external_engines": {
+            name: {"version": _engine_version(name), "command": cmd}
+            for name, cmd in ext.items()
+        },
         "provenance": PROVENANCE,
         "fuel_budget": FUEL_BUDGET,
         "summary": summary,
