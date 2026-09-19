@@ -24,8 +24,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   response shapes, and this server issues no server-initiated requests
   (sampling/elicitation/roots are deprecated in 2026-07-28), so MRTR
   interim results cannot occur. Covered by
-  `tests/test_mcp_2026_07_28.py`; the official-SDK interop job keeps
-  proving the legacy handshake path.
+  `tests/test_mcp_2026_07_28.py`; the official-SDK interop job proves
+  both eras against the reference implementation: the existing
+  handshake-path test and a new stateless round-trip where MCP SDK 2.1.1
+  probes `server/discover`, adopts the modern per-request stamp without
+  ever sending `initialize`, and completes stateless `tools/list` +
+  `tools/call` with the 2026-07-28 envelope (`resultType`, serverInfo)
+  and the execution `_meta` intact
+  (`integration/test_mcp_sdk_client.py`).
 
 - Test-bench CI job (`test-bench` in ci.yml): the documented
   eight-attack-vector suite (`benchmarks/verify_8_vectors.py`, 8/8
