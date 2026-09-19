@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- gVisor (runsc) boundary column — measured in CI: new job
+  `gvisor-boundary` (ubuntu runner, pinned gVisor release 20260914.0 via
+  apt, `runsc install` runtime registration, smoke container, probe run
+  twice for determinism) executes the same eight attack intents with
+  `--runtime runsc`. Expectation matrix pre-declared: 8/8 ALLOWED — gVisor
+  protects the host from the container; the guest sees a Linux ABI, so
+  guest primitives stay available. Positive control fails the run before
+  any evidence is written. Evidence lands as run artifact; README/docs
+  gain the column after the first measured run (nothing unmeasured
+  claimed). Locally reproducible for anyone with runsc installed:
+  `python benchmarks/gvisor_docker_probe.py`.
+
 - Official WebAssembly core spec conformance
   (`conformance/run_core_spec.py` + weekly CI job `core-spec.yml`): the
   consolidated [WebAssembly/testsuite](https://github.com/WebAssembly/testsuite)
