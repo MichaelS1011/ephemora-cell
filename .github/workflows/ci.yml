@@ -188,6 +188,37 @@ jobs:
           name: sbom
           path: sbom.json
 
+  # Test-bench wiring: the documented attack-vector suite and the
+  # auto-grader verdict contract run on every push/PR — the 8/8 boundary
+  # claim is continuously re-proven on the pinned wasmtime baseline, not
+  # asserted once (README documents the suite; CI keeps it true).
+  test-bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+
+      # Exit 0 = all 8 documented vectors blocked on the live runtime.
+      - name: Attack vectors (8/8 boundary gate)
+        run: python benchmarks/verify_8_vectors.py
+
+      # The three reference submissions must keep their exact verdict
+      # mapping (pass / compute budget / memory budget) — any drift in
+      # status mapping or budget enforcement fails the job.
+      - name: Auto-grader verdict contract (--strict)
+        run: python examples/auto_grader.py --strict
+
   # Verifies the shipped server against the OFFICIAL MCP Python SDK (stdio):
   # initialize, tools/list, a real echo tools/call with execution _meta. This
   # is the "verified against the official SDK" evidence and runs the test for
