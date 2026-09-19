@@ -121,6 +121,19 @@ print(result.fuel_consumed)   # compute actually used
 
 *Real CLI session: install, first run, machine-readable `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
 
+## The local devtools loop for agent tools
+
+The same three commands above are a development loop for agent tools — edit, run, read the receipt — with no Dockerfile, no image build, no container to provision:
+
+| Command | What it does in the loop |
+|---|---|
+| `ephemora-cell build tool.rs` | Compile Rust, Go, C, AssemblyScript or Zig source straight to WASM ([languages & recipes](#any-language-that-compiles-to-wasm)) |
+| `ephemora-cell run tool.wasm --json` | Execute and get the verdict immediately: status, exit code, `fuel_consumed`, `elapsed_ms` |
+| `ephemora-cell inspect tool.wasm` | Imports, exports, memory — see what a module wants before you run it |
+| `ephemora-cell benchmark tool.wasm` | Cold/warm latency and fuel spread while you iterate |
+
+Failures come back **graded, not crashing**: an infinite loop returns `status: "fuel_exhausted"` with its receipt, a memory hog `memory_exceeded`, a crash a non-zero exit code — the same statuses the [auto-grader](examples/auto_grader.py) and the CI test-bench job consume. A tool that misbehaves never takes your terminal with it; you read the cost it caused and fix the code. Warm executions run sub-millisecond (0.17 ms guest / 0.51 ms end-to-end, pooled, measured; `benchmarks/results/`) — feedback at edit speed, against the same enforced boundary your tools will face in production.
+
 ## Why this matters
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:

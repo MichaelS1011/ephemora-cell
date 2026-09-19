@@ -107,6 +107,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- README frames the existing CLI as the local devtools loop for agent
+  tools: a new section after Quick Start walks the edit → `build` →
+  `run --json` → `inspect`/`benchmark` cycle, shows failures arriving as
+  graded statuses (`fuel_exhausted`, `memory_exceeded`) with receipts
+  instead of a crashed terminal, and points at the auto-grader and the
+  CI test-bench job as consumers of the same statuses. Documentation
+  only — no code or claims beyond the already-published measurements.
+
 - Claim wording aligned with the facts-only posture across README and the
   comparison doc: statements now describe what Cell does and what the
   measurements show (e.g. "What every Cell tool call carries", measured
