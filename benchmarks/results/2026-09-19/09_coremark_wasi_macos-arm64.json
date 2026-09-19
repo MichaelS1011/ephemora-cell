@@ -1,0 +1,142 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-19",
+  "label": "macos-arm64",
+  "platform": {
+    "machine": "arm64",
+    "system": "Darwin",
+    "node": "MacBook-Pro.local",
+    "python": "3.12.13"
+  },
+  "wasmtime": "47.0.1",
+  "ephemora_cell": "1.0.1",
+  "provenance": {
+    "benchmark": "CoreMark 1.01 (EEMBC)",
+    "source_repo": "https://github.com/eembc/coremark.git",
+    "pinned_commit": "1f483d5b8316753a742cbf5590caf5bd0a4e4777",
+    "build": "wasm3/wasm-coremark build.sh (unmodified), target: wasi",
+    "toolchain": "wasi-sdk-34 / clang 23.1.0",
+    "wasm_features": "Lime1 + tail-call",
+    "run_protocol": "CoreMark auto-calibrates its iteration count to a ~10 s target (observed 600k-1.1M depending on config speed); no argv (argv[1] would be SEED in this port and break self-validation)",
+    "controls": "self-validation line per run ('Correct operation validated'); crc values compare only between runs with identical auto-calibrated iteration counts"
+  },
+  "fuel_budget": 10000000000000,
+  "summary": {
+    "bare_wasmtime": {
+      "median_score": 54661.1,
+      "median_elapsed_s": 22.101,
+      "runs": 3
+    },
+    "cell_sandbox": {
+      "median_score": 50221.4,
+      "median_elapsed_s": 24.088,
+      "runs": 3
+    },
+    "cell_fuel_on": {
+      "median_score": 43952.8,
+      "median_elapsed_s": 16.223,
+      "runs": 3
+    },
+    "sandbox_tax_on_score_percent": -8.12,
+    "fuel_tax_on_score_percent": -12.48
+  },
+  "results": {
+    "bare_wasmtime": [
+      {
+        "elapsed_s": 22.907,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 52654.253028,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 1
+      },
+      {
+        "elapsed_s": 21.521,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 56242.969629,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 2
+      },
+      {
+        "elapsed_s": 22.101,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 54661.101173,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 3
+      }
+    ],
+    "cell_sandbox": [
+      {
+        "elapsed_s": 23.832,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 50829.444111,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 1
+      },
+      {
+        "elapsed_s": 24.088,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 50221.430854,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 2
+      },
+      {
+        "elapsed_s": 24.357,
+        "iterations": 1100000,
+        "status": "SUCCESS",
+        "score": 49710.77368,
+        "crcfinal": "0x33ff",
+        "control_validated": true,
+        "fuel_consumed": null,
+        "round": 3
+      }
+    ],
+    "cell_fuel_on": [
+      {
+        "elapsed_s": 16.137,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 44192.384179,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690616691,
+        "round": 1
+      },
+      {
+        "elapsed_s": 16.223,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 43952.823969,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690616825,
+        "round": 2
+      },
+      {
+        "elapsed_s": 16.369,
+        "iterations": 600000,
+        "status": "SUCCESS",
+        "score": 43579.314352,
+        "crcfinal": "0xa14c",
+        "control_validated": true,
+        "fuel_consumed": 401690616670,
+        "round": 3
+      }
+    ]
+  }
+}

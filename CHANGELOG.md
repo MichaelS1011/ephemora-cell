@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- EEMBC CoreMark benchmark (`benchmarks/coremark_wasi.py`, evidence
+  `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`): CoreMark 1.01
+  built to wasm32-wasi (wasm3/wasm-coremark build.sh, wasi-sdk-34, CoreMark
+  pinned at eembc/coremark `1f483d5b`) run interleaved under three
+  configurations — bare wasmtime, the Cell sandbox, and the Cell sandbox
+  with fuel metering on. Measured on macOS arm64 and DGX Spark GB10
+  (aarch64): the sandbox reduces the CoreMark score by **8.1-10.0%**, fuel
+  metering by a further **12.5-14.6%** — on the industry-standard CPU
+  workload, self-validated per run, interleaved against thermal drift.
+  Binary committed under `benchmarks/workloads/coremark.wasm`.
+
 - gVisor (runsc) boundary column — measured in CI: new job
   `gvisor-boundary` (ubuntu runner, pinned gVisor release 20260914.0 via
   apt, `runsc install` runtime registration, smoke container, probe run
