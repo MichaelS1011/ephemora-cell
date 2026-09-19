@@ -33,6 +33,12 @@ jobs:
           python -m pip install colorama requests
 
       - name: Run wasi-testsuite (pinned)
+        env:
+          # Retry wrapper: reruns once on the documented engine-abort
+          # flake (SIGABRT only, retry recorded in evidence). See
+          # conformance/README.md "Known runner-level instability".
+          EPHEMORA_CELL: "python ${{ github.workspace }}/conformance/adapters/cell_retry_wrapper.py"
+          EPHEMORA_CELL_REAL: "ephemora-cell"
         run: |
           python conformance/run_wasi_testsuite.py
 

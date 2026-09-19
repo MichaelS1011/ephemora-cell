@@ -95,6 +95,17 @@ wrong test and add xpass noise on macOS). Tracked as watch-item for the
 next wasmtime upgrade; the committed per-date result JSONs record the raw
 outcomes.
 
+**Absorbing the flake without hiding it.** CI runs the suite through
+[`adapters/cell_retry_wrapper.py`](adapters/cell_retry_wrapper.py): a
+test whose process dies with SIGABRT (exit -6) is rerun once; every
+other exit code — including genuine conformance failures — passes
+through untouched, and a second abort still fails the test. Each retry
+is appended to `results/engine_abort_retries.jsonl` and echoed into the
+run's `summary-*.json` under `engine_abort_retries`, so the committed
+evidence shows exactly which runs needed a retry and for which test.
+The wrapper never decides an outcome; it only absorbs the documented
+engine abort.
+
 Entries must always carry a reason tied to a documented policy. Real
 conformance bugs do not belong here — they are fixed or reported as
 findings. Two real bugs found and fixed during the first triage run:

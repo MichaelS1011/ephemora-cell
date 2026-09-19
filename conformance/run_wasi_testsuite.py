@@ -22,10 +22,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -111,19 +112,36 @@ def main() -> int:
     print(f"[conformance] pinned {PINNED_COMMIT[:12]}, adapter {ADAPTER.name}")
     print(f"[conformance] {' '.join(cmd)}")
     start = time.monotonic()
+    started = datetime.now(timezone.utc) - timedelta(seconds=5)
     proc = subprocess.run(cmd, cwd=str(CACHE))
     elapsed = time.monotonic() - start
     print(f"[conformance] runner exit {proc.returncode} in {elapsed:.0f}s")
 
     if raw_json.exists():
-        summarize(raw_json, stamp)
+        summarize(raw_json, stamp, started)
     else:
         print("[conformance] WARNING: no JSON output produced")
         return 1
     return proc.returncode
 
 
-def summarize(raw_json: Path, stamp: str) -> None:
+def engine_abort_retries(started: datetime) -> list[dict]:
+    """Retry entries logged by adapters/cell_retry_wrapper.py this run."""
+    path = Path(os.getenv("CELL_RETRY_LOG") or RESULTS / "engine_abort_retries.jsonl")
+    if not path.exists():
+        return []
+    out = []
+    for line in path.read_text().splitlines():
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("timestamp", "") >= started.isoformat(timespec="seconds"):
+            out.append(entry)
+    return out
+
+
+def summarize(raw_json: Path, stamp: str, started: datetime) -> None:
     data = json.loads(raw_json.read_text())
     per_suite: dict[str, dict[str, int]] = {}
     for suite in data.get("results", []):
@@ -142,13 +160,20 @@ def summarize(raw_json: Path, stamp: str) -> None:
 
     keys = ("pass", "expected_fail", "unexpected_pass", "fail", "skip")
     total = {k: sum(c.get(k, 0) for c in per_suite.values()) for k in keys}
+    retries = engine_abort_retries(started)
     meta = {
         "pinned_commit": PINNED_COMMIT,
         "date": str(date.today()),
         "totals": total,
         "per_suite": per_suite,
         "raw": raw_json.name,
+        "engine_abort_retries": retries,
     }
+    if retries:
+        print(
+            f"[conformance] NOTE: {len(retries)} engine-abort retry(ies) "
+            "recorded this run (see conformance/README.md)"
+        )
     digest = RESULTS / f"summary-{stamp}.json"
     digest.write_text(json.dumps(meta, indent=2))
     print(f"[conformance] totals: {total}")

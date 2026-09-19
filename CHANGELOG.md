@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Deterministic conformance CI despite a documented engine flake:
+  `conformance/adapters/cell_retry_wrapper.py` wraps the Cell CLI in the
+  weekly WASI conformance job and reruns a test once when its process
+  dies with SIGABRT (exit -6) — the rare wasmtime engine abort observed
+  on shared ubuntu runners on varying filesystem tests (see
+  `conformance/README.md`). Every other exit code passes through
+  untouched; a second abort still fails. Each retry is recorded in
+  `results/engine_abort_retries.jsonl` and echoed into the run's
+  summary JSON under `engine_abort_retries`, so committed evidence shows
+  exactly which runs needed a retry.
+
 - EEMBC CoreMark benchmark (`benchmarks/coremark_wasi.py`, evidence
   `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`): CoreMark 1.01
   built to wasm32-wasi (wasm3/wasm-coremark build.sh, wasi-sdk-34, CoreMark
