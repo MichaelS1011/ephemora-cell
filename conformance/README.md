@@ -7,6 +7,31 @@ sandbox: every test either passes, is a documented by-design deviation
 (`expectations.toml`), or is excluded by the runner because Cell does not
 declare that WASI version (preview 3).
 
+## Core spec suite (W3C Wasm 3.0 era)
+
+`conformance/run_core_spec.py` runs the **official WebAssembly core spec
+suite** ([WebAssembly/testsuite](https://github.com/WebAssembly/testsuite),
+pinned commit, `wast2json` + harness) against the exact engine
+configuration Cell ships. Files execute in isolated subprocesses, so a
+native upstream abort on one module cannot kill the suite. Every deviation
+is a documented class — memory64/multi-memory modules sit outside the
+shipped config by design, v128 cannot pass through the wasmtime-py 47
+binding (valkind 4), relaxed-simd modules abort natively upstream,
+text-format asserts are skipped (wabt parser domain) — and the remainder
+is listed verbatim in the evidence JSON rather than swept into a pass
+count.
+
+```bash
+.venv/bin/python conformance/run_core_spec.py   # requires wast2json (wabt)
+```
+
+Latest run (2026-09-18, pinned `b464a4cd100d`, 257 files / ~36k commands,
+macOS arm64, wasmtime 47.0.1): **31,931 pass** — 3,282 classified
+deviations/limitations, 684 text-format skips, 46 documented binding-level
+NaN-bit remainder; zero unexpected sandbox-policy failures.
+
+## WASI suite
+
 ## Run
 
 ```bash

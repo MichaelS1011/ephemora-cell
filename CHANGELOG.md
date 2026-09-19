@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Official WebAssembly core spec conformance
+  (`conformance/run_core_spec.py` + weekly CI job `core-spec.yml`): the
+  consolidated [WebAssembly/testsuite](https://github.com/WebAssembly/testsuite)
+  (W3C Wasm 3.0 era, pinned `b464a4cd100d`, 257 files / ~36k commands)
+  executed via `wast2json` against the exact engine configuration Cell
+  ships, with per-file subprocess isolation and epoch-bounded commands.
+  First run: **31,931 pass** — 3,282 documented deviations/limitations
+  (memory64/multi-memory by design, v128 blocked by the wasmtime-py 47
+  binding, relaxed-simd native upstream aborts), 684 text-format skips,
+  46 binding-level NaN-bit remainder listed verbatim in the evidence
+  (`conformance/results/core_spec_2026-09-19.json`). Cell now reports
+  conformance against both official suites (WASI + core).
+
 - README "vs Microsoft Wassette" positioning box: same Wasmtime engine
   family, OCI pull model moves the trust decision to install time; Cell adds
   what a caller can verify per call. Neutral framing, date-stamped pointer

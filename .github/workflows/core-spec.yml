@@ -1,0 +1,45 @@
+name: Core Spec Conformance
+
+# Non-blocking evidence job: the OFFICIAL WebAssembly core spec suite
+# (WebAssembly/testsuite, W3C Wasm 3.0 era, pinned commit) executed against
+# the engine configuration Cell ships. Files run isolated (a native abort
+# in an upstream module must not kill the suite); evidence JSON committed
+# per run by the operator, artifact uploaded per run.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC, after the Linux benchmark job
+
+jobs:
+  core-spec:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+
+      - name: Install wabt (wast2json)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq wabt
+
+      - name: Run core spec suite
+        run: python conformance/run_core_spec.py
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-spec-results
+          path: conformance/results/core_spec_*.json
+          if-no-files-found: error
