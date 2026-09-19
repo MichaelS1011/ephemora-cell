@@ -58,7 +58,7 @@ Every tool call answers three questions at once — attached to the result as `_
 | **COST** | what it cost | `fuel_consumed`, `elapsed_ms` |
 | **POLICY** | under which rules it ran | memory limit, preopens, network policy, `wasmtime_version` |
 
-"Verified. Not claimed." is a data field, not a slogan. Runnable demo: `python examples/signed_record_demo.py`.
+"Verifying. Not claimed." is data, not a slogan: any record can be re-checked — rewrite one field and `verify()` fails. Runnable demo: `python examples/signed_record_demo.py`.
 
 ## Quick Start
 
@@ -297,11 +297,10 @@ Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/th
 Not self-written test suites — the shipped CLI and the engine configuration Cell ships are run against **both official suites**: the [WebAssembly/wasi-testsuite](https://github.com/WebAssembly/wasi-testsuite) preview-1 suite through a runtime adapter, and the official [WebAssembly core spec suite](https://github.com/WebAssembly/testsuite) (W3C Wasm 3.0 era, `wast2json` harness) — evidence committed under `conformance/results/`:
 
 - **WASI: 72 pass, 1 documented by-design xfail, 0 fail** across the applicable preview-1 suites (pinned suite commit `609c44613995`, 2026-09-14; 55 preview-3 tests skipped — Cell declares preview 1 only)
-- **Core spec (first run 2026-09-18, pinned `b464a4cd100d`, 257 files / ~36k commands): 31,931 pass** with every deviation documented, none unexpected — 3,282 classified (memory64/multi-memory modules are by design outside the shipped engine config; v128 cannot pass through the wasmtime-py 47 binding; relaxed-simd files abort natively upstream), 684 text-format asserts skipped (wabt parser domain), and a 46-assert remainder at the wasmtime-py binding NaN-bit level, listed verbatim in the evidence JSON. Reproduce: `python conformance/run_core_spec.py`
-- **A weekly CI job re-runs the pinned suite** and uploads the raw JSON, so drift surfaces within a week (`.github/workflows/wasi-conformance.yml`). Known, documented runner quirk: shared ubuntu x86_64 runners show rare wasmtime engine aborts on varying fs tests (71/72 per affected run; deterministic on macOS arm64 and in clean containers — [conformance/README.md](conformance/README.md))
+- **Core spec (run 2026-09-19, pinned `b464a4cd100d`, 257 files / ~36k commands): 31,931 pass** with every deviation documented, none unexpected — 3,282 classified (memory64/multi-memory modules are by design outside the shipped engine config; v128 cannot pass through the wasmtime-py 47 binding; relaxed-simd files abort natively upstream), 684 text-format asserts skipped (wabt parser domain), and a 46-assert remainder at the wasmtime-py binding NaN-bit level, listed verbatim in the evidence JSON. Reproduce: `python conformance/run_core_spec.py`
+- **A weekly CI job re-runs the pinned suite** and uploads the raw JSON, so drift surfaces within a week (`.github/workflows/wasi-conformance.yml`). Known, documented runner quirk: shared ubuntu x86_64 runners show rare wasmtime engine aborts on varying fs tests; the CI job absorbs each abort with a single recorded retry ([`adapters/cell_retry_wrapper.py`](conformance/adapters/cell_retry_wrapper.py), every retry visible in the evidence JSON) — a healthy run lands 72 pass, as in the 2026-09-19 CI run — deterministic on macOS arm64 and in clean containers ([conformance/README.md](conformance/README.md))
 - **The one deviation is documented:** `sock_shutdown-invalid_fd` expects `EBADF` on a runtime with no preopens; Cell's sandbox scratch dir is preopened as fd 3 by design, so the call returns `ENOTSOCK`. The property Cell claims — no socket surface — is unaffected.
 - **Honest scope:** this is standards conformance, not a security certification. No third party certifies Cell; the evidence is the pinned suite, the committed JSON and the CI history.
-
 
 ## Performance
 
@@ -441,7 +440,7 @@ flowchart TB
     sandbox -.-> blocked
 ```
 
-The primary API is deliberately simple: `execute(wasm) → result`. Every execution returns structured, auditable information:
+The primary API is deliberately simple: `run_wasm(wasm) → result`. Every execution returns structured, auditable information:
 
 ```python
 result.status        # SUCCESS | ERROR | TIMEOUT | FUEL_EXHAUSTED | MEMORY_EXCEEDED
