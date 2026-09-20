@@ -2,7 +2,7 @@
 
 ### Deterministic execution for untrusted AI-generated code.
 
-Run AI-generated code, MCP tools and plugins with exact, predictable cost — every execution bounded, measured, and provably reproducible.
+Run AI-generated code, MCP tools and plugins with exact, predictable cost — every execution bounded, measured, and reproducible.
 
 **~0.5 ms warm · ~3M executions/hour per core (one-liner) up to ~5.5M pooled · deterministic, not "isolated and hoped for"**
 
