@@ -40,7 +40,7 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
 
 AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe:
 
-**How do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute?**
+**How do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?**
 
 ```text
 AI Agent ──▶ Tool / MCP ──▶ Ephemora Cell ──▶ WASM ──▶ bounded result
@@ -115,7 +115,7 @@ print(result.elapsed_ms)      # wall time
 print(result.fuel_consumed)   # compute actually used
 ```
 
-**Time to value:** no policy file, no access rules, no container to provision. One `pip install`, one call, and you are already running untrusted WASM under a hard fuel + memory boundary at **~0.5 ms warm** — the same call that took a stock `docker run` ~186 ms to start (macOS M5; on the DGX GB10 the same baseline measured 312–373 ms while Cell stayed sub-millisecond — `benchmarks/results/2026-09-20/competitive_benchmark-dgx-aarch64.json`). Measure the cost you actually pay per execution instead of billing a container you can't see inside.
+**Time to value:** no policy file, no access rules, no container to provision. One `pip install`, one call, and you are already running untrusted WASM under a hard fuel + memory boundary at **~0.5 ms warm** — the same call that took a stock `docker run` ~186 ms to start (macOS M5, mean over 100 runs, `benchmarks/results/2026-09-14/competitive_benchmark.json`; on the DGX GB10 the same baseline measured 312–349 ms, mean–p95 across both images, while Cell stayed sub-millisecond — `benchmarks/results/2026-09-20/competitive_benchmark-dgx-aarch64.json`). Measure the cost you actually pay per execution instead of billing a container you can't see inside.
 
 Scale check on a single core: the one-liner `run_wasm()` path sustains **~3M executions/hour** (n=500, `hello.wasm`, Mac M5, wasmtime 47.0.1 — regenerate below). Reuse one `WASIConfig`/sandbox across calls in a hot loop and the pooled path reaches **~5.5M/hour** — that is what "every call sandboxed" costs when it is not the exception.
 
@@ -154,18 +154,18 @@ Agent-generated code is different from application code: it can be buggy, comput
 
 - **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
   canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
-- **Deterministic loop-stop** — AI-generated code ships infinite loops and unbounded retries by default. Fuel sets an exact, CPU-instruction exhaustion boundary: a hostile or buggy module that loops forever is stopped at precisely the budget you set, every time. No `timeout` races, no heuristic kill — the run *cannot* overshoot.
+- **Deterministic loop-stop** — AI-generated code ships infinite loops and unbounded retries by default. Fuel is the hard CPU-instruction exhaustion boundary: a hostile or buggy module that loops forever is stopped at precisely the budget you set, every time, and the run *cannot* overshoot its fuel budget. The epoch-based wall-clock timeout is the safety net on top of it — fuel counts CPU, the clock bounds everything else; no `timeout` races, no heuristic kill.
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
 - **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
 ## What is enforced
 
-**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps) that neither the guest nor the caller can switch off. The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
+**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on, neither the guest nor the caller can switch them off). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
 
 | Resource | Default |
 |---|---|
 | WASM memory | 128 MB (`Store.set_limits`) |
-| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000; 2026-09-14 re-measured, macOS arm64 — fuel counts are per-platform, not cross-platform) |
+| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000 across the 7 successful points up to 1M iterations; the curve flattens above that — re-measured 2026-09-14, macOS arm64, `benchmarks/results/2026-09-14/fuel_boundary.json`; fuel counts are per-platform, not cross-platform) |
 | Wall-clock timeout | 30 s (epoch interruption) |
 | Captured stdout/stderr | 10 KB |
 | Network | disabled — Preview1: no socket APIs; WASI 0.2: linked, denied at call time (measured) |
@@ -213,7 +213,7 @@ The boundary is three layers, and the table measures them separately:
 
 **Result: 8/8 attack vectors blocked (live-verified); both Docker baselines are measured live per run — never hardcoded.**
 
-For context, the same eight intents were measured against **gVisor** (`runsc`, pinned release, executed in CI twice for determinism): 8/8 ALLOWED. gVisor walls the host off from the container, but the guest keeps the Linux ABI — so the same primitives stay available to guest code. Expectation matrix pre-declared in [`benchmarks/gvisor_docker_probe.py`](benchmarks/gvisor_docker_probe.py); evidence artifacts from the `gvisor-boundary` CI job.
+For context, the same eight intents were measured against **gVisor** (`runsc`, pinned release, executed in CI twice for determinism): 8/8 ALLOWED. gVisor walls the host off from the container, but the guest keeps the Linux ABI — so the same primitives stay available to guest code. Expectation matrix pre-declared in [`benchmarks/gvisor_docker_probe.py`](benchmarks/gvisor_docker_probe.py); raw evidence: `benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json` (committed from the `gvisor-boundary` CI job).
 
 ¹ Hardened = exactly these flags — tell us which to add: `--network none --read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534` (image pinned by digest; Docker's default seccomp profile is active in **both** columns). Both hardened blocks are `--read-only` file-system effects — the flags wall the container *off*, not the guest *in*: socket creation, the container's own `/etc/passwd`, fork, threading and environment stay available to the guest.
 

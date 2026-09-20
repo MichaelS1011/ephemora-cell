@@ -1,0 +1,88 @@
+{
+  "measured": true,
+  "date": "2026-09-19",
+  "image": "python:3.12-slim",
+  "image_digest": "python@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9",
+  "gvisor_flags": [
+    "--runtime",
+    "runsc"
+  ],
+  "runsc_version": "runsc version release-20260914.0",
+  "docker_version": "template: version:1:2: executing \"version\" at <.ServerVersion>: can't evaluate field ServerVersion in type system.versio",
+  "note": "gVisor (userspace kernel, systrap platform) protects the HOST from the container; the guest sees a Linux ABI, so guest primitives stay available. This column documents that direction, not a ranking. Digest is recorded, not pinned.",
+  "positive_control": {
+    "status": "ALLOWED",
+    "exit_code": 0,
+    "detail": ""
+  },
+  "results": {
+    "shell": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "gVisor implements execve in its userspace kernel (Full Support) \u2014 the guest sees a working /bin/sh",
+      "matches_expectation": true
+    },
+    "fork": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "fork/vfork Full Support per the gVisor syscall table",
+      "matches_expectation": true
+    },
+    "socket": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "socket() creation is Full Support; runsc ships its own netstack \u2014 raw sockets are off by default, our TCP-socket creation is not raw",
+      "matches_expectation": true
+    },
+    "fsync": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "fsync Full Support; the stock-gVisor column carries no --read-only flag, so no EROFS effect",
+      "matches_expectation": true
+    },
+    "/etc/passwd": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "container's OWN /etc/passwd, world-readable \u2014 the guest sees the container world gVisor presents",
+      "matches_expectation": true
+    },
+    "symlink escape": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "symlink/readlink Full Support; symlinks inside the container FS work for the guest",
+      "matches_expectation": true
+    },
+    "threads": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "clone/clone3 supported (partial only for CLONE_NEWTIME/CLONE_SYSVSEM, unused here); gVisor is regression-tested against Python",
+      "matches_expectation": true
+    },
+    "environment": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "environment passes through the container config; no documented gVisor restriction",
+      "matches_expectation": true
+    }
+  },
+  "blocked_count": 0,
+  "expectation_matches": 8,
+  "expectation_total": 8,
+  "corrections": []
+}
