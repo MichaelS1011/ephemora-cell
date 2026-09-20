@@ -1,0 +1,97 @@
+{
+  "measured": true,
+  "date": "2026-09-20",
+  "image": "python:3.12-slim",
+  "image_digest": "python@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+  "hardened_flags": [
+    "--network",
+    "none",
+    "--read-only",
+    "--cap-drop=ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--pids-limit",
+    "64",
+    "--user",
+    "65534:65534"
+  ],
+  "seccomp": "Docker default seccomp profile active in both stock and hardened columns",
+  "positive_control": {
+    "status": "ALLOWED",
+    "exit_code": 0,
+    "detail": ""
+  },
+  "results": {
+    "shell": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "exec + /bin/id available to nobody; cap-drop does not remove exec",
+      "matches_expectation": true
+    },
+    "fork": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "pids-limit 64 >> 2 processes; fork needs no capability",
+      "matches_expectation": true
+    },
+    "socket": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "socket() creation needs no capability and no network; body does not connect",
+      "matches_expectation": true
+    },
+    "fsync": {
+      "status": "BLOCKED",
+      "exit_code": 1,
+      "detail": "OSError: [Errno 30] Read-only file system: '/tmp/f'",
+      "expected": "BLOCKED",
+      "attribution": "--read-only: O_CREAT in /tmp fails EROFS (flag effect, not sandbox policy)",
+      "matches_expectation": true
+    },
+    "/etc/passwd": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "container's OWN /etc/passwd, world-readable \u2014 the guest sees the container world",
+      "matches_expectation": true
+    },
+    "symlink escape": {
+      "status": "BLOCKED",
+      "exit_code": 1,
+      "detail": "OSError: [Errno 30] Read-only file system: '/etc/passwd' -> '/tmp/l'",
+      "expected": "BLOCKED",
+      "attribution": "--read-only: the body creates the symlink in /tmp first \u2014 EROFS (Errno 30) blocks creation before any escape attempt (flag effect, not sandbox policy)",
+      "matches_expectation": true
+    },
+    "threads": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "threading is a guest-internal primitive",
+      "matches_expectation": true
+    },
+    "environment": {
+      "status": "ALLOWED",
+      "exit_code": 0,
+      "detail": "",
+      "expected": "ALLOWED",
+      "attribution": "env vars are still set; nobody may read them",
+      "matches_expectation": true
+    }
+  },
+  "blocked_count": 2,
+  "expectation_matches": 8,
+  "expectation_total": 8,
+  "corrections": [
+    "2026-09-18: initial run expected symlink escape=ALLOWED, measured BLOCKED. Root cause (committed evidence, detail field): the shared body CREATES the symlink in /tmp first \u2014 --read-only fails that with EROFS (Errno 30) before any escape attempt. Same flag effect as fsync, so the expectation was corrected the same day the deviation was measured."
+  ],
+  "docker_version": ""
+}
