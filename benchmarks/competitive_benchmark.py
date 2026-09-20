@@ -255,7 +255,12 @@ def main():
                         help="Timed docker runs per image after warmup (default 100)")
     args = parser.parse_args()
 
-    label = os.environ.get("BENCH_LABEL", "macOS-M5")
+    # Same derivation as coremark_wasi.py --label: host-derived unless the
+    # operator pins one. A hardcoded default would stamp a foreign platform
+    # onto evidence measured elsewhere.
+    label = os.environ.get(
+        "BENCH_LABEL", f"{platform.system().lower()}-{platform.machine()}"
+    )
     print(f"Ephemora Cell Competitive Benchmarks — {label}")
     print("=" * 60)
 
@@ -315,7 +320,7 @@ def main():
         results["firecracker_cold"] = fc
         results["firecracker_measured"] = False
         results["firecracker_literature"] = "Northflank 18.01.2026, E2B uses Firecracker, 125ms MicroVM boot"
-        print(f"\n[4/5] Firecracker — KVM not available on this host (Mac M5)")
+        print(f"\n[4/5] Firecracker — KVM not available on this host")
         print(f"  Literature: 125ms boot (Firecracker MicroVM, Northflank 18.01.2026)")
 
     # Docker reference (live measurement)
