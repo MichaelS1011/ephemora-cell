@@ -10,13 +10,13 @@ HERE = Path(__file__).parent
 
 PALETTES = {
     "light": {
-        "text": "#1f2328", "muted": "#59636e", "box_fill": "#f6f8fa",
-        "box_stroke": "#d1d9e0", "accent": "#0969da", "accent_fill": "#ddf4ff",
+        "text": "#1f2328", "muted": "#444d56", "box_fill": "#f6f8fa",
+        "box_stroke": "#8b949e", "accent": "#0969da", "accent_fill": "#ddf4ff",
         "danger": "#cf222e", "chip_fill": "#ffffff",
     },
     "dark": {
-        "text": "#e6edf3", "muted": "#9198a1", "box_fill": "#151b23",
-        "box_stroke": "#3d444d", "accent": "#4493f8", "accent_fill": "#121d2f",
+        "text": "#e6edf3", "muted": "#a5aeb8", "box_fill": "#151b23",
+        "box_stroke": "#8b949e", "accent": "#4493f8", "accent_fill": "#121d2f",
         "danger": "#f85149", "chip_fill": "#1c2128",
     },
 }
@@ -82,8 +82,8 @@ def build(p: dict) -> str:
         parts.append(chip(bx + 180, y, 150, right, p))
         y += 44
     parts.append(
-        f'<text x="{CX}" y="{by + bh - 14}" text-anchor="middle" font-size="11.5" '
-        f'fill="{p["danger"]}" font-family="-apple-system,Segoe UI,sans-serif">'
+        f'<text x="{CX}" y="{by + bh - 14}" text-anchor="middle" font-size="13.5" '
+        f'font-weight="700" fill="{p["danger"]}" font-family="-apple-system,Segoe UI,sans-serif">'
         f'no network · no exec/fork · no host access</text>'
     )
     # Arrow out
