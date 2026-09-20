@@ -1,10 +1,10 @@
 # Ephemora Cell
 
-### Secure execution for untrusted AI-generated code.
+### Deterministic execution for untrusted AI-generated code.
 
-Run AI-generated code, MCP tools and plugins inside an enforced capability boundary — explicit resource limits, auditable execution records.
+Run AI-generated code, MCP tools and plugins with exact, predictable cost — every execution bounded, measured, and provably reproducible.
 
-**8/8 attack vectors blocked · 424 tests · sub-millisecond warm execution**
+**~0.5 ms warm · ~3M executions/hour per core (one-liner) up to ~5.5M pooled · deterministic, not "isolated and hoped for"**
 
 Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads.**
 
@@ -115,6 +115,20 @@ print(result.elapsed_ms)      # wall time
 print(result.fuel_consumed)   # compute actually used
 ```
 
+**Time to value:** no policy file, no access rules, no container to provision. One `pip install`, one call, and you are already running untrusted WASM under a hard fuel + memory boundary at **~0.5 ms warm** — the same call that took a stock `docker run` ~186 ms to start (macOS M5; on the DGX GB10 the same baseline measured 312–373 ms while Cell stayed sub-millisecond — `benchmarks/results/2026-09-20/competitive_benchmark-dgx-aarch64.json`). Measure the cost you actually pay per execution instead of billing a container you can't see inside.
+
+Scale check on a single core: the one-liner `run_wasm()` path sustains **~3M executions/hour** (n=500, `hello.wasm`, Mac M5, wasmtime 47.0.1 — regenerate below). Reuse one `WASIConfig`/sandbox across calls in a hot loop and the pooled path reaches **~5.5M/hour** — that is what "every call sandboxed" costs when it is not the exception.
+
+```python
+from ephemora_cell import run_wasm
+import time
+t0 = time.perf_counter()
+for _ in range(500):
+    run_wasm("examples/hello.wasm", max_fuel=1_000_000)
+per_hour = 500 / (time.perf_counter() - t0) * 3600
+print(f"{per_hour/1e6:.1f}M executions/hour on this core (one-liner path)")
+```
+
 **Where to next:** agent/tool isolation → [Secure MCP tool execution](#secure-mcp-tool-execution) (3-line setup) · CI gating for untrusted PRs → [GitHub Action](#untrusted-pr-code-in-github-actions) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
 
 ![Ephemora Cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
@@ -140,6 +154,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 
 - **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
   canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
+- **Deterministic loop-stop** — AI-generated code ships infinite loops and unbounded retries by default. Fuel sets an exact, CPU-instruction exhaustion boundary: a hostile or buggy module that loops forever is stopped at precisely the budget you set, every time. No `timeout` races, no heuristic kill — the run *cannot* overshoot.
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
 - **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
@@ -204,7 +219,7 @@ For context, the same eight intents were measured against **gVisor** (`runsc`, p
 
 ![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
 
-*Same eight attack primitives, measured live (2026-09-18 refresh, arm64 image pinned by digest; positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), a hardened container still lets 6 of 8 through — both of its blocks are `--read-only` flag effects — and the Ephemora Cell boundary blocks all eight (8/8). Reproduce all three columns:*
+*Same eight attack primitives, measured live (arm64 image pinned by digest; positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), a hardened container still lets 6 of 8 through — both of its blocks are `--read-only` flag effects — and the Ephemora Cell boundary blocks all eight (8/8). Measured on **two platforms** with identical results: macOS arm64 (2026-09-18) and DGX Spark GB10 / aarch64-Linux (2026-09-20, evidence in `benchmarks/results/2026-09-20/*-dgx-aarch64.json`). Reproduce all three columns:*
 
 ```bash
 python assets/demo_attack_probe.py          # stock Docker    -> 0/8 blocked

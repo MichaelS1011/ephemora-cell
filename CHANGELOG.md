@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Second-platform evidence for the boundary and startup claims: the
+  same-attack matrix (stock Docker 8/8 ALLOWED, hardened Docker 2/8
+  blocked with all 8 pre-declared expectations matched, Cell 8/8 BLOCKED)
+  and the cold/warm-start contrast (stock `python:3.12-slim` 311.8 ms /
+  `node:24-alpine` 313.2 ms mean per 100 docker runs vs. Cell cold
+  0.745 ms / warm 0.727 ms, pure wasmtime floor 0.006 ms) were measured
+  on a DGX Spark GB10 (aarch64 Linux, idle host, load 0.73) and committed
+  under `benchmarks/results/2026-09-20/*-dgx-aarch64.json` following the
+  CoreMark platform-suffix convention. The macOS arm64 results are
+  unchanged and remain on file (2026-09-14 / 2026-09-18): Docker is
+  ~68% slower on the GB10 while Cell stays sub-millisecond on both
+  platforms, so the advantage claim now carries stamped numbers on two
+  architectures instead of a single-host figure.
+
+- `benchmarks/competitive_benchmark.py` now derives its platform label
+  from the actual host (`platform.system()`/`platform.machine()`,
+  same as `coremark_wasi.py`) unless `BENCH_LABEL` pins one — the
+  previous hardcoded default ("macOS-M5") could stamp a foreign platform
+  onto evidence measured elsewhere.
+
 - MCP `2026-07-28` stateless revision support in `ephemera-cell-mcp`
   (dual-era, per the specification's "Versioning and Compatibility"):
   the new mandatory `server/discover` method reports supported versions,
