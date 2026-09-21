@@ -70,3 +70,18 @@ def test_package_version_is_single_sourced():
     match = re.search(r'^version = "([^"]+)"', text, re.M)
     assert match, "pyproject.toml has no version field"
     assert match.group(1) == __version__
+
+
+def test_server_json_version_tracks_release():
+    """server.json feeds the MCP Registry — it must ship the release version.
+
+    Regression: the 1.0.4 release forgot this file, so the registry kept
+    advertising 1.0.3 while PyPI served 1.0.4.
+    """
+    root = Path(__file__).resolve().parent.parent
+    import json
+
+    server = json.loads((root / "server.json").read_text())
+    assert server["version"] == __version__
+    packages = server["packages"]
+    assert packages and all(p["version"] == __version__ for p in packages)

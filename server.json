@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MichaelS1011/ephemora-cell-mcp",
-  "title": "Ephemora Cell MCP \u2014 WASM Sandbox",
+  "title": "Ephemora Cell MCP — WASM Sandbox",
   "description": "WASM sandbox for MCP tools. WASI-isolated, fuel/memory/I/O capped, attested.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "repository": {
     "url": "https://github.com/MichaelS1011/ephemora-cell",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "ephemora-cell",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "transport": {
         "type": "stdio"
       }
