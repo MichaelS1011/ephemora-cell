@@ -12,6 +12,8 @@ dependency-free implementation:
   clientCapabilities
 * legacy-era regression: the initialize handshake keeps negotiating the
   pre-2026-07-28 revisions and legacy responses keep the exact old shape
+* mixed-era traffic: a handshake-era and a stateless client sharing one
+  server instance without the eras bleeding into each other
 
 The server is driven in-process over a MemoryTransport (same pattern as
 test_mcp_adapter.py).
@@ -326,3 +328,59 @@ def test_legacy_tools_call_unchanged(server_with):
     assert "resultType" not in result
     assert "ttlMs" not in result
     assert result["_meta"]["execution"]["status"] == "success"
+
+
+def test_mixed_era_traffic_in_one_process(server_with):
+    """A handshake-era and a stateless client share one server instance.
+
+    The realistic migration window: a legacy host does its full
+    initialize -> tools/call cycle while a 2026-07-28 host fires
+    stateless requests against the same process. Neither era may
+    bleed into the other's responses.
+    """
+    server, transport = server_with(
+        inbox=[
+            # legacy client: full handshake cycle
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "echo", "arguments": {"message": "legacy"}},
+            },
+            # stateless client, same process, no handshake at all
+            _request(3, "tools/list", _modern_meta()),
+            _request(
+                4,
+                "tools/call",
+                _modern_meta(),
+                name="echo",
+                arguments={"message": "stateless"},
+            ),
+        ]
+    )
+    responses = _reply(server, transport)
+    # the notification stays silent — exactly one response per request
+    assert [r["id"] for r in responses] == [1, 2, 3, 4]
+    by_id = {r["id"]: r for r in responses}
+
+    legacy_init = by_id[1]["result"]
+    assert legacy_init["protocolVersion"] == "2025-06-18"
+    assert "resultType" not in legacy_init
+
+    legacy_call = by_id[2]["result"]
+    assert "legacy" in legacy_call["content"][0]["text"]
+    assert "resultType" not in legacy_call
+    assert "ttlMs" not in legacy_call
+
+    modern_list = by_id[3]["result"]
+    assert modern_list["resultType"] == "complete"
+    assert modern_list["ttlMs"] == protocol.CACHE_TTL_MS_STATIC
+    assert modern_list["cacheScope"] == "private"
+
+    modern_call = by_id[4]["result"]
+    assert modern_call["resultType"] == "complete"
+    assert "stateless" in modern_call["content"][0]["text"]
+    assert modern_call["_meta"]["execution"]["status"] == "success"
+    assert modern_call["_meta"][protocol.META_SERVER_INFO]["version"] == __version__
