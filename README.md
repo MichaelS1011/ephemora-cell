@@ -270,6 +270,13 @@ code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
 
 Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
 
+**What you get, at a glance:**
+
+- **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
+- **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`: fuel consumed, wall time, security baseline), and `get-policy` reports the exact sandbox policy that enforced it.
+- **Deploy it anywhere.** The server is stateless (MCP `2026-07-28` revision): no session state, so you can restart, replace or load-balance it between calls without breaking a client — and hosts cache the tool list (`ttlMs`/`cacheScope`).
+- **Connect anything, today.** Claude Desktop, VS Code, Copilot, Codex and friends work over the standard handshake; modern clients skip it entirely. Both eras, one process, proven in CI against the official MCP SDK.
+
 What every Cell tool call carries:
 
 - **Isolation you can inspect.** The native `get-policy` tool returns the effective sandbox policy per tool — fuel budget, memory limit, preopens, network policy — computed from the same code path that enforces it, so the report and the enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured). Per-call evidence is measured side-by-side against the alternatives in the [comparison doc](docs/comparison-mcp-servers.md).
