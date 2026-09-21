@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+(none)
+
+## [1.0.4] - 2026-09-21
+
+### Fixed
+
+- `get-policy` now attests the filesystem surface a run will ACTUALLY
+  grant, closing the last policy/enforcement drift: the security
+  baseline previously reported only the profile's configured
+  `allow_dirs` (empty for the default profile), while every core-module
+  (Preview1) execution additionally preopens the ephemeral sandbox dir
+  as `/sandbox` — a caller diffing `get-policy` against an execution
+  record's `effective_preopens` saw two different filesystem stories.
+  `policy_for` now derives the preopen set from the same truth as the
+  run witness (configured grants + `/sandbox`; WASI 0.2 components
+  excluded, matching the component path, via `is_component_binary`).
+  A new `sandbox_lifecycle` field attests the execution topology
+  (`fresh-per-call` default vs. `pooled` fast path), so "fresh sandbox
+  per call" is a reported fact, not an inference from latency. Guarded
+  by `tests/test_policy_agreement.py`: the reported preopen set must
+  equal the executed run's `effective_preopens`.
+- Version is now single-sourced and CI-guarded: the released 1.0.3
+  wheel carried a `serverInfo`/`get-policy` version of 1.0.1 while
+  `--version` said 1.0.3 — three signals for one install.
+  `tests/test_policy_agreement.py` asserts `pyproject.toml` and the
+  runtime `__version__` never diverge again.
+
 ### Added
 
 - Second-platform evidence for the boundary and startup claims: the

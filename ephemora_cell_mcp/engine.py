@@ -20,7 +20,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from ephemora_cell import ExecutionReport, ExecutionResult, WASISandbox
+from ephemora_cell import (
+    ExecutionReport,
+    ExecutionResult,
+    WASISandbox,
+    is_component_binary,
+)
 from ephemora_cell.profiles import get as get_profile
 
 from .tool_registry import ToolSpec
@@ -135,14 +140,31 @@ class CellToolEngine:
 
         Derived from the same ``_config_for()`` path :meth:`execute` uses,
         so the reported policy and the enforced policy cannot drift.
-        Preopens are reported as CONFIGURED (``apply_config`` semantics
-        without a live run): only an actual execution attests the
-        directories that were really granted.
+        Preopens attest the filesystem surface execution will actually
+        grant: the profile's configured ``allow_dirs`` plus the sandbox
+        dir the sandbox layer preopens as ``/sandbox`` on every core
+        (Preview1) run — exactly what the run's ``effective_preopens``
+        records. WASI 0.2 components get no ``/sandbox`` mount, matching
+        the component execution path. Also attests the execution
+        topology: the default engine runs a fresh sandbox per call, the
+        pooled fast path reuses a cached engine.
         """
         config = self._config_for(spec)
         report = ExecutionReport(status="configured", exit_code=0, elapsed_ms=0.0)
         report.apply_config(config)
-        return report.security_baseline
+        baseline = report.security_baseline
+        try:
+            component = is_component_binary(spec.wasm_path)
+        except OSError:
+            # Unreadable module — execution fails before any preopen
+            # matters; report the core-module surface (the wider one).
+            component = False
+        preopens = list(baseline["preopens"])
+        if not component and "/sandbox" not in preopens:
+            preopens.append("/sandbox")
+        baseline["preopens"] = preopens
+        baseline["sandbox_lifecycle"] = "pooled" if self.pooled else "fresh-per-call"
+        return baseline
 
     def execute(self, spec: ToolSpec, params: Any) -> CellOutcome:
         """Run ``spec`` with ``params`` in the cell.
