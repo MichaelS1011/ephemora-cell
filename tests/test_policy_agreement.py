@@ -14,8 +14,8 @@ wheel once shipped a serverInfo saying 1.0.1).
 from __future__ import annotations
 
 import os
+import re
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -54,11 +54,19 @@ def test_policy_preopens_match_execution_grants():
 def test_policy_attests_sandbox_lifecycle():
     """get-policy states whether a call runs in a fresh sandbox or pooled."""
     assert _engine().policy_for(_echo_spec())["sandbox_lifecycle"] == "fresh-per-call"
-    assert _engine(pooled=True).policy_for(_echo_spec())["sandbox_lifecycle"] == "pooled"
+    assert (
+        _engine(pooled=True).policy_for(_echo_spec())["sandbox_lifecycle"] == "pooled"
+    )
 
 
 def test_package_version_is_single_sourced():
-    """pyproject version and the runtime __version__ must never diverge."""
+    """pyproject version and the runtime __version__ must never diverge.
+
+    Regex instead of tomllib: tomllib needs Python 3.11+, but the guard
+    must run on every version CI tests (3.10+).
+    """
     root = Path(__file__).resolve().parent.parent
-    pyproject = tomllib.loads((root / "pyproject.toml").read_text())
-    assert pyproject["project"]["version"] == __version__
+    text = (root / "pyproject.toml").read_text()
+    match = re.search(r'^version = "([^"]+)"', text, re.M)
+    assert match, "pyproject.toml has no version field"
+    assert match.group(1) == __version__
