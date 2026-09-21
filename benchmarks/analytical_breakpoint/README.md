@@ -48,6 +48,7 @@ controlled, and liftable beyond 4 GiB with memory64.
 
 - `analytical` profile: `memory64=True` + raised `max_memory_mb` (recommendation
   from Part B: 4.5–5 GiB virtual, sparsely touched); fuel/timeout remain
-  strongly bound; threads stay OFF (threads_roadmap phase 1, deliberate decoupling).
+  strongly bound; threads stay OFF (deliberate decoupling — any thread
+  enablement is a separate, security-reviewed decision).
 - Over-cap behavior is controlled (REFUSED, ms-fast) — no
   crash risk from mis-sized profiles.

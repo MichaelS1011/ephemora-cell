@@ -150,8 +150,8 @@ by default and treated as an attack surface**, not a feature:
   — without our flag the module compiles; instantiation would then still be
   blocked by wasmtime's separate `Config.shared_memory = False` default, a
   second host-side barrier.) `max_threads` > 1 in `WASIConfig` is currently
-  inert; enabling it is gated behind the security-reviewed phases in
-  [docs/threads_roadmap.md](docs/threads_roadmap.md).
+  inert; enabling it is gated behind a future, security-reviewed opt-in
+  phase with thread-aware fuel and wall-clock accounting.
 - If threads are ever enabled (opt-in only), shared memories are a covert
   channel and cross-instance memory state; fuel metering does not bound
   `memory.atomic.wait` spin/blocking, so the wall-clock timeout (epoch
@@ -165,9 +165,10 @@ by default and treated as an attack surface**, not a feature:
   (`wasi-threads` withdrawn Aug 2023; shared-everything-threads unimplemented
   in wasmtime 47; not part of WASI 0.3).
 
-The full threat model, concurrency audit, Wasm 3.0 feature posture, and phased
-roadmap (Phase 0 = disabled default, Phase 1 = reviewed opt-in, Phase 2 = full
-accounting) live in [docs/threads_roadmap.md](docs/threads_roadmap.md).
+The thread posture is phased: Phase 0 (shipped) = disabled by default;
+any opt-in phase requires its own security review covering the
+concurrency threat model, the Wasm 3.0 feature posture and thread-aware
+fuel/wall accounting before it can ship.
 
 ## Dependency & Upgrade Policy
 

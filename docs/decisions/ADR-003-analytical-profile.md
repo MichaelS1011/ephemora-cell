@@ -32,8 +32,9 @@ behavior unchanged):
 | `max_threads` | 1 | **1** | **deliberately unchanged** — threads stay OFF |
 | `allow_dirs` / `allow_env` | empty | **empty** | capabilities stay explicit; the profile grants nothing ambient |
 
-**Threads stay OFF** — enabling threads follows exclusively
-threads_roadmap phase 1 (its own security review and trigger). This profile extends
+**Threads stay OFF** — enabling threads is a future, separately
+security-reviewed decision with its own trigger; nothing in this profile
+changes that. This profile extends
 the memory space, not the concurrency domain: fuel + epoch wall +
 worker isolation cover memory64 guests with the same model as
 32-bit guests.

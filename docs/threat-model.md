@@ -65,8 +65,9 @@ whether guest code is *good* — only contained.
   never by the sandbox itself.
 
 Threads (shared memory + atomics) are treated as an attack surface and
-frozen off; the full concurrency threat analysis is
-[threads_roadmap.md](threads_roadmap.md).
+frozen off by default (shipped that way since 1.0.0); enabling them is a
+future, separately security-reviewed opt-in decision with its own
+concurrency threat analysis.
 
 ## How this model is verified
 
