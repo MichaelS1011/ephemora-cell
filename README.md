@@ -28,6 +28,24 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
   </a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.svg?label=CI" alt="CI">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/tree/main/tests">
+    <img src="https://img.shields.io/badge/tests-443-passing-brightgreen" alt="Tests">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/coverage-84%25-brightgreen" alt="Coverage">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/wasi-conformance.yml">
+    <img src="https://img.shields.io/badge/WASI--Preview1-conformant-green" alt="WASI conformance">
+  </a>
+  <a href="https://pypi.org/project/ephemora-cell/">
+    <img src="https://img.shields.io/pypi/dm/ephemora-cell" alt="PyPI downloads">
+  </a>
+</p>
+
 
 <p align="center">
   <picture>
