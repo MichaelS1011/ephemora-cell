@@ -10,9 +10,13 @@ on:
   schedule:
     - cron: "0 5 * * 1" # Mondays 05:00 UTC, after the weekly CI schedule
 
+permissions: read-all
+
 jobs:
   wasi-testsuite:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     continue-on-error: true
 
     steps:

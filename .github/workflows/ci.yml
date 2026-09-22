@@ -8,6 +8,8 @@ on:
   schedule:
     - cron: "0 3 * * 1"
 
+permissions: read-all
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -71,6 +73,8 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -147,6 +151,8 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

@@ -11,9 +11,13 @@ on:
   schedule:
     - cron: "0 7 * * 1" # Mondays 07:00 UTC, after the Linux benchmark job
 
+permissions: read-all
+
 jobs:
   core-spec:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     continue-on-error: true
 
     steps:

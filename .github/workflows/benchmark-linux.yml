@@ -12,9 +12,13 @@ on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC, after the conformance job
 
+permissions: read-all
+
 jobs:
   linux-docker-benchmark:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     continue-on-error: true
 
     steps:
@@ -64,6 +68,8 @@ jobs:
 
   gvisor-boundary:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     continue-on-error: true
 
     steps:
