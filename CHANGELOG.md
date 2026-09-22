@@ -55,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   previous hardcoded default ("macOS-M5") could stamp a foreign platform
   onto evidence measured elsewhere.
 
-- MCP `2026-07-28` stateless revision support in `ephemera-cell-mcp`
+- MCP `2026-07-28` stateless revision support in `ephemora-cell-mcp`
   (dual-era, per the specification's "Versioning and Compatibility"):
   the new mandatory `server/discover` method reports supported versions,
   capabilities and identity; requests carrying

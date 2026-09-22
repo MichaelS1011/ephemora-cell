@@ -1,0 +1,17 @@
+# Ephemora Cell — dev/integration tooling, hash-pinned via uv (single source).
+# Regenerate: uv pip compile requirements-dev.in -o requirements-dev.lock --generate-hashes
+# Mirrors pyproject [project.optional-dependencies].dev + [integration] plus the
+# tool-only packages the CI jobs install ad-hoc (black/ruff/mypy/bandit/pytest/...).
+# CI installs with: python -m pip install --require-hashes --no-deps -r requirements-dev.lock
+pytest<9
+pytest-cov
+black>=24
+ruff>=0.5
+bandit>=1.7
+mypy>=1.8
+cryptography>=42
+pip-audit
+cyclonedx-bom
+colorama
+requests
+mcp

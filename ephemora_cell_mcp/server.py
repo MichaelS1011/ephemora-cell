@@ -1,4 +1,4 @@
-"""ephemera-cell-mcp Server — MCP stdio host whose tools are Cell WASM modules.
+"""ephemora-cell-mcp Server — MCP stdio host whose tools are Cell WASM modules.
 
 Protocol surface (dependency-free JSON-RPC 2.0 over NDJSON lines), dual-era
 per the 2026-07-28 revision ("Versioning and Compatibility"):

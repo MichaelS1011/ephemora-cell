@@ -9,7 +9,7 @@ install path are literature rows in the docs table, labeled there — never
 presented as measured here.
 
 Measured candidates:
-  - ephemora-cell       fresh venv, `pip install ephemera-cell` (PyPI)
+  - ephemora-cell       fresh venv, `pip install ephemora-cell` (PyPI)
   - official MCP filesystem server   temp dir, `npm install` (pinned)
   - docker images       python:3.12-slim, node:24-alpine (local image sizes)
 
