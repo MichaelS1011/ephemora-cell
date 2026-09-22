@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: hello
         uses: ./action
         with:
@@ -32,7 +32,7 @@ jobs:
   enforcement:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # fuel_bomb.wasm is an infinite loop — it exhausts ANY budget on ANY
       # platform. (hello.wasm is NOT suitable: fuel costs are not cross-
       # platform deterministic — the same module burns 16397 units on
