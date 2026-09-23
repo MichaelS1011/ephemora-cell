@@ -282,6 +282,8 @@ python benchmarks/verify_8_vectors.py       # Ephemora Cell   -> 8/8 blocked
 
 [![MCP Registry](https://img.shields.io/badge/MCP-Registry-blue)](https://registry.modelcontextprotocol.io/v0/servers?search=ephemora-cell-mcp) *listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI).*
 
+[![Ephemora Cell MCP server — quality and maintenance grade on Glama](https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg)](https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell) *graded on Glama: license A, quality A, maintenance B (discovery score 75%). Grades are Glama's live classifier, rendered server-side.*
+
 Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signable execution records:
 
 ```bash
