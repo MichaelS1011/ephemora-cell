@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 (none)
 
+## [1.0.4.1] - 2026-09-23
+
+### Fixed
+
+- MCP `server/discover` now reports the same registry freshness as
+  `tools/list` via a shared `Server._registry_ttl_ms`. Previously
+  `server/discover` hard-coded the 1 h static TTL while advertising
+  `listChanged`; a host that cached that discover result for the advertised
+  hour would ignore `notifications/tools/list_changed` for a full hour after a
+  governed install (`--tool-requests-dir`, ADR-006) and keep issuing stale
+  tool schemas against the live server — schema drift with no invalidation
+  path. Under governed loading both endpoints now drop to 60 s together.
+  Stdio in-place updates remain drift-free by construction (process lifetime =
+  connection lifetime, a restart forces a fresh `tools/list`); `docs/mcp.md`
+  adds an "Updating a running server (schema drift)" section naming `ttlMs` as
+  a client hint and the three cases honestly. Guarded by
+  `tests/test_mcp_2026_07_28.py::test_discover_ttl_tracks_governed_registry`.
+
 ## [1.0.4] - 2026-09-21
 
 ### Fixed

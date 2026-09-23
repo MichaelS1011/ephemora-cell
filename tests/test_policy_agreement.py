@@ -64,12 +64,30 @@ def test_package_version_is_single_sourced():
 
     Regex instead of tomllib: tomllib needs Python 3.11+, but the guard
     must run on every version CI tests (3.10+).
+
+    The core package (ephemora_cell/__init__.py) carries its OWN __version__
+    literal that feeds ``ephemora-cell --version``. The 1.0.4 release bumped
+    pyproject, the MCP _version and server.json but left this file on 1.0.3 —
+    an install whose CLI reported a different release than the wheel. The
+    earlier version of this guard checked pyproject against the MCP runtime
+    version only, so the core file could drift silently: it is asserted here
+    against the same single source of truth.
     """
     root = Path(__file__).resolve().parent.parent
     text = (root / "pyproject.toml").read_text()
     match = re.search(r'^version = "([^"]+)"', text, re.M)
     assert match, "pyproject.toml has no version field"
-    assert match.group(1) == __version__
+    release = match.group(1)
+    assert (
+        release == __version__
+    ), f"MCP runtime __version__ {__version__} != pyproject {release}"
+    core = (root / "ephemora_cell" / "__init__.py").read_text()
+    core_match = re.search(r'^__version__ = "([^"]+)"', core, re.M)
+    assert core_match, "ephemora_cell/__init__.py has no __version__"
+    assert core_match.group(1) == release, (
+        f"core ephemora_cell/__init__.py __version__ {core_match.group(1)} "
+        f"!= pyproject {release} (CLI --version would lie)"
+    )
 
 
 def test_server_json_version_tracks_release():
