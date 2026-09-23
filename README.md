@@ -32,11 +32,20 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
-  <a href="https://github.com/MichaelS1011/ephemora-cell/tree/main/tests">
-    <img src="https://img.shields.io/badge/tests-443_passing-brightgreen" alt="Tests">
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/tests-440_passing-brightgreen" alt="Tests (440 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/coverage-84%25-brightgreen" alt="Coverage">
+    <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/types-mypy%20clean-brightgreen" alt="Type-checked with mypy (22 files, 0 errors)">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/badge/format-black%20%2B%20ruff-green" alt="Formatted with black, linted with ruff">
+  </a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/security/code-scanning">
+    <img src="https://img.shields.io/badge/security-fuzz%20%2B%20cve%20%2B%20sast-brightgreen" alt="OSS-Fuzz + pip-audit CVE + bandit SAST + OSSF Scorecard run in CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/wasi-conformance.yml">
     <img src="https://img.shields.io/badge/WASI--Preview1-conformant-green" alt="WASI conformance">
