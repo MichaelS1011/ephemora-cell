@@ -14,17 +14,15 @@ Four scenes, every string grounded in the real 2026-09-14 conformance work:
                          assumption drifts -> reproducible, independently
                          testable, continuously verified.
 
-Reuses the frame/palette machinery from make_gif.py verbatim (imported, not
-duplicated). Deterministic. Requires: Pillow (.venv), ffmpeg on PATH.
+Reuses the shared frame/palette machinery (terminal_gif.py, imported — not
+duplicated); type_speed 6 keeps the cursor cadence make_conformance always
+inherited from make_gif. Deterministic. Requires: Pillow (.venv), ffmpeg on PATH.
 """
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
-from make_gif import (
-    W, H, MARGIN, BG, TITLEBAR, TEXT, MUTED, GREEN, CYAN, RED,
-    PROMPT, BORDER, FONT, TITLE_FONT, LH, frame,
-)
+from terminal_gif import CYAN, GREEN, MUTED, PROMPT, RED, frame
 
 HERE = Path(__file__).parent
 OUT = HERE / "conformance.gif"
@@ -70,15 +68,15 @@ def build_frames():
     history = []
     for cmd, outs in SCENES:
         for t in range(0, len(cmd) + 1, 2):
-            frames.append(frame(history, cmd, t, [], 0))
-        frames += [frame(history, cmd, len(cmd), [], 0)] * PAUSE_CMD
+            frames.append(frame(history, cmd, t, [], 0, type_speed=6))
+        frames += [frame(history, cmd, len(cmd), [], 0, type_speed=6)] * PAUSE_CMD
         for r in range(1, len(outs) + 1):
             hold = PAUSE_OUT * 3 if r == len(outs) else PAUSE_OUT
-            frames += [frame(history, cmd, len(cmd), outs, r)] * hold
-        frames += [frame(history, cmd, len(cmd), outs, len(outs))] * 10
+            frames += [frame(history, cmd, len(cmd), outs, r, type_speed=6)] * hold
+        frames += [frame(history, cmd, len(cmd), outs, len(outs), type_speed=6)] * 10
         history.append((cmd, outs))
         history = history[-2:]  # window so long scenes still fit after scroll
-    frames += [frame(history, None, 0, [], 0)] * HOLD_END
+    frames += [frame(history, None, 0, [], 0, type_speed=6)] * HOLD_END
     return frames
 
 
