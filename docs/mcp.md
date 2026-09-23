@@ -120,6 +120,34 @@ The last one returns:
 Both eras are served concurrently on the same stdio process; a client
 picks its era by how it opens (`server/discover` probe or `initialize`).
 
+#### Updating a running server (schema drift)
+
+`ttlMs` is a **freshness hint** from the server; caching for shorter or not
+at all is the host's choice and always spec-legal. The invariant we keep is
+that both endpoints describing the registry — `server/discover` (which
+advertises `listChanged`) and `tools/list` — report the **same** `ttlMs`
+(`Server._registry_ttl_ms`): 3,600,000 ms static, 60,000 ms once governed
+loading can mutate the registry mid-process (ADR-006). Three facts, honestly
+labelled:
+
+- A **static `--tools-dir`** registry cannot change during a process
+  lifetime, so a long TTL is the truthful value, not an optimistic one — the
+  schema cannot drift while a host holds it.
+- An **in-place update** (new `tools/` content or changed sidecar
+  signatures) is an **operator restart**. Under the shipped stdio transport
+  the process lifetime is the connection lifetime, so a restart forces a
+  fresh `tools/list`; the stale-schema window collapses to zero. This is why
+  statelessness is load-bearing, not cosmetic.
+- A **governed install** (`--tool-requests-dir`) is the one path where the
+  registry genuinely moves under a live client. There the server emits
+  `notifications/tools/list_changed` and both endpoints drop to 60 s, so the
+  host refetches instead of the operator force-disconnecting clients.
+
+A long-lived server behind a reconnecting transport with a governed registry
+and a host that ignores `ttlMs` is the residual case — it inherits whatever
+cache lifetime that host picked. The server can recommend freshness; it
+cannot enforce a client's cache.
+
 Errors, cleanly separated:
 
 - **Unknown tool** → JSON-RPC error `-32602` (invalid params), message `unknown tool: <name>`.

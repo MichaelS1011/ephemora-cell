@@ -304,6 +304,23 @@ class Server:
                 f"_meta.{protocol.META_CLIENT_CAPABILITIES}"
             )
 
+    @property
+    def _registry_ttl_ms(self) -> int:
+        """Freshness hint for cacheable results that describe the registry.
+
+        One source of truth for every endpoint that advertises tool metadata
+        (``tools/list`` and ``server/discover``). A static registry cannot
+        change during a process lifetime, so a long TTL is the honest value.
+        A governed registry can (ADR-006), so both endpoints must shorten it
+        together — a host that cached ``listChanged: False`` for an hour would
+        otherwise never act on ``notifications/tools/list_changed``.
+        """
+        return (
+            protocol.CACHE_TTL_MS_GOVERNED
+            if self.tool_requests_dir is not None
+            else protocol.CACHE_TTL_MS_STATIC
+        )
+
     def _modernize_result(self, method: str, result: Any) -> Any:
         """Apply the 2026-07-28 result envelope to a modern-era result.
 
@@ -323,17 +340,9 @@ class Server:
         )
         enriched["_meta"] = merged
         if method == "tools/list":
-            # CacheableResult (2026-07-28): list endpoints carry a freshness
-            # hint. A governed registry can change mid-process (ADR-006
-            # listChanged), so it gets the shorter TTL.
-            enriched.setdefault(
-                "ttlMs",
-                (
-                    protocol.CACHE_TTL_MS_GOVERNED
-                    if self.tool_requests_dir is not None
-                    else protocol.CACHE_TTL_MS_STATIC
-                ),
-            )
+            # CacheableResult (2026-07-28): list endpoints carry the
+            # registry's freshness hint.
+            enriched.setdefault("ttlMs", self._registry_ttl_ms)
             enriched.setdefault("cacheScope", protocol.CACHE_SCOPE)
         return enriched
 
@@ -361,7 +370,7 @@ class Server:
                 '"get-policy" tool reports the enforced sandbox policy — '
                 '"Verified. Not claimed."'
             ),
-            "ttlMs": protocol.CACHE_TTL_MS_STATIC,
+            "ttlMs": self._registry_ttl_ms,
             "cacheScope": protocol.CACHE_SCOPE,
             "_meta": {
                 protocol.META_SERVER_INFO: {

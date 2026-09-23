@@ -122,6 +122,26 @@ def test_discover_advertises_listchanged_when_governed(server_with, tmp_path):
     assert response["result"]["capabilities"]["tools"]["listChanged"] is True
 
 
+def test_discover_ttl_tracks_governed_registry(server_with, tmp_path):
+    """Regression: a cached DiscoverResult must never outlive listChanged.
+
+    Discover advertises the listChanged bit, so its ttlMs has to follow the
+    same registry freshness as tools/list. A host caching the static hour here
+    would ignore notifications/tools/list_changed for a full hour after a
+    governed install (schema drift with no invalidation path).
+    """
+    transport = MemoryTransport(
+        [{"jsonrpc": "2.0", "id": 1, "method": "server/discover"}]
+    )
+    server = Server(
+        tools_dir=tmp_path,
+        transport=transport,
+        tool_requests_dir=tmp_path / "requests",
+    )
+    (response,) = _reply(server, transport)
+    assert response["result"]["ttlMs"] == protocol.CACHE_TTL_MS_GOVERNED
+
+
 # --- stateless tools/list ---------------------------------------------
 
 
