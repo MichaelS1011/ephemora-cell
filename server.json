@@ -3,7 +3,7 @@
   "name": "io.github.MichaelS1011/ephemora-cell-mcp",
   "title": "Ephemora Cell MCP — WASM Sandbox",
   "description": "WASM sandbox for MCP tools. WASI-isolated, fuel/memory/I/O capped, attested.",
-  "version": "1.0.4.1",
+  "version": "1.0.4.2",
   "repository": {
     "url": "https://github.com/MichaelS1011/ephemora-cell",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "ephemora-cell",
-      "version": "1.0.4.1",
+      "version": "1.0.4.2",
       "transport": {
         "type": "stdio"
       }

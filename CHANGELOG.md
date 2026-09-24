@@ -8,6 +8,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 (none)
 
+## [1.0.4.2] - 2026-09-24
+
+### Security
+
+- **Fuel-determinism hardening for GHSA-m63x-6p34-q65x** (wasmtime fuel
+  amplification via `call_ref`/`try_table`, CVSS 5.7): the Cell engine now
+  enforces `wasm_function_references=False`, `wasm_exceptions=False`,
+  `wasm_gc=False` and `wasm_tail_call=False` at every Config construction
+  site (`wasi_runtime`, `engine_pool`, `wasi_02`, conformance harness) —
+  guest modules using the affected opcodes fail to compile (fail-closed,
+  empirically verified on the pinned wasmtime 47.0.1). Breaking for guests
+  that legitimately need exceptions/GC; the upgrade path to wasmtime
+  48.0.3/49.0.1 (where the engine fix lands) is tracked by
+  `scripts/check_wasmtime_patch.py` and re-opens those proposals for
+  re-evaluation.
+- **`security_baseline` attests the enforced posture**: new keys
+  `function_references_enabled`, `exceptions_enabled`, `gc_enabled`,
+  `tail_calls_enabled` (all `false`) — a signed record cannot claim
+  features the engine would reject. Exposure statement for both September
+  2026 advisories (incl. CVE-2026-47261, filesystem escape) in SECURITY.md.
+- `scripts/check_wasmtime_patch.py` added: watches PyPI for the pending
+  patch wheels (48.0.3/49.0.1/47.0.4; all absent as of this release) and
+  signals when the full engine upgrade (security plan milestone M2) opens.
+
+### Fixed
+
+- **Signed-tools mode now enforces the module binding at load** (ADR-006
+  register-time re-hash). `ToolRegistry._build_spec` previously verified
+  only the manifest signature; a `.wasm` swapped after signing — even a
+  fully valid different module (MCPoison class) — was registered and
+  executed. Sidecars without `wasm_sha256` are now rejected in
+  `--require-signed-tools` mode as well (same rule the governed-load path
+  always applied). Found in the 2026-09-24 full-functional audit; verified
+  fixed on macOS arm64 and DGX Spark aarch64.
+- **MCP stdio transport no longer drops the message after an oversized
+  line.** The old drain loop read the line FOLLOWING an oversized one
+  (text-stream `readline()` had already consumed the whole oversized line)
+  and re-parsed the transport's own error string as input, so a client got
+  a generic `-32600 invalid request` instead of the transport-limit error
+  and silently lost a request. The limit reply is now sent immediately and
+  reading continues at the next message boundary.
+- `ephemora-cell run --stdin <path>` with an unreadable file prints a clean
+  one-line error (exit 1) instead of a `FileNotFoundError` traceback.
+- `_HybridExecutionResult` (the unified `run_isolated()` return) now
+  supports `dict(result)`, `len(result)` and `**result` unpacking via
+  `keys()`/`__iter__`/`__len__` — dict-style access no longer crashes on
+  the sequence protocol.
+
+### Added
+
+- Governed loading works on the shipped stdio server: with
+  `--tool-requests-dir` configured, the serve loop evaluates dropped
+  requests before each incoming message (install +
+  `notifications/tools/list_changed` + request consumed). Rejections are
+  reported on stderr ("never silent", ADR-006) and the request stays on
+  disk. Previously only embedding hosts could call
+  `Server.process_tool_requests()`.
+- Container hygiene: `.dockerignore` keeps dev environments, git history
+  and local caches (`.conformance_cache` alone is ~537 MB) out of the
+  image — image size 1.45 GB → 271 MB — and the `Dockerfile` runs as a
+  non-root user (`uid=1000 cell`).
+
+### Changed
+
+- CI installs `pytest<9` in every job (matching the `pyproject.toml`
+  dev-extra pin and its Python 3.11 rationale) instead of unversioned
+  `pytest`, which drifted to pytest 9.
+- `pytest` collects only `tests/` (`testpaths` no longer lists
+  `benchmarks/`, which holds evidence scripts, not pytest tests).
+- `docs/performance.md` documents that fuel counts are per-platform with
+  measured cross-platform examples (hello.wasm: 16 397 on macOS arm64 vs.
+  12 on DGX GB10; spread 0 per platform).
+
 ## [1.0.4.1] - 2026-09-23
 
 ### Fixed
