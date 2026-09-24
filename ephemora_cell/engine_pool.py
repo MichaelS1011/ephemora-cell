@@ -143,6 +143,13 @@ class EnginePool:
         engine_config.wasm_threads = False
         engine_config.wasm_memory64 = config.memory64
         engine_config.wasm_multi_memory = False
+        # GHSA-m63x-6p34-q65x: call_ref/try_table can discard callee fuel;
+        # deterministic fuel accounting requires these proposals off. GC and
+        # tail-calls are not needed by any Cell workload; enforced like threads.
+        engine_config.wasm_function_references = False
+        engine_config.wasm_exceptions = False
+        engine_config.wasm_gc = False
+        engine_config.wasm_tail_call = False
         return _EngineEntry(Engine(engine_config))
 
     def engine_for(self, config: WASIConfig) -> Engine:

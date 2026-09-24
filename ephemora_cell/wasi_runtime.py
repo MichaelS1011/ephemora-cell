@@ -524,6 +524,14 @@ class WASISandbox:
                 # is a per-config opt-in (WASIConfig.memory64).
                 engine_config.wasm_memory64 = self._config.memory64
                 engine_config.wasm_multi_memory = False
+                # GHSA-m63x-6p34-q65x: call_ref (function-references) and
+                # try_table (exceptions) can discard callee fuel — deterministic
+                # fuel accounting requires these proposals off. GC and tail-calls
+                # are not needed by any Cell workload; enforced like threads.
+                engine_config.wasm_function_references = False
+                engine_config.wasm_exceptions = False
+                engine_config.wasm_gc = False
+                engine_config.wasm_tail_call = False
                 engine = Engine(engine_config)
 
             if pool is not None:

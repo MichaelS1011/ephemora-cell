@@ -38,6 +38,12 @@ def _default_security_baseline() -> dict[str, Any]:
         "threads_enabled": False,
         "memory64": False,
         "multi_memory": False,
+        # GHSA-m63x-6p34-q65x: enforced-off proposals — the engine rejects
+        # call_ref/try_table modules, so fuel accounting stays deterministic.
+        "function_references_enabled": False,
+        "exceptions_enabled": False,
+        "gc_enabled": False,
+        "tail_calls_enabled": False,
         "preopens": [],
     }
 
@@ -109,6 +115,12 @@ class ExecutionReport:
         baseline["memory64"] = bool(config.memory64)
         baseline["multi_memory"] = False
         baseline["gc_heap_mb"] = config.max_gc_heap_mb
+        # GHSA-m63x-6p34-q65x hardening — enforced engine posture, attested
+        # so a report cannot claim features the engine would reject.
+        baseline["function_references_enabled"] = False
+        baseline["exceptions_enabled"] = False
+        baseline["gc_enabled"] = False
+        baseline["tail_calls_enabled"] = False
         # ADR-002 I/O budgets — attested alongside fuel/memory so a report
         # cannot claim the wall while the run carried a different one.
         baseline["io_budget_bytes"] = config.io_budget_bytes

@@ -209,6 +209,34 @@ execution record), CI watches RUSTSEC/bytecodealliance alongside pip-audit, and
 `run_isolated()` is the mitigation layer for untrusted guests (disposable worker
 process, hard kill).
 
+**September 2026 advisories — exposure statement (2026-09-24):** two wasmtime
+advisories affect the pinned 47.0.1 line:
+
+- **GHSA-m63x-6p34-q65x** (fuel amplification via `call_ref`/`try_table`,
+  CVSS 5.7): with fuel metering on (Cell always enables it), a guest using
+  these opcodes can run exponentially longer than its budget on wasmtime
+  47.0.x. **Cell's exposure:** real — the proposals ride engine defaults and
+  every Cell run meters fuel. **Mitigation shipped in v1.0.4.2:** the engine
+  config enforces `wasm_function_references=False` and `wasm_exceptions=False`
+  (plus `wasm_gc=False`, `wasm_tail_call=False`) at every Config construction
+  site, so guest modules using the affected opcodes fail to compile
+  (fail-closed; empirically verified) and the posture is attested in
+  `security_baseline` (`function_references_enabled`, `exceptions_enabled`,
+  `gc_enabled`, `tail_calls_enabled`). Guests that legitimately need
+  exceptions/GC cannot run until the engine upgrade — this is the documented
+  trade-off for keeping "deterministic fuel accounting" honest. Full fix:
+  upgrade to wasmtime 48.0.3/49.0.1 (Python wheels pending on PyPI — tracked
+  by `scripts/check_wasmtime_patch.py`), then re-qualify fuel determinism.
+- **GHSA-vqjp-4c8c-hfgg** (CVE-2026-47261, CVSS 7.5, wasmtime-wasi filesystem
+  escape via trailing-slash/symlink paths in `path_open`): **Cell's exposure:**
+  every Preview1 run grants the `/sandbox` scratch preopen by design, so the
+  affected code path is reachable even in the default posture; operator-granted
+  `allow_dirs` widen the reachable scope. No config-level workaround exists
+  upstream. Tracked as the engine-upgrade gate (47.0.4+ or 48.0.3+ once wheels
+  publish); the preopen test matrix will gain trailing-slash/hardlink/rename/
+  TRUNCATE vectors with positive controls as part of that upgrade
+  (SECURITY_ADVISORY_PLAN_2026-09-24.md, milestones M2–M4).
+
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
 `benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi
 conformance job — before security claims are re-attested. CI watch *detects* new

@@ -68,7 +68,16 @@ TRIVIAL_WAT = b"""
 """
 
 # Flags every engine must freeze, and the opt-in that mirrors the config.
-_FROZEN_FLAGS = ("wasm_threads", "wasm_multi_memory")
+_FROZEN_FLAGS = (
+    "wasm_threads",
+    "wasm_multi_memory",
+    # GHSA-m63x-6p34-q65x hardening: call_ref/try_table can discard callee
+    # fuel — the proposals stay enforced-off so fuel accounting is honest.
+    "wasm_function_references",
+    "wasm_exceptions",
+    "wasm_gc",
+    "wasm_tail_call",
+)
 _OPTIN_FLAGS = ("wasm_memory64",)
 
 
@@ -180,6 +189,13 @@ class TestEngineConfigFreeze:
             assert cfg.tracked.get("wasm_threads") is False
             assert cfg.tracked.get("wasm_multi_memory") is False
             assert cfg.tracked.get("wasm_memory64") is config.memory64
+            for flag in (
+                "wasm_function_references",
+                "wasm_exceptions",
+                "wasm_gc",
+                "wasm_tail_call",
+            ):
+                assert cfg.tracked.get(flag) is False, flag
 
     def test_wasi_sandbox_inline_engine_frozen(self, monkeypatch, trivial_wasm):
         """WASISandbox non-pooled engine freezes threads + mirrors memory64."""

@@ -56,6 +56,12 @@ ENGINE_KWARGS = dict(
     wasm_threads=False,  # security baseline: no threads (P1 #11)
     wasm_memory64=False,  # opt-in per run (WASIConfig.memory64)
     wasm_multi_memory=False,  # frozen baseline (P1/K2)
+    # GHSA-m63x-6p34-q65x: call_ref/try_table can discard callee fuel;
+    # conformance runs mirror the shipped engine's enforced-off posture.
+    wasm_function_references=False,
+    wasm_exceptions=False,
+    wasm_gc=False,
+    wasm_tail_call=False,
 )
 
 
@@ -65,6 +71,10 @@ def _engine() -> wasmtime.Engine:
     cfg.wasm_threads = ENGINE_KWARGS["wasm_threads"]
     cfg.wasm_memory64 = ENGINE_KWARGS["wasm_memory64"]
     cfg.wasm_multi_memory = ENGINE_KWARGS["wasm_multi_memory"]
+    cfg.wasm_function_references = ENGINE_KWARGS["wasm_function_references"]
+    cfg.wasm_exceptions = ENGINE_KWARGS["wasm_exceptions"]
+    cfg.wasm_gc = ENGINE_KWARGS["wasm_gc"]
+    cfg.wasm_tail_call = ENGINE_KWARGS["wasm_tail_call"]
     return wasmtime.Engine(cfg)
 
 
