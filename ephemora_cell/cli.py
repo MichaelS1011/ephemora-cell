@@ -100,8 +100,16 @@ def _capture_cli_stdin(args) -> str | None:
     if args.stdin:
         if args.stdin == "-":
             return sys.stdin.read()
-        with open(args.stdin) as f:
-            return f.read()
+        try:
+            with open(args.stdin) as f:
+                return f.read()
+        except OSError as e:
+            print(
+                f"error: cannot read --stdin file {args.stdin!r}: "
+                f"{e.strerror or e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     if not sys.stdin.isatty():
         return sys.stdin.read()
     return None

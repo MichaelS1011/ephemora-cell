@@ -66,7 +66,8 @@ ephemora-cell-mcp = "ephemora_cell_mcp.__main__:main"
 # integration/ pulls the OpenAI agents SDK (optional, broken in some
 # venvs). Scope the default run to the core suite so `pytest` stays green
 # for an open-source consumer. Run integration/ explicitly when needed.
-testpaths = ["tests", "benchmarks"]
+# (benchmarks/ holds evidence scripts, not pytest tests — never collected.)
+testpaths = ["tests"]
 addopts = "--cov=ephemora_cell --cov=ephemora_cell_mcp --cov-report=term-missing"
 
 [tool.black]

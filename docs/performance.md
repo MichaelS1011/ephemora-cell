@@ -116,6 +116,26 @@ measurably tighter than the pooled 50 ms ticks); the subprocess wall is the
 coarsest stop. Cited anchor for the fuel tax — 28–40% (wasmtime#4109) — is
 corroborated by our own 35.2%: measured, not assumed.
 
+## Fuel is per-platform — never compare fuel across hosts (2026-09-24)
+
+Fuel counts are deterministic **per platform** (`fuel_spread: 0` on every
+host measured), but the counts themselves are platform-bound. Same modules,
+same wasmtime 47.0.1, macOS arm64 vs DGX Spark GB10 (aarch64-Linux),
+2026-09-24 Vollabnahme run:
+
+| Module | macOS arm64 | DGX GB10 aarch64 |
+|---|---|---|
+| `examples/hello.wasm` | 16 397 | 12 |
+| bundled `echo` tool (via MCP) | 20 564 | 3 727 |
+| `determinism_probe` workload | 20 891 (spread 0) | 4 506 (spread 0) |
+
+Repro: `python benchmarks/determinism_probe.py` on each host. Practical
+consequence for integrators: a fuel budget tuned on one machine does not
+transfer 1:1 to another — pin budgets per deployment platform (or budget in
+wall-clock/epoch terms and treat fuel as the platform-local deterministic
+stop). Never present cross-platform fuel numbers in the same column as a
+billing or quota claim.
+
 ## Linux-native Docker row (CI evidence job)
 
 The macOS Docker numbers above run inside the Docker Desktop VM (caveat

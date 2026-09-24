@@ -29,7 +29,10 @@ docs/internal/
 # Local audit drafts + probe dirs (never publish)
 *_AUDIT_*.md
 RELEASE_FIXPLAN.md
+TEST_FINDINGS_FIXPLAN_*.md
+SECURITY_ADVISORY_PLAN_*.md
 tmp_probe_dir/
+.hermes_probe.py
 *.log
 
 # Local tooling & founder materials — never publish

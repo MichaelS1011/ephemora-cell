@@ -65,6 +65,25 @@ class _HybridExecutionResult(ExecutionResult):
     def get(self, key, default=None):
         return getattr(self, key, default)
 
+    def keys(self):
+        """Dict-style keys: the ExecutionResult fields plus the extras the
+        isolated worker report may carry, so ``dict(result)`` works."""
+        import dataclasses
+
+        names = {f.name for f in dataclasses.fields(self)}
+        names.update(
+            k
+            for k in ("baseline_ms", "security_baseline", "io_cpu_used_seconds")
+            if hasattr(self, k)
+        )
+        return names
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __len__(self):
+        return len(self.keys())
+
 
 def run_isolated(
     wasm_path: str,

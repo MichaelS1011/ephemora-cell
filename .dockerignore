@@ -1,0 +1,35 @@
+# Keep the build context lean: dev environments, git history and local
+# artifacts have no place in the image (and bloat it by ~700 MB+).
+.git
+.venv
+venv
+.zcode
+.hermes
+.hermes_probe.py
+.ruff_cache
+.mypy_cache
+.conformance_cache
+.pytest_cache
+.coverage
+coverage.xml
+__pycache__
+*.pyc
+*.egg-info
+.DS_Store
+.video_agent
+.tmp_probe
+.github
+build
+dist
+tmp_probe_dir
+tests
+benchmarks
+conformance
+docs
+assets
+examples
+integration
+scripts
+action
+# Rust build caches (bundled tools ship prebuilt under ephemora_cell_mcp/tools/)
+ephemora_cell_mcp/tools_src/*/target
