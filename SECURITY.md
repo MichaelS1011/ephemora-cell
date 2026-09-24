@@ -129,6 +129,46 @@ Ephemora Cell relies on:
 - **Resource Limits:** Fuel metering (CPU), memory caps (128MB default), wall-clock timeout (30s default)
 - **Import Blocking:** `fd_psync`/`fd_sync` imports rejected at the WASI layer
 
+### Proposal policy — set, not inherited (2026-09-25)
+
+wasmtime 47 ships several proposals **enabled by engine default** (Wasm GC,
+exceptions, function-references — per the Bytecode Alliance's July 2026
+default-on rollout). That default-on set is exactly where the 2025/26
+divergence incidents cluster: fuel accounting dropped across
+`call_ref`/`try_table` calls (GHSA-m63x-6p34-q65x), the Cranelift aarch64
+heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly
+`try_table`/JSTag handling (CVE-2026-26956, secondary sources). Cell's rule:
+
+**Every proposal the shipped WASI surface does not need is enforced `False`
+in the engine config at all construction sites** (`wasi_runtime`,
+`engine_pool`, `wasi_02`, conformance harness) — compile-probe-tested per
+release (`tests/test_proposal_policy.py`), attested in `security_baseline`
+(`*_enabled` keys), and structurally guarded against silent default drift
+(`tests/test_threads_baseline.py` SpyConfig assertions).
+
+| Proposal | Posture | Rationale |
+|---|---|---|
+| `wasm_threads` | **off, frozen** | shared memories = covert channel + unsupported with `Store` limits (below) |
+| `wasm_multi_memory` | **off, frozen** | no Cell workload needs it; baseline freeze (P1/K2) |
+| `wasm_function_references` | **off, enforced** | `call_ref` drops callee fuel (GHSA-m63x-6p34-q65x) |
+| `wasm_exceptions` | **off, enforced** | `try_table` catch drops fuel (same advisory); vm2-class escape surface |
+| `wasm_gc` | **off, enforced** | not needed; GC heap not byte-bounded in the binding |
+| `wasm_tail_call` | **off, enforced** | not needed by any Cell workload |
+| `wasm_stack_switching` | **off, enforced** | WASI 0.3 native-async base — gate-off until the 0.3 surface is qualified (see [docs/recipes.md](docs/recipes.md#wasi-02-components)) |
+| `wasm_memory64` | **opt-in** | per-config (`WASIConfig.memory64`), own pool fingerprint, `Store` limits still bind |
+| `wasm_component_model` | **on** | required by the WASI 0.2 component path |
+| SIMD / bulk-memory / multi-value / sign-extension / reference-types | **on** | spec-core; the wasip1/wasip2 surfaces and ordinary toolchain output build on them — compile-probe-tested as accepted |
+
+Not exposed by the Python binding (documented posture, unreachable either
+way): the **pooling allocator** (`allocation_strategy` has no binding — the
+CVE-2026-34988 cache-pressure-residue class cannot be reached from Cell;
+`memory_guard_size` is still set explicitly at every site, and
+`tests/test_memory_hygiene.py` proves sequential instances observe only
+zeroed memory), **Spectre mitigations** (engine default, no binding toggle —
+always on), and **Pulley/Winch backends** (`Config.strategy` accepts only
+auto/cranelift; "never Winch" by policy; `Engine.is_pulley()` asserted
+`False` in `tests/test_surface_audit.py`).
+
 ### Threading
 
 Shared-everything threads (shared memory + atomics + WASI threads) are **disabled
@@ -207,7 +247,22 @@ a real in-process risk. Cell's answer is layered: security claims are bound to t
 tested engine version (`requirements.txt` pin, `wasmtime_version` attested in every
 execution record), CI watches RUSTSEC/bytecodealliance alongside pip-audit, and
 `run_isolated()` is the mitigation layer for untrusted guests (disposable worker
-process, hard kill).
+process, hard kill). Confirmation artifacts (2026-09-25): a version-floor
+test pins the engine at `>= 43.0.1` so the "contains the fixes" claim
+cannot silently regress; the memory64 opt-in and the unselectable Winch
+backend are asserted alongside (proposal-policy table above).
+- **GHSA-x84v-gj2h-g759** (WASIp3 streams, CVSS 6.9 — added 2026-09-25):
+  guest-controlled-size host heap allocation when writing to WASIp3
+  streams; affects wasmtime 46.0.0–46.0.2 and 47.0.0–47.0.3, patched in
+  47.0.4 (Python wheel pending on PyPI — tracked by
+  `scripts/check_wasmtime_patch.py`). **Cell's exposure: the surface is
+  structurally unreachable** — WASIp3 worlds cannot be linked through the
+  Python binding (component linker exposes only `add_wasip2`/
+  `add_wasi_http`, asserted in `tests/test_surface_audit.py`), and the
+  async base is gated off (`wasm_stack_switching=False`). The full fix
+  lands with the M2 engine upgrade; the WASI 0.3 position stays gate-off
+  until that line ships and the 0.3 surface gets its own budget
+  qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
 
 **September 2026 advisories — exposure statement (2026-09-24):** two wasmtime
 advisories affect the pinned 47.0.1 line:

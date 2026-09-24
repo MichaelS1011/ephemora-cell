@@ -195,6 +195,8 @@ Agent-generated code is different from application code: it can be buggy, comput
 
 **Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on, neither the guest nor the caller can switch them off). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
 
+The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense, not conservatism: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — is one repeating pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee.
+
 | Resource | Default |
 |---|---|
 | WASM memory | 128 MB (`Store.set_limits`) |

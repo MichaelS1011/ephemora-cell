@@ -49,11 +49,56 @@ whether guest code is *good* — only contained.
 | Worker → OS (subprocess path) | process creation itself | RLIMIT_NOFILE/AS/RSS, 32 MB module cap, hard kill on timeout |
 | Sandbox → network | nothing, by default | WASI Preview1: no socket APIs; the WASI 0.2 world links `wasi:sockets` but connect is denied at call time (measured, CVE-replay component evidence 2026-09-18); the [egress sidecar](egress_patterns.md) is the audited, allowlist-mediated alternative |
 
+## Resource exhaustion via WASI calls (host-side)
+
+A host call is **fuel-cheap but host-expensive**: fuel meters guest compute,
+not the work a syscall triggers on the host. That gap is a threat class of
+its own — the WASM-container resource-isolation study (arXiv
+[2509.11242](https://arxiv.org/abs/2509.11242)) documents how malicious
+guests exhaust host resources through legitimate WASI interfaces rather
+than escaping, and real wasmtime advisories keep landing in exactly this
+class (e.g. the `fd_renumber` host-fd leak,
+[GHSA-3p27-qvp9-27qf](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-3p27-qvp9-27qf)
+/ CVE-2026-54786: every call silently kept a host descriptor alive until
+the Store died — a looping guest exhausts host fds without ever misbehaving
+in guest-visible terms. The pinned 47.0.1 line is **not** in that advisory's
+affected list; it is cited here as the class exemplar, not a Cell incident).
+
+Cell's answer is a **budget ladder** — every measured WASI call is walled by
+at least one enforced budget, and the expensive ones by several:
+
+| WASI call (measured) | Net Fuel/Call | Host µs/Call | Walls that bound it |
+|---|---:|---:|---|
+| `clock_time_get` | 4.0 | 0.06 | fuel · epoch wall-clock |
+| `random_get` | 3.0 | 0.13 | fuel · epoch |
+| `sched_yield` | 2.3 | 0.14 | fuel · epoch |
+| `environ_sizes_get` | 3.0 | 0.04 | fuel |
+| `fd_prestat_get` | 3.0 | 0.06 | fuel |
+| `fd_fdstat_get` | 3.0 | 0.10 | fuel |
+| `fd_filestat_get` | 3.0 | 9.69 | fuel · `io_cpu_seconds` (subprocess) |
+| `fd_write` → stdout | 5.5 | 2.15 | fuel · 10 KB output cap (ENOSPC) · `io_budget_bytes` |
+| `fd_write` → preopen | 7.3 | 5.79 | fuel · `io_budget_bytes` · `disk_quota_bytes` (subprocess) · `io_cpu_seconds` (subprocess) |
+| `fd_read` → preopen | 7.3 | 5.30 | fuel · `io_cpu_seconds` (subprocess) — reads carry no byte-wall by design; the byte budget walls writes |
+| `fd_seek` | 6.0 | 0.11 | fuel |
+| `path_open` + `fd_close` | 29.1 | 14.59 | fuel · preopen capability + TOCTOU revalidation · `disk_quota_bytes` (subprocess) |
+
+Fuel numbers are the committed measurement
+(`benchmarks/io_dos/results_2026-08-28.json`, `measured:true`, wasmtime
+47.0.1, macOS arm64 — per-platform, like all fuel); the class core finding:
+a real file write costs ~7.3 fuel at ~5.8 µs of host work — **~790 µs of
+host work per 1000 fuel**, which is why fuel alone is not an I/O wall and
+[ADR-002](decisions/ADR-002-io-budget-egress.md) adds the byte/CPU walls.
+Scheduler-degradation evidence (guest attack vs. host canary):
+`benchmarks/io_dos/attack_results_2026-08-28.json`. The walls' placement
+per execution path is in the [SECURITY.md
+matrix](../SECURITY.md#execution-paths--which-control-runs-where).
+
 ## Residual risks (documented, accepted)
 
 - **Host-side I/O costs minimal fuel** — bounded by the output cap and I/O
   budgets, not eliminated; measured boundary in
-  [security_posture.md](security_posture.md#fuel-metering-boundary-characterized).
+  [security_posture.md](security_posture.md#fuel-metering-boundary-characterized)
+  and mapped call-by-call in the section above.
 - **WasmGC heap is not byte-bounded** in wasmtime-py 47 — fuel is the
   effective bound; `max_gc_heap_mb` is declared/recorded, not enforced.
 - **In-process defaults are documented-trusted** for the controls that would

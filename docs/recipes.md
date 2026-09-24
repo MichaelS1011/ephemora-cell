@@ -79,8 +79,22 @@ result = run_wasm("my_component.wasm", abi="component", max_fuel=5_000_000)
 Command-world (`wasi:cli/run`) components only. Same security baseline as
 Preview1 (memory64 opt-in per config — default off; multi-memory and threads
 frozen, canonical preopen allowlist, byte-budgeted output, fuel + epoch
-timeout). WASI 0.3 is deferred until the
-Component Model 1.0 spec is final (target late 2026/2027).
+timeout).
+
+**WASI 0.3 position (explicit, 2026-09-25): gate-off.** WASI 0.3 shipped
+2026-06-11 with native async on Component-Model primitives; Cell stays on
+the synchronous 0.2 surface for untrusted code — both because the engine's
+WASIp3 streams implementation has a fresh host-allocation advisory
+([GHSA-x84v-gj2h-g759](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-x84v-gj2h-g759),
+patched in 47.0.4/46.0.3) and because native async buys nothing for
+budgeted synchronous calls while adding overhead. Structurally, the surface
+is unreachable today (the Python binding's component linker exposes only
+`add_wasip2`/`add_wasi_http` — asserted in
+`tests/test_surface_audit.py`) and the async base is gated off in the
+engine config (`wasm_stack_switching=False`, attested in the security
+baseline). WASI 0.3 support is deferred until the Component Model 1.0 spec
+is final (target late 2026/2027), the wasmtime patch line ships in the
+Python wheels, and the 0.3 surface gets its own budget qualification.
 
 ## FastAPI Integration
 

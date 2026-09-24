@@ -136,6 +136,35 @@ wall-clock/epoch terms and treat fuel as the platform-local deterministic
 stop). Never present cross-platform fuel numbers in the same column as a
 billing or quota claim.
 
+## Engine backend & execution mode (2026-09-25)
+
+Every number on this page is a **Cranelift** number. The Python binding
+pins the backend: `Config.strategy` accepts only `auto`/`cranelift` (Winch
+is not selectable, and Cell's documented policy is "never Winch"), and a
+surface-audit test asserts `Engine.is_pulley() is False` on every test run
+— an interpreted fallback cannot silently enter the shipped posture.
+Consequence of the Lumos study (arXiv
+[2510.05118](https://arxiv.org/abs/2510.05118), preprint — `measured:false`
+for Cell, literature): interpreted Wasm runs up to **55× slower warm** and
+carries up to **10× I/O-serialization overhead**, while AOT Wasm images are
+up to **30× smaller** with **16 % faster cold starts** vs. containers. If a
+future binding ever makes an interpreted backend reachable, warm-start
+numbers must be re-published **per backend and per platform** before any
+single "~0.5 ms" claim survives; the `is_pulley()` test is wired to catch
+that moment.
+
+## Third-party positioning: Wasm vs. microVMs (2026-09-25)
+
+Independent corroboration of the hybrid positioning — arXiv
+[2509.09400](https://arxiv.org/abs/2509.09400) (VHPC'25, `measured:false`
+for Cell, literature): WebAssembly wins cold starts for lightweight
+functions, while Firecracker-class microVMs win on I/O-heavy and complex
+workloads. That is exactly Cell's split: sub-millisecond budgeted execution
+for short CPU-heavy snippets (`run_wasm`, MCP tools), and the OS-level
+process wall via `run_isolated()`/`--isolated` for anything I/O-heavy or
+long-running — with Firecracker comparisons kept at `measured:false` until
+live KVM evidence lands (see the competitive-benchmark history).
+
 ## Linux-native Docker row (CI evidence job)
 
 The macOS Docker numbers above run inside the Docker Desktop VM (caveat

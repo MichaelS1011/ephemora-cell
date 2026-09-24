@@ -6,7 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-(none)
+### Security
+
+- **Explicit proposal policy (set, not inherited):** the engine now also
+  enforces `wasm_stack_switching=False` (WASI 0.3 native-async base —
+  gate-off until the 0.3 surface is qualified; WASIp3 streams of
+  GHSA-x84v-gj2h-g759 are structurally unreachable: the Python binding
+  cannot link a WASIp3 world, asserted in `tests/test_surface_audit.py`).
+  The full proposal posture is documented in SECURITY.md and locked by a
+  compile-probe matrix (`tests/test_proposal_policy.py`) plus SpyConfig
+  assertions at every engine construction site — a wasmtime upgrade that
+  silently flips a proposal default now fails tests instead of production.
+- **CVE-2026-34988 class guard:** the pooling allocator is not exposed by
+  the Python binding (the cache-pressure-residue class is unreachable);
+  `memory_guard_size` is set explicitly at every site anyway, and
+  `tests/test_memory_hygiene.py` proves sequential instances observe only
+  zeroed memory (secret-writer → residue-reader, same sandbox and pooled
+  engine).
+- **CVE-2026-34971 confirmation artifacts:** a version-floor test pins
+  wasmtime `>= 43.0.1` (April 2026 advisory fixes), the Winch backend is
+  asserted unselectable ("never Winch"), and `Engine.is_pulley()` is
+  asserted `False` — no interpreted fallback in the shipped posture.
+
+### Added
+
+- docs/threat-model.md: dedicated resource-exhaustion section with a
+  per-WASI-call budget matrix (12 measured Preview1 syscalls mapped to
+  fuel / I/O byte wall / disk quota / io-CPU watchdog / output cap),
+  framing the arXiv 2509.11242 findings and the fd_renumber leak class
+  (GHSA-3p27-qvp9-27qf — 47.x not affected, cited as class exemplar).
+- docs/performance.md: backend-transparency section (every published
+  number is Cranelift; Lumos literature numbers marked `measured:false`)
+  and third-party positioning vs. Firecracker-class microVMs (arXiv
+  2509.09400, VHPC'25).
+- README "What is enforced": the structural default-off defense narrative
+  (2025/26 divergence pattern: fuel gap, Cranelift batch, vm2 try_table
+  escape); docs/recipes.md carries the explicit WASI 0.3 gate-off stance.
 
 ## [1.0.4.2] - 2026-09-24
 
