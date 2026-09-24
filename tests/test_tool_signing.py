@@ -123,14 +123,74 @@ class TestManifestSignVerify:
 class TestRegistrySignedMode:
     def test_signed_sidecar_loads(self, keypair, tmp_path):
         key, _, pub = keypair
-        signed = sign_manifest(dict(MANIFEST), lambda data: key.sign(data))
-        tools = _tools_dir(tmp_path, signed)
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        (tools / "widget.wasm").write_bytes(WASM_STUB)
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(tools / "widget.wasm")
+        signed = sign_manifest(manifest, lambda data: key.sign(data))
+        (tools / "widget.json").write_text(
+            json.dumps(signed, ensure_ascii=False), encoding="utf-8"
+        )
         registry = ToolRegistry(
             tools, manifest_verifier=ed25519_verifier_from_pem(str(pub))
         )
         assert [t.name for t in registry.list_tools()] == ["widget"]
         # The manifest grants survive verification unchanged.
         assert registry.get("widget").description == "Does widget things"
+
+    def test_missing_module_binding_rejected(self, keypair, tmp_path):
+        """Signed but unbound: a signature over a manifest that does not
+        name its module cannot keep the module honest - fail closed."""
+        key, _, pub = keypair
+        signed = sign_manifest(dict(MANIFEST), lambda data: key.sign(data))
+        tools = _tools_dir(tmp_path, signed)
+        with pytest.warns(RuntimeWarning, match="no module binding"):
+            registry = ToolRegistry(
+                tools, manifest_verifier=ed25519_verifier_from_pem(str(pub))
+            )
+        assert registry.list_tools() == []
+
+    def test_module_hash_mismatch_rejected(self, keypair, tmp_path):
+        """One tampered wasm byte after signing must reject the tool at
+        load (register-time re-hash, ADR-006)."""
+        key, _, pub = keypair
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        wasm = tools / "widget.wasm"
+        wasm.write_bytes(WASM_STUB)
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(wasm)
+        signed = sign_manifest(manifest, lambda data: key.sign(data))
+        (tools / "widget.json").write_text(json.dumps(signed), encoding="utf-8")
+        data = bytearray(wasm.read_bytes())
+        data[-1] = (data[-1] + 1) % 256
+        wasm.write_bytes(bytes(data))
+        with pytest.warns(RuntimeWarning, match="hash mismatch"):
+            registry = ToolRegistry(
+                tools, manifest_verifier=ed25519_verifier_from_pem(str(pub))
+            )
+        assert registry.list_tools() == []
+
+    def test_module_swap_after_signing_rejected(self, keypair, tmp_path):
+        """MCPoison class (payload swap after trust): a VALID different
+        module under a signed manifest never registers - the load path
+        re-hashes against the binding, same as the governed-load path."""
+        key, _, pub = keypair
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        wasm = tools / "widget.wasm"
+        wasm.write_bytes(WASM_STUB)
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = tool_wasm_sha256(wasm)
+        signed = sign_manifest(manifest, lambda data: key.sign(data))
+        (tools / "widget.json").write_text(json.dumps(signed), encoding="utf-8")
+        wasm.write_bytes(WASM_STUB + b"\x00a-different-valid-module")
+        with pytest.warns(RuntimeWarning, match="hash mismatch"):
+            registry = ToolRegistry(
+                tools, manifest_verifier=ed25519_verifier_from_pem(str(pub))
+            )
+        assert registry.list_tools() == []
 
     def test_tampered_sidecar_rejected(self, keypair, tmp_path):
         key, _, pub = keypair
@@ -174,7 +234,18 @@ class TestSignToolCLI:
         _, priv, pub = keypair
         tools = _tools_dir(tmp_path, dict(MANIFEST))
         sidecar = tools / "widget.json"
-        assert sign_tool_main([str(sidecar), "--key", str(priv)]) == 0
+        assert (
+            sign_tool_main(
+                [
+                    str(sidecar),
+                    "--key",
+                    str(priv),
+                    "--wasm",
+                    str(tools / "widget.wasm"),
+                ]
+            )
+            == 0
+        )
         signed = json.loads(sidecar.read_text(encoding="utf-8"))
         assert signed["alg"] == "EdDSA"
         registry = ToolRegistry(
@@ -258,6 +329,26 @@ class TestGovernedLoad:
             m.get("method") == "notifications/tools/list_changed"
             for m in transport.outbox
         )
+
+    def test_stdio_loop_evaluates_requests_between_messages(self, keypair, tmp_path):
+        """--tool-requests-dir works without a custom embedding host: the
+        serve loop evaluates dropped requests before each incoming message,
+        so the notification precedes the response and the tool is listed."""
+        key, _, pub = keypair
+        server, transport, _tools, requests = self._server(tmp_path, pub)
+        request_file = self._drop_request(key, requests)
+        transport._inbox = [
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        ]
+        server.serve()
+        methods = [m.get("method") for m in transport.outbox]
+        assert "notifications/tools/list_changed" in methods
+        assert methods.index("notifications/tools/list_changed") == 0
+        response = transport.outbox[-1]
+        assert response["id"] == 1
+        assert "widget" in {t["name"] for t in response["result"]["tools"]}
+        # the request was consumed, not left on disk
+        assert not request_file.exists()
 
     def test_tampered_module_rejected(self, keypair, tmp_path):
         key, _, pub = keypair

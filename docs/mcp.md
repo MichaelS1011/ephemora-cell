@@ -293,7 +293,8 @@ tools directory if you want them alongside your own).
   directory. A guest or client can only DROP a
   `<name>.tool.request.json` file there (a request names a `.wasm`
   inside that directory plus its signed manifest with `wasm_sha256`);
-  the HOST invokes `Server.process_tool_requests()`, which verifies the
+  the server evaluates the requests directory before each incoming
+  message (`Server.process_tool_requests()`, which verifies the
   manifest, re-hashes the module, checks the profile and installs
   accepted tools — then rescans and emits
   `notifications/tools/list_changed` (`initialize` advertises

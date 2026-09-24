@@ -50,9 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         metavar="DIR",
         help=(
-            "governed dynamic loading (ADR-006): the host evaluates "
-            "*.tool.request.json files dropped into DIR via "
-            "process_tool_requests() — verify-before-register, then rescan "
+            "governed dynamic loading (ADR-006): the server evaluates "
+            "*.tool.request.json files dropped into DIR before each "
+            "incoming message — verify-before-register, then rescan "
             "+ notifications/tools/list_changed; requires "
             "--require-signed-tools. initialize advertises listChanged"
         ),

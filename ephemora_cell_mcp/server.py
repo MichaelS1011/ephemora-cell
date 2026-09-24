@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -151,6 +152,12 @@ class Server:
     def serve(self) -> None:
         """Run the stdio loop until stdin closes.
 
+        With ``--tool-requests-dir`` configured (ADR-006), dropped tool
+        requests are evaluated on every message boundary, so the shipped
+        stdio server honors governed loading without a custom embedding
+        host — verify-before-register still gates each install and a
+        rejected request stays on disk.
+
         BrokenPipeError on send means the client went away — shut down
         cleanly instead of crashing with a traceback.
         """
@@ -158,6 +165,23 @@ class Server:
             line = self.transport.read_line()
             if line is None:
                 return
+            if self.tool_requests_dir is not None:
+                try:
+                    report = self.process_tool_requests()
+                except BrokenPipeError:
+                    return
+                except Exception:
+                    # Governed loading must never break the serve loop; an
+                    # unevaluated request stays on disk for the next message.
+                    pass
+                else:
+                    # "Never silent" (ADR-006): on stdio there is no report
+                    # consumer, so rejections surface on stderr.
+                    for entry in report.get("rejected", []):
+                        print(
+                            f"ephemora-cell-mcp: tool request rejected: " f"{entry}",
+                            file=sys.stderr,
+                        )
             try:
                 messages = self.handle_line(line)
             except Exception:

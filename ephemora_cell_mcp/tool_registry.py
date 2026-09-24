@@ -279,6 +279,36 @@ class ToolRegistry:
                 stacklevel=2,
             )
             return None
+        if self.manifest_verifier is not None:
+            # ADR-006 register-time re-hash: the signature only proves the
+            # manifest is intact — the wasm_sha256 field is what binds it to
+            # exactly one module. Same rule as the governed-load path: a
+            # sidecar without the binding, or a module whose bytes no longer
+            # match, never registers (fail closed).
+            declared = metadata.get("wasm_sha256")
+            if not isinstance(declared, str) or not declared:
+                import warnings
+
+                warnings.warn(
+                    f"tool {stem!r}: sidecar has no module binding "
+                    "(wasm_sha256) - rejected in signed-tools mode",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return None
+            actual = tool_wasm_sha256(wasm)
+            if declared.lower() != actual:
+                import warnings
+
+                warnings.warn(
+                    f"tool {stem!r}: module hash mismatch - the signed "
+                    f"manifest does not describe these bytes "
+                    f"({declared[:12]}… != {actual[:12]}…) - rejected in "
+                    "signed-tools mode",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                return None
         # The sidecar "name" is advisory; the registry identity is the
         # file stem (enforced in _scan, which overrides mismatches).
         name = stem
