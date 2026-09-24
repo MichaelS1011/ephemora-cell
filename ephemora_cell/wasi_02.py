@@ -182,6 +182,12 @@ class ComponentSandbox:
             engine_config.wasm_exceptions = False
             engine_config.wasm_gc = False
             engine_config.wasm_tail_call = False
+            # WASI 0.3 gate-off (native async rides on stack-switching; the
+            # shipped wasip2 surface does not need it — see wasi_runtime).
+            engine_config.wasm_stack_switching = False
+            # CVE-2026-34988 class: pooling allocator unreachable via the
+            # Python binding; guard region set explicitly anyway.
+            engine_config.memory_guard_size = 4 * 1024 * 1024 * 1024
             engine = Engine(engine_config)
 
             component = _component.Component.from_file(engine, str(resolved))

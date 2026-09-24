@@ -532,6 +532,16 @@ class WASISandbox:
                 engine_config.wasm_exceptions = False
                 engine_config.wasm_gc = False
                 engine_config.wasm_tail_call = False
+                # WASI 0.3 (2026-06-11) positions native async on component
+                # stack-switching primitives — not needed by the shipped
+                # wasip2 surface, gate-off until the 0.3 story is qualified
+                # (SECURITY_ADVISORY_PLAN: WASIp3 streams, GHSA-x84v-gj2h-g759).
+                engine_config.wasm_stack_switching = False
+                # CVE-2026-34988 class (allocator cache-pressure residues):
+                # the pooling allocator is not reachable via the Python
+                # binding; the guard region is set explicitly anyway so the
+                # posture does not depend on engine-default drift.
+                engine_config.memory_guard_size = 4 * 1024 * 1024 * 1024
                 engine = Engine(engine_config)
 
             if pool is not None:

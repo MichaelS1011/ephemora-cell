@@ -77,6 +77,8 @@ _FROZEN_FLAGS = (
     "wasm_exceptions",
     "wasm_gc",
     "wasm_tail_call",
+    # WASI 0.3 gate-off: native async rides on stack-switching.
+    "wasm_stack_switching",
 )
 _OPTIN_FLAGS = ("wasm_memory64",)
 
@@ -194,6 +196,7 @@ class TestEngineConfigFreeze:
                 "wasm_exceptions",
                 "wasm_gc",
                 "wasm_tail_call",
+                "wasm_stack_switching",
             ):
                 assert cfg.tracked.get(flag) is False, flag
 

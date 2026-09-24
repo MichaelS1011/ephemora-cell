@@ -62,6 +62,7 @@ ENGINE_KWARGS = dict(
     wasm_exceptions=False,
     wasm_gc=False,
     wasm_tail_call=False,
+    wasm_stack_switching=False,  # WASI 0.3 gate-off (native async base)
 )
 
 
@@ -75,6 +76,7 @@ def _engine() -> wasmtime.Engine:
     cfg.wasm_exceptions = ENGINE_KWARGS["wasm_exceptions"]
     cfg.wasm_gc = ENGINE_KWARGS["wasm_gc"]
     cfg.wasm_tail_call = ENGINE_KWARGS["wasm_tail_call"]
+    cfg.wasm_stack_switching = ENGINE_KWARGS["wasm_stack_switching"]
     return wasmtime.Engine(cfg)
 
 

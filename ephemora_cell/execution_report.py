@@ -44,6 +44,8 @@ def _default_security_baseline() -> dict[str, Any]:
         "exceptions_enabled": False,
         "gc_enabled": False,
         "tail_calls_enabled": False,
+        # WASI 0.3 gate-off: native async rides on stack-switching.
+        "stack_switching_enabled": False,
         "preopens": [],
     }
 
@@ -121,6 +123,7 @@ class ExecutionReport:
         baseline["exceptions_enabled"] = False
         baseline["gc_enabled"] = False
         baseline["tail_calls_enabled"] = False
+        baseline["stack_switching_enabled"] = False
         # ADR-002 I/O budgets — attested alongside fuel/memory so a report
         # cannot claim the wall while the run carried a different one.
         baseline["io_budget_bytes"] = config.io_budget_bytes
