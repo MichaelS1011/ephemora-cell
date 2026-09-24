@@ -1,0 +1,50 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-24",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "package": "1.0.4.1",
+  "abi": "component",
+  "probes_sha256": {
+    "fs_probe.wasm": "3c78e11426e884e9883dc4e27d5243ccce380250d87efb0d0d5a440443930cbd",
+    "net_probe.wasm": "d6d03b5c34ce74a173b2e81426cf04fd67fbaf7862cdf56020fbbfb62c1f922a"
+  },
+  "classes": {
+    "ephemora-cell-mcp (WASI 0.2 component)": [
+      {
+        "intent": "positive-control (granted read)",
+        "granted": true,
+        "response": "SAFE-8163cc907acc86ba"
+      },
+      {
+        "intent": "CVE-2025-53109 symlink escape",
+        "blocked": true,
+        "response": "ERR:Operation not permitted (os error 63)"
+      },
+      {
+        "intent": "CVE-2025-53110 prefix traversal (absolute)",
+        "blocked": true,
+        "response": "ERR:failed to find a pre-opened file descriptor through which \"~/.mcp_cve_replay_fddf95bd/allowed-secret/leak.txt\" could be opened"
+      },
+      {
+        "intent": "CVE-2025-53110 traversal (../)",
+        "blocked": true,
+        "response": "ERR:failed to find a pre-opened file descriptor through which \"../allowed-secret/leak.txt\" could be opened"
+      }
+    ],
+    "network intent (wasi:sockets/tcp)": {
+      "fs_positive_control": true,
+      "network_open": false,
+      "fail_closed": true,
+      "response": "FS:OK\nNET:DENIED:Permission denied (os error 2)"
+    },
+    "CVE-2025-54136 class (governed loading, component)": {
+      "accepted_first": true,
+      "tampered_rejected": true,
+      "fail_closed": true,
+      "tamper_report": "[{'request': 'widget.tool.request.json', 'reason': 'module hash mismatch \u2014 the signed manifest does not describe these bytes'}]"
+    }
+  },
+  "pass": true
+}
