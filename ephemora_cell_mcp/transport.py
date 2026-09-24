@@ -31,22 +31,30 @@ class StdioTransport:
     def read_line(self) -> str | None:
         """Return the next raw line, or None on EOF.
 
-        Lines beyond ``max_line_bytes`` are drained and reported as a
-        JSON-RPC error line so the sender gets a specification-conform
-        reply instead of a silent hang.
+        Lines beyond ``max_line_bytes`` are answered immediately with a
+        JSON-RPC error response (id ``null``, ``-32600``) sent straight to
+        the sender, then reading continues with the next line. Text-stream
+        ``readline()`` returns the whole line including its newline, so the
+        stream already sits at the next message boundary — no drain read,
+        and the message after an oversized one is never dropped.
         """
-        line = self._stdin.readline()
-        if not line:
-            return None
-        if len(line.encode("utf-8", errors="replace")) > self._max_line_bytes:
-            # Drain the oversized line's remainder so the next read starts
-            # at a fresh boundary; readline() may have stopped early.
-            while True:
-                chunk = self._stdin.readline()
-                if not chunk or chunk.endswith("\n"):
-                    break
-            return '{"jsonrpc": "2.0", "id": null, "error": {"code": -32600, "message": "request line exceeds transport limit"}}'
-        return line.rstrip("\r\n")
+        while True:
+            line = self._stdin.readline()
+            if not line:
+                return None
+            if len(line.encode("utf-8", errors="replace")) > self._max_line_bytes:
+                self.send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {
+                            "code": -32600,
+                            "message": "request line exceeds transport limit",
+                        },
+                    }
+                )
+                continue
+            return line.rstrip("\r\n")
 
     def send(self, message: dict[str, Any]) -> None:
         self._stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
