@@ -313,6 +313,10 @@ Artifacts: `benchmarks/results/scale-results.json`, `scale_dgx_{100,500,1000}.js
 - E2B: https://github.com/e2b-dev/e2b · https://e2b.dev/pricing ·
   https://github.com/e2b-dev/infra/issues/3012
 - Docker MCP overhead: https://github.com/enkryptai/secure-mcp-gateway/blob/main/docs/sandbox_walkthrough.md
+- Motivational (measured:false): SABER / SandboxEscapeBench
+  https://arxiv.org/abs/2603.02277 + https://www.aisi.gov.uk/blog/can-ai-agents-escape-their-sandboxes-a-benchmark-for-safely-measuring-container-breakout-capabilities;
+  Trail of Bits skill-scanner bypasses (Judson & Hess, 2026) via
+  https://tldrsec.com (2026-06-04 issue)
 - 2026 probe classes: https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-vqjp-4c8c-hfgg
   (FS escape companions, CVE-2026-47261),
   https://www.ox.security/blog/cve-2026-82533-deepseek-harness-ai-agent-sandbox-escape

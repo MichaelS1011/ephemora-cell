@@ -134,6 +134,8 @@ Agent-generated code is different from application code: it can be buggy, comput
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
 - **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
+**Why now — 2026 evidence that detection and containers are not enough** *(literature — `measured:false` for Cell; the measured rows live in the [evidence ladder](#security) and never mix with these)*. [SABER — the SandboxEscapeBench program](https://arxiv.org/abs/2603.02277) (UK AI Security Institute & Oxford, ICML 2026) shows frontier models **reliably escaping Docker containers** through common misconfigurations — the same benchmark this repo maps to WASM in the [Security section](#security). Trail of Bits researchers (Judson & Hess, 2026) bypassed **five** agent-skill scanners and sandbox defenses (ClawHub's malicious-skill detector, Cisco's agent skill scanner and three more) in one study. The DDIPE skill-poisoning attack ([arXiv 2604.03081](https://arxiv.org/abs/2604.03081)) measures 11.6–33.5% bypass rates against agent skill ecosystems. The pattern across all three: scanning and container defaults fail, and the boundary that holds is the one **enforced between the code and the host** — which is exactly the layer Cell ships (the same framing documented with per-claim provenance in [docs/security_posture.md](docs/security_posture.md)).
+
 ```text
 AI Agent ──▶ Tool / MCP ──▶ Ephemora Cell ──▶ WASM ──▶ bounded result
 ```
