@@ -55,7 +55,7 @@ AI Agent / Application
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/tests-470_passing-brightgreen" alt="Tests (470 pass, 4 skipped — see CI)">
+    <img src="https://img.shields.io/badge/tests-532_passing-brightgreen" alt="Tests (532 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
@@ -82,6 +82,17 @@ AI Agent / Application
     <img src="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg" alt="Glama grade: license A, quality A, maintenance B">
   </a>
 </p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#security">Security</a> ·
+  <a href="#mcp-integration">MCP</a> ·
+  <a href="#ai-agent-integration">GitHub Action</a> ·
+  <a href="#performance">Benchmarks</a> ·
+  <a href="#documentation">Docs</a>
+</p>
+
+> **Status (2026-09-25):** latest release **v1.0.4.2** (2026-09-24, security interim — [changelog](CHANGELOG.md)) · full functional audit 2026-09-24, findings fixed and released the same day · latest reproducible evidence: 2026-09-25 (probe classes, [`benchmarks/results/`](benchmarks/results/)) · 532 tests passing, 86% coverage (see CI badge — refreshed per release)
 
 <p align="center">
   <picture>
