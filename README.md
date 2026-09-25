@@ -181,7 +181,7 @@ By default:
 | Process exec / fork | unavailable in WASI |
 | Threading | disabled (`wasm_threads=False`) |
 
-The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense, not conservatism: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — is one repeating pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee. Full proposal table: [SECURITY.md](SECURITY.md#proposal-policy--set-not-inherited).
+The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense, not conservatism: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — is one repeating pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee. Full proposal table: [SECURITY.md](SECURITY.md#proposal-policy--set-not-inherited-2026-09-25).
 
 Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
 
@@ -633,7 +633,7 @@ The same committed `coremark.wasm` (EEMBC CoreMark 1.01, pinned sources, wasi-sd
 | wasmer (external control) | 63,798 (+15.57% vs bare) | 53,735 (+9.98% vs bare) |
 | wasm3 (external control, interpreter) | 5,566 (−89.92% vs bare) | 5,747 (−88.24% vs bare) |
 
-Read as facts, not a ranking: on this workload the engine choice spans a ~12× range, the Cell sandbox layer costs 8.6–10.0% over the bare engine on the same machine, and instruction-level fuel metering a further 12.5–14.7%. External engines are context, not competitors measured by Cell's API; wasmer requires `--enable-tail-call` (the build ships the upstream Lime1+tail-call feature set). Evidence with verbatim commands, versions and per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`. Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
+Read as facts, not a ranking: on this workload the engine choice spans a ~9–12× range depending on platform, the Cell sandbox layer costs 8.6–10.0% over the bare engine on the same machine, and instruction-level fuel metering a further 12.5–14.7%. External engines are context, not competitors measured by Cell's API; wasmer requires `--enable-tail-call` (the build ships the upstream Lime1+tail-call feature set). Evidence with verbatim commands, versions and per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`. Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
 
 ### Fuel is per-platform
 
@@ -661,14 +661,14 @@ result.fuel_consumed
 result = run_isolated("tool.wasm", config=WASIConfig(max_fuel=500_000))
 ```
 
-Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`), named state, the component path (`abi="component"`), disk quotas and GC-heap caps are all `WASIConfig` knobs — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
+Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`), named state, disk quotas and GC-heap caps are `WASIConfig` knobs; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
 
 **CLI** — four verbs cover the loop:
 
 ```text
 ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile)
 ephemora-cell inspect   Imports, exports, memory — what a module wants, before you run it
-ephemera-cell benchmark Cold/warm latency and fuel spread
+ephemora-cell benchmark Cold/warm latency and fuel spread
 ephemora-cell build     Compile Rust/Go/C/AssemblyScript/Zig straight to WASM
 ```
 
@@ -707,7 +707,7 @@ Real, gated items — no dates promised:
 
 ## Testing & Verification
 
-470 tests · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+470 tests passing (4 skipped) · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 

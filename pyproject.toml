@@ -12,7 +12,7 @@ authors = [
     {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
-dependencies = ["wasmtime>=36.0.12,<48"]
+dependencies = ["wasmtime>=43.0.1,<48"]  # floor = oldest line carrying the April 2026 advisory fixes (CVE-2026-34971 class)
 
 classifiers = [
     "Development Status :: 5 - Production/Stable",

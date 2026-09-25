@@ -371,30 +371,34 @@ class TestSecurity4_3_Path_Traversal:
         """Real WASM tries to read through a symlink — must be blocked."""
         # Setup: safe dir with a symlink to /tmp (outside the sandbox)
         safe_dir = self._make_safe_dir()
-        target = Path("/tmp")
-        symlink = safe_dir / "escape_link"
         try:
-            symlink.symlink_to(target)
-        except OSError:
-            pytest.skip("Symlinks not supported on this platform")
+            target = Path("/tmp")
+            symlink = safe_dir / "escape_link"
+            try:
+                symlink.symlink_to(target)
+            except OSError:
+                pytest.skip("Symlinks not supported on this platform")
 
-        # Write a test file into the safe dir (so it is not empty)
-        (safe_dir / "allowed.txt").write_text("this is allowed")
+            # Write a test file into the safe dir (so it is not empty)
+            (safe_dir / "allowed.txt").write_text("this is allowed")
 
-        # Compile the attack payload
-        wasm_bytes = wasmtime.wat2wasm(self.SYMLINK_ESCAPE_WAT)
-        wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "symlink.wasm"
-        wasm_path.write_bytes(wasm_bytes)
+            # Compile the attack payload
+            wasm_bytes = wasmtime.wat2wasm(self.SYMLINK_ESCAPE_WAT)
+            wasm_path = (
+                Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "symlink.wasm"
+            )
+            wasm_path.write_bytes(wasm_bytes)
 
-        # Run with allow_dirs=safe_dir
-        config = WASIConfig(
-            allow_dirs=(str(safe_dir),),
-            max_fuel=1_000_000,
-        )
-        sandbox = WASISandbox(config=config)
-        result = sandbox.run(str(wasm_path))
-        sandbox.cleanup()
-        shutil.rmtree(safe_dir, ignore_errors=True)
+            # Run with allow_dirs=safe_dir
+            config = WASIConfig(
+                allow_dirs=(str(safe_dir),),
+                max_fuel=1_000_000,
+            )
+            sandbox = WASISandbox(config=config)
+            result = sandbox.run(str(wasm_path))
+            sandbox.cleanup()
+        finally:
+            shutil.rmtree(safe_dir, ignore_errors=True)
 
         # Defense holds: path_open on the symlink must fail
         # The module exits 0 when blocked, 1 when the escape succeeded

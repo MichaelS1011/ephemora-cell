@@ -298,71 +298,77 @@ def main():
     # longer trip the dangerous-dir filter (the old Path.home() choice).
     print("\n[6/8] Symlink escape")
     _safe_tmp = Path(tempfile.mkdtemp(prefix="ephemora_verify_"))
-    _safe_tmp.mkdir(parents=True, exist_ok=True)
-    base = Path(tempfile.mkdtemp(prefix="ephemora_sym_", dir=str(_safe_tmp)))
-    secret_dir = Path(tempfile.mkdtemp(prefix="ephemora_secret_", dir=str(_safe_tmp)))
-    secret = secret_dir / "secret.txt"
-    secret.write_text("SECRET-PASSWORD-12345")
-    link = base / "escape_link"
     try:
-        link.symlink_to(secret)
-    except OSError:
-        results["symlink"] = {"blocked": True, "method": "symlink unsupported on host"}
-        print("  Result: BLOCKED (symlinks unsupported on this host)")
-        blocked += 1
-    else:
-        # Positive control: a real file inside the preopen dir MUST open.
-        (base / "allowed.txt").write_text("this is allowed")
-        pc = compile_wat(_path_open_wat("allowed.txt"))
-        pc_r = run_attack(
-            pc,
-            WASIConfig(
-                max_fuel=1_000_000,
-                timeout_seconds=5,
-                max_memory_mb=32,
-                allow_dirs=(str(base),),
-                allow_env=(),
-            ),
+        base = Path(tempfile.mkdtemp(prefix="ephemora_sym_", dir=str(_safe_tmp)))
+        secret_dir = Path(
+            tempfile.mkdtemp(prefix="ephemora_secret_", dir=str(_safe_tmp))
         )
-        pc.unlink(missing_ok=True)
-        pc_ok = pc_r.get("exit_code") == 0  # errno 0 = opened
+        secret = secret_dir / "secret.txt"
+        secret.write_text("SECRET-PASSWORD-12345")
+        link = base / "escape_link"
+        try:
+            link.symlink_to(secret)
+        except OSError:
+            results["symlink"] = {
+                "blocked": True,
+                "method": "symlink unsupported on host",
+            }
+            print("  Result: BLOCKED (symlinks unsupported on this host)")
+            blocked += 1
+        else:
+            # Positive control: a real file inside the preopen dir MUST open.
+            (base / "allowed.txt").write_text("this is allowed")
+            pc = compile_wat(_path_open_wat("allowed.txt"))
+            pc_r = run_attack(
+                pc,
+                WASIConfig(
+                    max_fuel=1_000_000,
+                    timeout_seconds=5,
+                    max_memory_mb=32,
+                    allow_dirs=(str(base),),
+                    allow_env=(),
+                ),
+            )
+            pc.unlink(missing_ok=True)
+            pc_ok = pc_r.get("exit_code") == 0  # errno 0 = opened
 
-        # Attack: open the symlink that points outside the sandbox.
-        atk = compile_wat(_path_open_wat("escape_link"))
-        r = run_attack(
-            atk,
-            WASIConfig(
-                max_fuel=1_000_000,
-                timeout_seconds=5,
-                max_memory_mb=32,
-                allow_dirs=(str(base),),
-                allow_env=(),
-            ),
-        )
-        atk.unlink(missing_ok=True)
-        # Blocked iff the symlink did NOT open (errno != 0).
-        # The positive control MUST open (errno 0) — if it fails, this
-        # harness is broken, not the sandbox (suite control:
-        # tests/test_security.py positive control).
-        blocked_ok = r.get("exit_code") != 0
-        results["symlink"] = {
-            "blocked": blocked_ok,
-            "status": r["status"],
-            "attack_errno": r.get("exit_code"),
-            "positive_control_opened": pc_ok,
-            "detail": r.get("stderr", r.get("error", "")),
-        }
-        print(
-            f"  Positive control (real file): "
-            f"{'OPENED (good)' if pc_ok else 'FAILED (harness issue)'}"
-        )
-        print(
-            f"  Symlink attack: "
-            f"{'BLOCKED' if r.get('exit_code') != 0 else 'ESCAPED (BUG!)'} "
-            f"(errno={r.get('exit_code')})"
-        )
-    blocked += results["symlink"]["blocked"]
-    shutil.rmtree(_safe_tmp, ignore_errors=True)
+            # Attack: open the symlink that points outside the sandbox.
+            atk = compile_wat(_path_open_wat("escape_link"))
+            r = run_attack(
+                atk,
+                WASIConfig(
+                    max_fuel=1_000_000,
+                    timeout_seconds=5,
+                    max_memory_mb=32,
+                    allow_dirs=(str(base),),
+                    allow_env=(),
+                ),
+            )
+            atk.unlink(missing_ok=True)
+            # Blocked iff the symlink did NOT open (errno != 0).
+            # The positive control MUST open (errno 0) — if it fails, this
+            # harness is broken, not the sandbox (suite control:
+            # tests/test_security.py positive control).
+            blocked_ok = r.get("exit_code") != 0
+            results["symlink"] = {
+                "blocked": blocked_ok,
+                "status": r["status"],
+                "attack_errno": r.get("exit_code"),
+                "positive_control_opened": pc_ok,
+                "detail": r.get("stderr", r.get("error", "")),
+            }
+            print(
+                f"  Positive control (real file): "
+                f"{'OPENED (good)' if pc_ok else 'FAILED (harness issue)'}"
+            )
+            print(
+                f"  Symlink attack: "
+                f"{'BLOCKED' if r.get('exit_code') != 0 else 'ESCAPED (BUG!)'} "
+                f"(errno={r.get('exit_code')})"
+            )
+        blocked += results["symlink"]["blocked"]
+    finally:
+        shutil.rmtree(_safe_tmp, ignore_errors=True)
 
     # 7. Threading (real execution)
     print("\n[7/8] Multi-threading (shared memory)")
