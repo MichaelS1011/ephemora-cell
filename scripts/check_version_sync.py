@@ -31,20 +31,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 
+def _single_match(pattern: str, text: str, where: str) -> str:
+    matches = re.findall(pattern, text, re.MULTILINE)
+    if not matches:
+        raise ValueError(f"{where}: no version assignment found")
+    if len(set(matches)) > 1:
+        raise ValueError(f"{where}: CONFLICTING version assignments {matches}")
+    return matches[0]
+
+
 def _pyproject_version() -> str:
     text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    if not match:
-        raise ValueError("pyproject.toml: no [project] version field found")
-    return match.group(1)
+    return _single_match(r'^version\s*=\s*"([^"]+)"', text, "pyproject.toml")
 
 
 def _module_version(rel_path: str) -> str:
     text = (REPO / rel_path).read_text(encoding="utf-8")
-    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    if not match:
-        raise ValueError(f"{rel_path}: no __version__ assignment found")
-    return match.group(1)
+    return _single_match(r'^__version__\s*=\s*"([^"]+)"', text, rel_path)
 
 
 def _server_json_versions() -> list[str]:
@@ -66,35 +69,53 @@ def _server_json_versions() -> list[str]:
 
 
 def _latest_tag() -> str:
+    """The HIGHEST v* tag across ALL refs, then proven reachable from HEAD.
+
+    `git describe` semantics (nearest reachable tag) would let a newer
+    release tag on an unreachable branch slip through unnoticed — so we
+    sort every v* tag by version instead, and then explicitly verify the
+    winner is an ancestor of HEAD (fail-closed either way: a stray newer
+    tag anywhere is an alarm, a tag on the wrong commit is an alarm).
+    """
     try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0", "--match", "v*"],
+        listed = subprocess.run(
+            ["git", "tag", "-l", "v*", "--sort=-v:refname"],
             cwd=REPO,
             capture_output=True,
             text=True,
             check=True,
+        ).stdout.split()
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"git tag failed: {e.stderr.strip()}") from e
+    if not listed:
+        raise ValueError("no v* tag exists — tag the release first")
+    tag = listed[0]
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", tag, "HEAD"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
         )
     except subprocess.CalledProcessError as e:
         raise ValueError(
-            "no v* tag reachable from HEAD — tag the release first "
-            f"({e.stderr.strip()})"
+            f"latest tag {tag!r} is NOT reachable from HEAD — it points "
+            "at a divergent commit; fix the tag before trusting the sync"
         ) from e
-    tag = result.stdout.strip()
     return tag[1:] if tag.startswith("v") else tag
 
 
 def main() -> int:
     sources: dict[str, str] = {"pyproject.toml": _pyproject_version()}
-    sources["ephemora_cell/__init__.py"] = _module_version(
-        "ephemora_cell/__init__.py"
-    )
+    sources["ephemora_cell/__init__.py"] = _module_version("ephemora_cell/__init__.py")
     sources["ephemora_cell_mcp/_version.py"] = _module_version(
         "ephemora_cell_mcp/_version.py"
     )
     server_versions = _server_json_versions()
     sources["server.json (top)"] = server_versions[0]
-    if len(server_versions) > 1:
-        sources["server.json (packages[0])"] = server_versions[1]
+    for i, v in enumerate(server_versions[1:]):
+        sources[f"server.json (packages[{i}])"] = v
 
     latest_tag = _latest_tag()
     sources["latest git tag"] = latest_tag

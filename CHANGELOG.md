@@ -89,9 +89,10 @@ cycle produced.
 - docs/security_posture.md: 2026 probe-classes section; probe
   equivalence detail and sandbox-surface diagram
 - README: start-here navigation, freshness block (release/audit/
-  evidence/tests), content tiering 749 → 589 lines with zero evidence
-  loss (probe-equivalence detail, enforcement-stack diagram and
-  throughput scale-check moved to docs; sales rhetoric damped)
+  evidence/tests), content tiering 760 → 601 lines total, −21%
+  (non-blank −23%), with zero evidence loss (probe-equivalence detail,
+  enforcement-stack diagram and throughput scale-check moved to docs;
+  sales rhetoric damped)
 
 ## [1.0.4.2] - 2026-09-24
 

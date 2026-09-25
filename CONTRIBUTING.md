@@ -93,7 +93,7 @@ show these as untracked files. That is intentional:
    `ephemora_cell_mcp/_version.py`, `server.json` (both version fields)
 2. Update the CHANGELOG and the README freshness block (latest release,
    security audit, latest evidence dates, tests-passing badge)
-3. Tag the release (`v<version>`) — the tag IS a version source
+3. Tag the release with an ANNOTATED tag (`git tag -a v<version> -m "v<version>"`) — the tag IS a version source (all release tags are annotated)
 4. `python scripts/check_version_sync.py` must exit 0 (CI enforces this
    in the `security` job — a push with drifted sources fails there)
 5. Build, upload to PyPI, publish the GitHub release
