@@ -86,6 +86,23 @@ show these as untracked files. That is intentional:
 5. Open a Pull Request against `main`
 6. All tests must pass before merge
 
+## Release Checklist
+
+1. Bump the version in ALL FOUR sources together (they must never drift):
+   `pyproject.toml`, `ephemora_cell/__init__.py`,
+   `ephemora_cell_mcp/_version.py`, `server.json` (both version fields)
+2. Update the CHANGELOG and the README freshness block (latest release,
+   security audit, latest evidence dates, tests-passing badge)
+3. Tag the release (`v<version>`) — the tag IS a version source
+4. `python scripts/check_version_sync.py` must exit 0 (CI enforces this
+   in the `security` job — a push with drifted sources fails there)
+5. Build, upload to PyPI, publish the GitHub release
+6. Smoke-test: fresh venv, `pip install ephemora-cell==<version>`,
+   `python -m ephemora_cell --version` reports `<version>`
+
+Tone rule for docs: numbers speak, adjectives sparingly — measured
+claims with evidence links, no marketing adjectives around them.
+
 ## Reporting Issues
 
 - **Bug reports:** Open a GitHub Issue with reproduction steps
