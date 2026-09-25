@@ -265,7 +265,7 @@ Ask your agent for the current time: the answer comes from the bundled `clock` t
 - **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
 - **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`), and the native `get-policy` tool reports the exact sandbox policy per tool — computed from the same code path that enforces it, so report and enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured).
 - **Stateless by design (`2026-07-28` revision).** Clients on the current revision skip the `initialize` handshake entirely; results carry `resultType: "complete"` and `tools/list` answers with `ttlMs`/`cacheScope`. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras served from one process and tested side-by-side against the official MCP SDK in CI. Details: [docs/mcp.md](docs/mcp.md).
-- **Isolation priced for every call** — three numbers, don't mix them up ([comparison](docs/comparison-mcp-servers.md)):
+- **Isolation priced for every call** — three distinct numbers ([comparison](docs/comparison-mcp-servers.md)):
 
   | Path | Cost per call | Why |
   |---|---|---|
