@@ -81,3 +81,40 @@ We evaluated 11 exploitation strategies from [arXiv 2509.11242](https://arxiv.or
 
 - **[arXiv 2601.01241](https://arxiv.org/abs/2601.01241)** — *MCP-SandboxScan: WASM-based Secure Execution and Runtime Analysis for MCP Tools* (SandScope): executes portable MCP tools under WASI (or drives unmodified MCP servers over stdio), extracts LLM-visible sinks and reports auditable source-to-sink witnesses — WASI as the execution/audit substrate for tool-augmented LLM agents.
 - **[arXiv 2604.03081](https://arxiv.org/abs/2604.03081)** — *Supply-Chain Poisoning Attacks Against LLM Coding Agent Skill Ecosystems*: agent skills from open marketplaces run as operational directives with system-level privileges; the DDIPE attack achieves 11.6–33.5% bypass rates and 2.5% evade static analysis + alignment. Execution isolation (as provided by WASI Preview1) limits the blast radius when detection fails.
+
+## 2026 probe classes (2026-09-25)
+
+Three 2026-motivated probe classes run as measured evidence
+(`benchmarks/probe_classes_2026.py`, dated JSON with `measured:true`,
+pytest counterparts in `tests/test_fs_escape_matrix.py`,
+`tests/test_persistence_worm.py`, `tests/test_control_plane_reachability.py`,
+`tests/test_tool_signing.py::TestTrustHandoff`):
+
+- **FS escape matrix** — the companion vectors of
+  GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 (trailing-slash `path_open`,
+  mixed dot-dot + trailing slash, hardlink across the preopen boundary,
+  rename across the boundary, TRUNCATE without the write/set-size
+  right), each with a granted positive control. Measured on the pinned
+  47.0.1 engine: **all vectors denied** (errno 63/44/28 — NOTCAPABLE /
+  ENOENT / EINVAL-class refusals), host-side artifacts untouched. The
+  pytest markers stay xfail until the M2 engine upgrade re-runs the
+  matrix on the patched engine — the advisory remains authoritative.
+- **Persistence / worm** — a marker written by run N is invisible to
+  run N+1 (fresh scratch per run, same instance or not); the reader
+  probe proves detection via a legitimate allow-dir control; named
+  state exists only behind the explicit ADR-004 grant.
+- **Supervisor/control-plane reachability** — motivated by OX Security
+  CVE-2026-82533 (a sandboxed agent disabling its own confinement):
+  environment deny-by-default (allowlist positive control shows exactly
+  the granted name), guest request-lookalike writes never reach the
+  operator-allowlisted requests dir, no policy-writing tool exists on
+  the MCP surface, engine knobs are structurally frozen
+  (`tests/test_threads_baseline.py`), protocol abuse fails closed
+  (`tests/test_transport.py`).
+
+Related literature for these classes (measured:false for Cell —
+motivational framing only): [arXiv 2603.22489](https://arxiv.org/abs/2603.22489)
+(*Securing the MCP: A Dual-Axis Survey* — tool poisoning, rug-pull,
+handoff erosion), OX Security's CVE-2026-82533 advisory
+(supervisor control-plane reachability), and the 2026 persistence-worm
+research line (self-propagating agent payloads via persistent storage).

@@ -313,6 +313,12 @@ Artifacts: `benchmarks/results/scale-results.json`, `scale_dgx_{100,500,1000}.js
 - E2B: https://github.com/e2b-dev/e2b · https://e2b.dev/pricing ·
   https://github.com/e2b-dev/infra/issues/3012
 - Docker MCP overhead: https://github.com/enkryptai/secure-mcp-gateway/blob/main/docs/sandbox_walkthrough.md
+- 2026 probe classes: https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-vqjp-4c8c-hfgg
+  (FS escape companions, CVE-2026-47261),
+  https://www.ox.security/blog/cve-2026-82533-deepseek-harness-ai-agent-sandbox-escape
+  (supervisor control-plane reachability),
+  https://arxiv.org/abs/2603.22489 (Securing the MCP: A Dual-Axis Survey —
+  tool poisoning, handoff erosion)
 - Supply chain: https://snyk.io/blog/malicious-mcp-server-on-npm-postmark-mcp-harvests-emails/,
   https://www.heise.de/en/news/Supply-chain-worm-with-its-own-MCP-server-spreads-via-GitHub-11190731.html,
   https://www.ox.security/blog/shai-hulud-outbreak-debrief-the-worm-evolves-into-mcp/,

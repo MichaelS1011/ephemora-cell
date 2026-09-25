@@ -294,9 +294,14 @@ advisories affect the pinned 47.0.1 line:
   affected code path is reachable even in the default posture; operator-granted
   `allow_dirs` widen the reachable scope. No config-level workaround exists
   upstream. Tracked as the engine-upgrade gate (47.0.4+ or 48.0.3+ once wheels
-  publish); the preopen test matrix will gain trailing-slash/hardlink/rename/
-  TRUNCATE vectors with positive controls as part of that upgrade
-  (SECURITY_ADVISORY_PLAN_2026-09-24.md, milestones M2–M4).
+  publish). **The preopen test matrix exists** (2026-09-25):
+  `tests/test_fs_escape_matrix.py` + `benchmarks/probe_classes_2026.py` run the
+  trailing-slash/hardlink/rename/TRUNCATE companion vectors with positive
+  controls — measured on the pinned 47.0.1 engine, **none of the escape shapes
+  reproduce through Cell's preopen grant path** (all blocked, dated evidence in
+  `benchmarks/results/2026-09-25/probe_classes_2026.json`). The xfail markers
+  stay until the M2 upgrade re-runs the matrix on the patched engine — the
+  advisory remains authoritative.
 
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
 `benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi

@@ -1,0 +1,67 @@
+{
+  "measured": true,
+  "date": "2026-09-25",
+  "engine": {
+    "wasmtime": "47.0.1"
+  },
+  "provenance": {
+    "fs_class": "GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 companion vectors",
+    "worm_class": "2026 persistence-worm research (agent payloads via persistent storage); npx/uvx worm incidents (SANDWORM_MODE)",
+    "control_plane_class": "OX Security CVE-2026-82533 (supervisor control-plane reachability)"
+  },
+  "fs_escape_matrix": {
+    "positive_controls": {
+      "open_allowed": true,
+      "link_inside": true,
+      "rename_inside": true,
+      "truncate_with_right": true
+    },
+    "attacks": [
+      {
+        "vector": "plain_traversal",
+        "attack_errno": 63,
+        "blocked": true
+      },
+      {
+        "vector": "trailing_slash",
+        "attack_errno": 63,
+        "blocked": true
+      },
+      {
+        "vector": "mixed_dotdot_trailing_slash",
+        "attack_errno": 44,
+        "blocked": true
+      },
+      {
+        "vector": "hardlink_across_boundary",
+        "attack_errno": 63,
+        "blocked": true
+      },
+      {
+        "vector": "rename_across_boundary",
+        "attack_errno": 63,
+        "blocked": true
+      },
+      {
+        "vector": "truncate_without_right",
+        "attack_errno": 28,
+        "blocked": true
+      }
+    ],
+    "outside_target_untouched": true
+  },
+  "persistence_worm": {
+    "reader_positive_control_detected": true,
+    "writer_wrote": true,
+    "fresh_run_marker_absent": true,
+    "fresh_run_exit_code": 44
+  },
+  "control_plane": {
+    "env_visible_by_default": 0,
+    "env_deny_by_default": true,
+    "env_allowlist_grant_visible_exactly_one": true,
+    "request_lookalike_written_by_guest": true,
+    "requests_dir_untouched": true
+  },
+  "pass": true
+}
