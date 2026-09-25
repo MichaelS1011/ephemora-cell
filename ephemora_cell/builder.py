@@ -35,6 +35,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ephemora_cell._fsutil import atomic_copyfile
+
 DEFAULT_TIMEOUT = 600.0
 
 # (language, regex, hint) — matched against the toolchain's stderr.
@@ -292,9 +294,11 @@ def build(recipe: BuildRecipe, timeout: float = DEFAULT_TIMEOUT) -> BuildResult:
     output_path = recipe.output
     if recipe.language == "rust" and recipe.produced_path is not None:
         # cargo writes into target/; if --out was given, copy the artifact
+        # (atomically — a built tool never appears half-written in a
+        # tools directory that a registry may be scanning)
         if recipe.produced_path.exists():
             if output_path != recipe.produced_path:
-                output_path.write_bytes(recipe.produced_path.read_bytes())
+                atomic_copyfile(recipe.produced_path, output_path)
         else:
             stderr = proc.stderr or proc.stdout or ""
             return BuildResult(

@@ -115,6 +115,16 @@ def verify_manifest(
         return False
 
 
+def tool_wasm_sha256_bytes(wasm_bytes: bytes) -> str:
+    """Lowercase hex SHA-256 of module bytes.
+
+    The bytes-level twin of :func:`tool_wasm_sha256`: the governed-load
+    path hashes the exact in-memory copy it is about to publish, so the
+    verified digest and the installed bytes cannot diverge.
+    """
+    return hashlib.sha256(wasm_bytes).hexdigest()
+
+
 def tool_wasm_sha256(wasm_path: str | Path) -> str:
     """Lowercase hex SHA-256 of a module — the binding between a signed
     manifest and the exact bytes it describes (ADR-006): the digest is a

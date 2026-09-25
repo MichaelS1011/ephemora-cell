@@ -46,12 +46,12 @@ returned as ``isError: true`` results with status + message and the same
 from __future__ import annotations
 
 import json
-import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ephemora_cell._fsutil import atomic_write_bytes, atomic_write_json
 from ephemora_cell.profiles import get as get_profile
 
 from . import protocol
@@ -59,7 +59,7 @@ from .engine import CellOutcome, CellToolEngine, ToolExecutionError, parse_tool_
 from .tool_registry import (
     TOOL_REQUEST_SUFFIX,
     ToolRegistry,
-    tool_wasm_sha256,
+    tool_wasm_sha256_bytes,
     verify_manifest,
 )
 from .transport import StdioTransport
@@ -621,7 +621,16 @@ class Server:
         if not verify_manifest(manifest, verifier):
             return False, "manifest signature invalid (unsigned/tampered)"
         declared = manifest.get("wasm_sha256")
-        if not isinstance(declared, str) or declared != tool_wasm_sha256(wasm_abs):
+        # Read the module ONCE and hash the in-memory copy: the digest we
+        # verify is the digest of the exact bytes published below — no
+        # swap between verification and installation can diverge them.
+        try:
+            wasm_bytes = wasm_abs.read_bytes()
+        except OSError as e:
+            return False, f"module unreadable: {e}"
+        if not isinstance(declared, str) or declared.lower() != (
+            tool_wasm_sha256_bytes(wasm_bytes)
+        ):
             return False, (
                 "module hash mismatch — the signed manifest does not "
                 "describe these bytes"
@@ -636,13 +645,13 @@ class Server:
         stem = wasm_abs.stem
         if stem in current_names or (self.tools_dir / f"{stem}.wasm").exists():
             return False, f"tool name collision: {stem!r} already registered"
-        # Install: copy the module into the registry dir + drop the signed
-        # sidecar next to it.
-        shutil.copyfile(wasm_abs, self.tools_dir / f"{stem}.wasm")
-        (self.tools_dir / f"{stem}.json").write_text(
-            json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        # Install: publish the signed sidecar FIRST and the module LAST,
+        # both atomically (temp file + fsync + os.replace). A scan racing
+        # the install then only ever sees either nothing or a bare .wasm
+        # without a sidecar — which signed-tools mode rejects — never a
+        # half-written file.
+        atomic_write_json(self.tools_dir / f"{stem}.json", manifest)
+        atomic_write_bytes(self.tools_dir / f"{stem}.wasm", wasm_bytes)
         return True, stem
 
     def _build_call_result(self, outcome: CellOutcome) -> dict[str, Any]:

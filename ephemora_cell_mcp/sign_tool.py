@@ -19,6 +19,8 @@ import json
 import sys
 from pathlib import Path
 
+from ephemora_cell._fsutil import atomic_write_text
+
 
 def _ed25519_signer_from_pem(pem_path: str):
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
@@ -92,8 +94,11 @@ def main(argv: list[str] | None = None) -> int:
     from .tool_registry import sign_manifest
 
     signed = sign_manifest(manifest, signer, alg=args.alg)
-    manifest_path.write_text(
-        json.dumps(signed, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    # Atomic publish: an aborted write must not destroy the operator's
+    # existing manifest (previously an in-place write could truncate it).
+    atomic_write_text(
+        manifest_path,
+        json.dumps(signed, indent=2, ensure_ascii=False) + "\n",
     )
     print(f"signed {args.manifest} (alg={args.alg})")
     return 0
