@@ -48,9 +48,6 @@ AI Agent / Application
   <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers">
     <img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell" alt="GitHub stars">
   </a>
-  <a href="https://github.com/sponsors/MichaelS1011">
-    <img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors" alt="Sponsor Ephemora Cell on GitHub Sponsors">
-  </a>
 </p>
 
 <p align="center">
