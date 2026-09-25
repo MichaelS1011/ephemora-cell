@@ -6,29 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.0.4.3] - 2026-09-25
+
+First release carrying the 2026-09-25 hardening line (load-path TOCTOU
+closure, 2026 probe classes, ADR-008 record split) and the review-driven
+README reorientation. The 2026-09-24 full-functional audit found H-1
+(missing register-time re-hash) and M-1 (oversized-line transport bug);
+both were fixed, regression-tested and released in 1.0.4.2 — this
+release carries the follow-up hardening the same audit→fix→regression
+cycle produced.
+
 ### Security
 
-- **Atomic publication + per-call module binding (load-path TOCTOU
-  closed):** all producers (governed-load install, `sign_tool`, rust
-  builder) publish files via temp + fsync + `os.replace` — a
-  partially-written module is never visible under its final name, and
-  the governed install publishes exactly the bytes it verified. The
-  registry load-guard registers only settled, magic-prefixed modules
-  within the size cap; in signed-tools mode every execution is bound to
-  the register-time digest (`WASISandbox.run(expected_sha256=...)`,
-  preview1/component/subprocess alike) — a swapped on-disk file fails
-  closed instead of executing. The engine-pool module cache is keyed by
-  content hash (no stat-then-open race, no stale-serve for mtime-preserving
-  swaps). ADR-006 amendment documents the full model.
-- **Explicit proposal policy (set, not inherited):** the engine now also
+- **Explicit proposal policy (set, not inherited):** the engine also
   enforces `wasm_stack_switching=False` (WASI 0.3 native-async base —
   gate-off until the 0.3 surface is qualified; WASIp3 streams of
   GHSA-x84v-gj2h-g759 are structurally unreachable: the Python binding
   cannot link a WASIp3 world, asserted in `tests/test_surface_audit.py`).
   The full proposal posture is documented in SECURITY.md and locked by a
   compile-probe matrix (`tests/test_proposal_policy.py`) plus SpyConfig
-  assertions at every engine construction site — a wasmtime upgrade that
-  silently flips a proposal default now fails tests instead of production.
+  assertions at every engine construction site — an engine upgrade that
+  silently flips a proposal default fails tests instead of production.
 - **CVE-2026-34988 class guard:** the pooling allocator is not exposed by
   the Python binding (the cache-pressure-residue class is unreachable).
   An explicit 4 GiB `memory_guard_size` was evaluated and **reverted** —
@@ -41,9 +39,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   wasmtime `>= 43.0.1` (April 2026 advisory fixes), the Winch backend is
   asserted unselectable ("never Winch"), and `Engine.is_pulley()` is
   asserted `False` — no interpreted fallback in the shipped posture.
+- **Atomic publication + per-call module binding (load-path TOCTOU
+  closed):** all producers (governed-load install, `sign_tool`, rust
+  builder) publish via temp + fsync + `os.replace` — a partially-written
+  module is never visible under its final name, and the governed install
+  publishes exactly the bytes it verified. The registry load-guard
+  registers only settled, magic-prefixed modules within the size cap; in
+  signed-tools mode every execution is bound to the register-time digest
+  (`WASISandbox.run(expected_sha256=...)`, preview1/component/subprocess
+  alike) — a swapped on-disk file fails closed instead of executing. The
+  engine-pool module cache is keyed by content hash (no stat-then-open
+  race, no stale-serve for mtime-preserving swaps). ADR-006 amendment
+  documents the full model.
+- **Version-sync guard:** CI machine-checks that pyproject.toml, both
+  package `__version__` modules, both server.json fields and the latest
+  git tag agree (release checklist in CONTRIBUTING) — the single-source
+  versioning invariant is now proven, not remembered.
 
 ### Added
 
+- **2026 probe classes with measured evidence:** FS escape matrix (all
+  CVE-2026-47261 companion vectors — trailing-slash/hardlink/rename/
+  TRUNCATE — denied on the pinned engine, with positive controls; dated
+  JSON `benchmarks/results/2026-09-25/`), persistence/worm (a marker
+  written by run N is invisible to run N+1), supervisor/control-plane
+  reachability (env deny-by-default, request injection impossible, no
+  policy-writing tool on the MCP surface), trust-handoff (verification
+  never inherits across delegation hops). Harness:
+  `benchmarks/probe_classes_2026.py`; pytest counterparts in
+  `tests/test_fs_escape_matrix.py`, `tests/test_persistence_worm.py`,
+  `tests/test_control_plane_reachability.py`,
+  `tests/test_tool_signing.py::TestTrustHandoff`.
 - **ADR-008 record split + open-standard envelopes:** `PreExecutionRecord`
   signs what a run *will* do before it runs (module digest, policy
   fingerprint with allow_env names only, input digest); the receipt's
@@ -54,17 +80,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   signature-covered payload field — no network client, no dependency.
   Plain report schemas are unchanged (compat-pinned).
 - docs/threat-model.md: dedicated resource-exhaustion section with a
-  per-WASI-call budget matrix (12 measured Preview1 syscalls mapped to
-  fuel / I/O byte wall / disk quota / io-CPU watchdog / output cap),
-  framing the arXiv 2509.11242 findings and the fd_renumber leak class
-  (GHSA-3p27-qvp9-27qf — 47.x not affected, cited as class exemplar).
+  per-syscall budget matrix (arXiv 2509.11242 framing, measured
+  `benchmarks/io_dos/` numbers)
 - docs/performance.md: backend-transparency section (every published
-  number is Cranelift; Lumos literature numbers marked `measured:false`)
-  and third-party positioning vs. Firecracker-class microVMs (arXiv
-  2509.09400, VHPC'25).
-- README "What is enforced": the structural default-off defense narrative
-  (2025/26 divergence pattern: fuel gap, Cranelift batch, vm2 try_table
-  escape); docs/recipes.md carries the explicit WASI 0.3 gate-off stance.
+  number is a Cranelift number; Pulley/Winch unreachable), "Fuel is
+  per-platform" section with cross-platform measured examples
+- docs/recipes.md: WASI 0.3 gate-off stance, throughput scale-check
+- docs/security_posture.md: 2026 probe-classes section; probe
+  equivalence detail and sandbox-surface diagram
+- README: start-here navigation, freshness block (release/audit/
+  evidence/tests), content tiering 749 → 589 lines with zero evidence
+  loss (probe-equivalence detail, enforcement-stack diagram and
+  throughput scale-check moved to docs; sales rhetoric damped)
 
 ## [1.0.4.2] - 2026-09-24
 

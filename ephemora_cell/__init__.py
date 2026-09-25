@@ -190,4 +190,4 @@ __all__ = [
     "verify_chain",
 ]
 
-__version__ = "1.0.4.2"
+__version__ = "1.0.4.3"

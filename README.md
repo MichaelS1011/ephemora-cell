@@ -92,7 +92,7 @@ AI Agent / Application
   <a href="#documentation">Docs</a>
 </p>
 
-> **Status (2026-09-25):** latest release **v1.0.4.2** (2026-09-24, security interim — [changelog](CHANGELOG.md)) · full functional audit 2026-09-24, findings fixed and released the same day · latest reproducible evidence: 2026-09-25 (probe classes, [`benchmarks/results/`](benchmarks/results/)) · 532 tests passing, 86% coverage (see CI badge — refreshed per release)
+> **Status (2026-09-25):** latest release **v1.0.4.3** (2026-09-25, docs & hardening release — [changelog](CHANGELOG.md)) · full functional audit 2026-09-24, findings fixed and released the same day · latest reproducible evidence: 2026-09-25 (probe classes, [`benchmarks/results/`](benchmarks/results/)) · 532 tests passing, 86% coverage (see CI badge — refreshed per release)
 
 <p align="center">
   <picture>
