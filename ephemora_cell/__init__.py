@@ -31,8 +31,19 @@ the former exceptions.py classes were exported but never raised.
 
 from .engine_pool import EnginePool, config_fingerprint
 from .execution_report import (
+    DSSE_TYPE_EXECUTION_REPORT as dsse_type_execution_report,
+)
+from .execution_report import (
+    DSSE_TYPE_PRE_EXEC_RECORD as dsse_type_pre_exec_record,
+)
+from .execution_report import (
     ExecutionReport,
     PreExecutionRecord,
+    detached_jws_sign,
+    detached_jws_verify,
+    dsse_pae,
+    dsse_sign,
+    dsse_verify,
     verify_chain,
 )
 from .process_executor import measure_overhead
@@ -162,6 +173,13 @@ __all__ = [
     "WASIConfig",
     "WASISandbox",
     "config_fingerprint",
+    "detached_jws_sign",
+    "detached_jws_verify",
+    "dsse_pae",
+    "dsse_sign",
+    "dsse_type_execution_report",
+    "dsse_type_pre_exec_record",
+    "dsse_verify",
     "get_profile",
     "inspect_module",
     "is_component_binary",

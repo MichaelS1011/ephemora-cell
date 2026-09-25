@@ -297,7 +297,7 @@ class TestRenameEscape:
 
     @_XFAIL_FS
     def test_rename_across_boundary_blocked(self, fs_env):
-        base, parent = fs_env
+        base, _parent = fs_env
         errno = _run_attack(
             base, _compile(_rename_wat(_ALLOWED, "../renamed_escape.txt"))
         )

@@ -201,6 +201,30 @@ signed["fuel_consumed"] += 1            # someone rewrites the history ...
 assert ExecutionReport.verify(signed, _ed25519_verify(key)) is False  # caught
 ```
 
+### Pre-exec / receipt split (ADR-008)
+
+Sign what a run *will* do before it runs, then bind the receipt to it:
+
+```python
+from ephemora_cell import PreExecutionRecord, verify_chain
+
+pre = PreExecutionRecord.build(module_path="tool.wasm", config=config)
+signed_pre = pre.sign(key.sign, alg="EdDSA")
+
+# ... run the sandbox ...
+report.back_link = {
+    "pre_exec_id": signed_pre["id"],
+    "pre_exec_digest": pre_exec_digest,  # sha256 of the JCS payload
+}
+assert verify_chain(signed_pre, report.sign(key.sign, alg="EdDSA"),
+                    _ed25519_verify(key))
+```
+
+For ecosystem interop the same records wrap into DSSE v1 envelopes
+(`report.to_dsse(key.sign, alg="EdDSA")`, verified with
+`dsse_verify`) or detached JWS (`detached_jws_sign`, RFC 7797) — all
+over the same RFC 8785 JCS bytes, so digests agree across formats.
+
 A complete runnable demo lives in `examples/signed_record_demo.py`
 (needs the optional `tools-signing` extra):
 

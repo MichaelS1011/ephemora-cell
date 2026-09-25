@@ -8,6 +8,7 @@ sign/verify helpers that stay signer-agnostic (bytes in, bytes out).
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import math
@@ -19,6 +20,11 @@ from typing import Any
 
 #: Type tag of the pre-execution attestation payload (ADR-008).
 PRE_EXEC_RECORD_TYPE = "ephemora.pre_exec.v1"
+
+#: Default DSSE type URIs for Cell records (ADR-008). Defined before the
+#: record classes because they appear as ``to_dsse`` default arguments.
+DSSE_TYPE_EXECUTION_REPORT = "https://ephemora.dev/execution-report.v1"
+DSSE_TYPE_PRE_EXEC_RECORD = "https://ephemora.dev/pre-execution-record.v1"
 
 
 def _default_security_baseline() -> dict[str, Any]:
@@ -245,6 +251,27 @@ class ExecutionReport:
         except Exception:
             return False
 
+    def to_dsse(
+        self,
+        signer: Callable[[bytes], bytes],
+        *,
+        type_uri: str = DSSE_TYPE_EXECUTION_REPORT,
+        alg: str = "ES256",
+        key_id: str | None = None,
+    ) -> dict[str, Any]:
+        """DSSE v1 envelope over this record's JCS payload (ADR-008).
+
+        Interoperable with the in-toto/TUF ecosystem: the signature is
+        over the DSSE PAE, verification goes through :func:`dsse_verify`.
+        """
+        return dsse_sign(
+            canonical_bytes(self.to_dict()),
+            payload_type=type_uri,
+            signer=signer,
+            alg=alg,
+            key_id=key_id,
+        )
+
     def summary(self) -> str:
         lines = [
             f"Status: {self.status}",
@@ -413,6 +440,23 @@ class PreExecutionRecord:
             return bool(verifier(canonical, signature))
         except Exception:
             return False
+
+    def to_dsse(
+        self,
+        signer: Callable[[bytes], bytes],
+        *,
+        type_uri: str = DSSE_TYPE_PRE_EXEC_RECORD,
+        alg: str = "ES256",
+        key_id: str | None = None,
+    ) -> dict[str, Any]:
+        """DSSE v1 envelope over this record's JCS payload (ADR-008)."""
+        return dsse_sign(
+            canonical_bytes(self.to_dict()),
+            payload_type=type_uri,
+            signer=signer,
+            alg=alg,
+            key_id=key_id,
+        )
 
 
 def verify_chain(
@@ -590,3 +634,163 @@ def canonical_bytes(record: Any) -> bytes:
     if isinstance(record, ExecutionReport):
         record = record.to_dict()
     return jcs_canonicalize(record).encode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Open-standard envelopes (ADR-008): DSSE v1 and detached JWS (RFC 7797).
+#
+# These are PARALLEL output formats to the SEP-2787-native sign()/verify()
+# primitives above (which keep the payload native JSON, no base64url).
+# The payload bytes are always the RFC 8785 JCS canonicalization, so a
+# payload's digest is the same across all three formats.
+# ---------------------------------------------------------------------------
+
+
+def _b64url(data: bytes) -> bytes:
+    return base64.urlsafe_b64encode(data).rstrip(b"=")
+
+
+def _b64url_decode(data: str | bytes) -> bytes:
+    if isinstance(data, str):
+        data = data.encode("ascii")
+    return base64.urlsafe_b64decode(data + b"=" * (-len(data) % 4))
+
+
+def dsse_pae(payload: bytes, payload_type: str) -> bytes:
+    """DSSE v1 Pre-Authentication Encoding.
+
+    ``"DSSEv1" || LE32(len(type)) || type || LE32(len(payload)) || payload``
+    — the exact byte string every DSSE consumer (in-toto, TUF ecosystem)
+    feeds to its verifier.
+    """
+    t = payload_type.encode("utf-8")
+    return (
+        b"DSSEv1"
+        + len(t).to_bytes(4, "little")
+        + t
+        + len(payload).to_bytes(4, "little")
+        + payload
+    )
+
+
+def dsse_sign(
+    payload: bytes,
+    *,
+    payload_type: str,
+    signer: Callable[[bytes], bytes],
+    alg: str = "ES256",
+    key_id: str | None = None,
+) -> dict[str, Any]:
+    """Wrap canonical payload bytes in a DSSE v1 envelope.
+
+    The signer receives the PAE — per DSSE, signatures are over the
+    encoded envelope, not the raw payload.
+    """
+    if not callable(signer):
+        raise TypeError(f"signer must be callable, got {type(signer).__name__}")
+    raw = signer(dsse_pae(payload, payload_type))
+    if not isinstance(raw, (bytes, bytearray)):
+        raise TypeError(f"signer must return bytes, got {type(raw).__name__}")
+    signature: dict[str, Any] = {
+        "alg": alg,
+        "sig": base64.b64encode(bytes(raw)).decode("ascii"),
+    }
+    if key_id is not None:
+        signature["keyid"] = key_id
+    return {
+        "payloadType": payload_type,
+        "payload": base64.b64encode(payload).decode("ascii"),
+        "signatures": [signature],
+    }
+
+
+def dsse_verify(envelope: Any, verifier: Callable[[bytes, bytes], bool]) -> bool:
+    """Verify a DSSE v1 envelope. **Fails closed.**
+
+    Per the DSSE spec, ALL listed signatures must verify (an envelope
+    with zero signatures is malformed, not valid).
+    """
+    if not isinstance(envelope, dict) or not callable(verifier):
+        return False
+    payload_type = envelope.get("payloadType")
+    payload_b64 = envelope.get("payload")
+    signatures = envelope.get("signatures")
+    if (
+        not isinstance(payload_type, str)
+        or not isinstance(payload_b64, str)
+        or not isinstance(signatures, list)
+        or not signatures
+    ):
+        return False
+    try:
+        payload = base64.b64decode(payload_b64, validate=True)
+        pae = dsse_pae(payload, payload_type)
+        for sig_entry in signatures:
+            if not isinstance(sig_entry, dict) or "sig" not in sig_entry:
+                return False
+            signature = base64.b64decode(sig_entry["sig"], validate=True)
+            if not bool(verifier(pae, signature)):
+                return False
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
+def detached_jws_sign(
+    payload: dict[str, Any],
+    signer: Callable[[bytes], bytes],
+    *,
+    alg: str = "ES256",
+    headers: dict[str, Any] | None = None,
+) -> str:
+    """Compact detached JWS over the JCS payload (RFC 7797, unencoded).
+
+    The payload is NOT carried in the token: the JWS is
+    ``header..signature`` and the verifier must supply the payload
+    itself (here: the dict to JCS-canonicalize). Signing input is
+    ``ASCII(header) || '.' || payload_bytes`` per RFC 7797 §3.
+    """
+    if not callable(signer):
+        raise TypeError(f"signer must be callable, got {type(signer).__name__}")
+    header: dict[str, Any] = {"alg": alg, "b64": False, "crit": ["b64"]}
+    if headers:
+        header.update(headers)
+    header_b64 = _b64url(
+        json.dumps(header, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    payload_bytes = canonical_bytes(payload)
+    raw = signer(header_b64 + b"." + payload_bytes)
+    if not isinstance(raw, (bytes, bytearray)):
+        raise TypeError(f"signer must return bytes, got {type(raw).__name__}")
+    return (header_b64 + b"." + b"." + _b64url(bytes(raw))).decode("ascii")
+
+
+def detached_jws_verify(
+    jws: str,
+    payload: dict[str, Any],
+    verifier: Callable[[bytes, bytes], bool],
+) -> bool:
+    """Verify a detached JWS against the SUPPLIED payload. **Fails closed.**"""
+    if (
+        not isinstance(jws, str)
+        or not isinstance(payload, dict)
+        or not callable(verifier)
+    ):
+        return False
+    try:
+        header_b64, payload_b64, signature_b64 = jws.split(".")
+        if payload_b64:
+            return False  # detached form carries no payload segment
+        header = json.loads(_b64url_decode(header_b64))
+        if not isinstance(header, dict):
+            return False
+        if header.get("b64") is not False or "b64" not in header.get("crit", []):
+            return False
+        signing_input = header_b64.encode("ascii") + b"." + canonical_bytes(payload)
+        signature = _b64url_decode(signature_b64)
+    except (ValueError, TypeError):
+        return False
+    try:
+        return bool(verifier(signing_input, signature))
+    except Exception:
+        return False

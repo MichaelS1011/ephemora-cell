@@ -44,6 +44,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **ADR-008 record split + open-standard envelopes:** `PreExecutionRecord`
+  signs what a run *will* do before it runs (module digest, policy
+  fingerprint with allow_env names only, input digest); the receipt's
+  optional `back_link` binds it to exactly that attestation
+  (`verify_chain()`, fail-closed). DSSE v1 envelopes (PAE-signed,
+  in-toto/TUF-interoperable) and detached JWS (RFC 7797) wrap the same
+  RFC 8785 JCS payload bytes; a transparency-log inclusion proof is a
+  signature-covered payload field — no network client, no dependency.
+  Plain report schemas are unchanged (compat-pinned).
 - docs/threat-model.md: dedicated resource-exhaustion section with a
   per-WASI-call budget matrix (12 measured Preview1 syscalls mapped to
   fuel / I/O byte wall / disk quota / io-CPU watchdog / output cap),

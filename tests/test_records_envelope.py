@@ -156,3 +156,141 @@ class TestPolicyAndInputDigests:
         assert input_digest(["-x"], "a") != input_digest(["-x"], "b")
         assert input_digest(["-x"], "a") != input_digest(["-y"], "a")
         assert input_digest(None, None) == input_digest([], None)
+
+
+class TestDSSE:
+    """DSSE v1 envelope (PAE signing) — the in-toto/TUF interop format."""
+
+    def test_report_roundtrip(self):
+        from ephemora_cell.execution_report import dsse_verify
+
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        envelope = report.to_dsse(_signer, alg="EdDSA", key_id="k1")
+        assert envelope["payloadType"]
+        assert dsse_verify(envelope, _verifier)
+
+    def test_pae_is_spec_exact(self):
+        """PAE = "DSSEv1" || LE32(len(type)) || type || LE32(len(payload)) || payload."""
+        from ephemora_cell.execution_report import dsse_pae
+
+        pae = dsse_pae(b"AB", "type")
+        assert (
+            pae
+            == b"DSSEv1"
+            + (4).to_bytes(4, "little")
+            + b"type"
+            + (2).to_bytes(4, "little")
+            + b"AB"
+        )
+
+    def test_prelude_payload_is_jcs_bytes(self):
+        """The envelope payload decodes to the SAME JCS bytes the native
+        sign() path feeds to the signer — digests agree across formats."""
+        import base64
+
+        from ephemora_cell.execution_report import canonical_bytes
+
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        envelope = report.to_dsse(_signer, alg="EdDSA")
+        decoded = base64.b64decode(envelope["payload"], validate=True)
+        assert decoded == canonical_bytes(report)
+
+    def test_signature_is_over_pae_not_payload(self):
+        """A signature over the raw payload must NOT verify: DSSE signs
+        the PAE, so a verifier that skips the encoding fails closed."""
+        import base64
+
+        from ephemora_cell.execution_report import dsse_sign, dsse_verify
+
+        envelope = dsse_sign(b'{"a":1}', payload_type="t", signer=lambda d: _signer(d))
+        # re-sign the raw payload with the same key, swap it in → invalid
+        wrong_sig = _signer(b'{"a":1}')
+        envelope["signatures"][0]["sig"] = base64.b64encode(wrong_sig).decode()
+        assert not dsse_verify(envelope, _verifier)
+
+    def test_all_signatures_must_verify(self):
+        from ephemora_cell.execution_report import dsse_sign, dsse_verify
+
+        envelope = dsse_sign(b"p", payload_type="t", signer=_signer)
+        envelope["signatures"].append({"sig": "AAAA"})
+        assert not dsse_verify(envelope, _verifier)
+
+    def test_empty_signatures_and_malformed_fail_closed(self):
+        from ephemora_cell.execution_report import dsse_verify
+
+        assert not dsse_verify(None, _verifier)
+        assert not dsse_verify({}, _verifier)
+        assert not dsse_verify(
+            {"payloadType": "t", "payload": "eA", "signatures": []}, _verifier
+        )
+        assert not dsse_verify(
+            {"payloadType": "t", "payload": "!!!", "signatures": [{"sig": "AAAA"}]},
+            _verifier,
+        )
+
+
+class TestDetachedJWS:
+    """Compact detached JWS over JCS (RFC 7797, b64=false, crit b64)."""
+
+    def test_roundtrip_and_tamper(self):
+        from ephemora_cell.execution_report import (
+            detached_jws_sign,
+            detached_jws_verify,
+        )
+
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        payload = report.to_dict()
+        jws = detached_jws_sign(payload, _signer, alg="EdDSA")
+        # detached: the payload segment is empty
+        assert jws.split(".")[1] == ""
+        assert detached_jws_verify(jws, payload, _verifier)
+        tampered = dict(payload)
+        tampered["exit_code"] = 137
+        assert not detached_jws_verify(jws, tampered, _verifier)
+
+    def test_rejects_encoded_payload_form(self):
+        """b64 must be false with crit declared — an encoded-payload JWS
+        is a different standard form and fails closed here."""
+        import base64
+        import json as _json
+
+        from ephemora_cell.execution_report import detached_jws_verify
+
+        header = base64.urlsafe_b64encode(
+            _json.dumps({"alg": "EdDSA"}).encode()
+        ).rstrip(b"=")
+        sig = base64.urlsafe_b64encode(b"\x00" * 32).rstrip(b"=")
+        jws = header.decode() + ".cGF5bG9hZA." + sig.decode()
+        assert not detached_jws_verify(jws, {}, _verifier)
+
+    def test_malformed_input_fails_closed(self):
+        from ephemora_cell.execution_report import detached_jws_verify
+
+        assert not detached_jws_verify("not-a-jws", {}, _verifier)
+        assert not detached_jws_verify(None, {}, _verifier)
+
+
+class TestInclusionProofField:
+    """Transparency-ready extension point (ADR-008): an inclusion_proof
+    rides INSIDE the signed payload, so it is automatically covered by
+    the signature — no format change, no network client in Cell."""
+
+    def test_inclusion_proof_is_signature_covered(self):
+        """Extension path: the proof is added to the payload BEFORE
+        signing (verify() is dict-based, so no API change is needed) —
+        the field is then automatically covered by the signature, and
+        tampering with it fails verification."""
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        payload = report.to_dict()
+        payload["inclusion_proof"] = {
+            "log": "rekor-v2.example",
+            "index": 42,
+            "root": "aa" * 32,
+        }
+        payload["alg"] = "EdDSA"
+        payload["signature"] = _signer(canonical_bytes(payload)).hex()
+        assert payload["inclusion_proof"]["index"] == 42
+        assert ExecutionReport.verify(payload, _verifier)
+        # Tampering with the proof breaks verification (it is covered).
+        payload["inclusion_proof"]["index"] = 43
+        assert not ExecutionReport.verify(payload, _verifier)
