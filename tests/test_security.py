@@ -358,10 +358,14 @@ class TestSecurity4_3_Path_Traversal:
 
     @staticmethod
     def _make_safe_dir() -> Path:
-        """Create a safe dir OUTSIDE /private (canonical allowlist forbids /private)."""
-        safe_dir = Path.home() / f".ephemora_safe_{os.getpid()}"
-        safe_dir.mkdir(parents=True, exist_ok=True)
-        return safe_dir
+        """Create a safe dir under TMPDIR.
+
+        Works on every platform: macOS canonicalizes /tmp and /var/folders
+        to /private/... which the canonical allowlist explicitly excepts,
+        and containers with HOME=/root no longer trip the dangerous-dir
+        filter (the old Path.home() location).
+        """
+        return Path(tempfile.mkdtemp(prefix="ephemora_safe_"))
 
     def test_symlink_not_followed_via_wasm(self):
         """Real WASM tries to read through a symlink — must be blocked."""

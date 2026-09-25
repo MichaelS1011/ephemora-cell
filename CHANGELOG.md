@@ -18,11 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   assertions at every engine construction site — a wasmtime upgrade that
   silently flips a proposal default now fails tests instead of production.
 - **CVE-2026-34988 class guard:** the pooling allocator is not exposed by
-  the Python binding (the cache-pressure-residue class is unreachable);
-  `memory_guard_size` is set explicitly at every site anyway, and
+  the Python binding (the cache-pressure-residue class is unreachable).
+  An explicit 4 GiB `memory_guard_size` was evaluated and **reverted** —
+  it broke `run_isolated` in constrained Linux VMs (mmap ENOMEM on
+  reservation+guard; caught by the arm64 container gate).
   `tests/test_memory_hygiene.py` proves sequential instances observe only
   zeroed memory (secret-writer → residue-reader, same sandbox and pooled
-  engine).
+  engine) and is the standing guard.
 - **CVE-2026-34971 confirmation artifacts:** a version-floor test pins
   wasmtime `>= 43.0.1` (April 2026 advisory fixes), the Winch backend is
   asserted unselectable ("never Winch"), and `Engine.is_pulley()` is

@@ -161,10 +161,13 @@ release (`tests/test_proposal_policy.py`), attested in `security_baseline`
 
 Not exposed by the Python binding (documented posture, unreachable either
 way): the **pooling allocator** (`allocation_strategy` has no binding — the
-CVE-2026-34988 cache-pressure-residue class cannot be reached from Cell;
-`memory_guard_size` is still set explicitly at every site, and
+CVE-2026-34988 cache-pressure-residue class cannot be reached from Cell).
+An explicit 4 GiB `memory_guard_size` was tried and **reverted**: it broke
+`run_isolated` in constrained Linux VMs (mmap ENOMEM on the combined
+reservation+guard, caught end-to-end by the arm64 container gate).
 `tests/test_memory_hygiene.py` proves sequential instances observe only
-zeroed memory), **Spectre mitigations** (engine default, no binding toggle —
+zeroed memory and remains the standing guard. Also unreachable:
+**Spectre mitigations** (engine default, no binding toggle —
 always on), and **Pulley/Winch backends** (`Config.strategy` accepts only
 auto/cranelift; "never Winch" by policy; `Engine.is_pulley()` asserted
 `False` in `tests/test_surface_audit.py`).

@@ -18,6 +18,7 @@ import re
 import tempfile
 import threading
 import time
+import traceback
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -537,11 +538,12 @@ class WASISandbox:
                 # wasip2 surface, gate-off until the 0.3 story is qualified
                 # (SECURITY_ADVISORY_PLAN: WASIp3 streams, GHSA-x84v-gj2h-g759).
                 engine_config.wasm_stack_switching = False
-                # CVE-2026-34988 class (allocator cache-pressure residues):
-                # the pooling allocator is not reachable via the Python
-                # binding; the guard region is set explicitly anyway so the
-                # posture does not depend on engine-default drift.
-                engine_config.memory_guard_size = 4 * 1024 * 1024 * 1024
+                # NOTE: no explicit memory_guard_size — an explicit 4 GiB
+                # guard broke run_isolated in constrained Linux VMs
+                # (mmap ENOMEM on the combined reservation+guard); the
+                # pooling allocator (CVE-2026-34988 class) is unreachable
+                # via the Python binding and the residue test guards the
+                # behavior instead.
                 engine = Engine(engine_config)
 
             if pool is not None:
@@ -929,7 +931,11 @@ class WASISandbox:
                 status=ExecutionStatus.ERROR,
                 exit_code=exit_code,
                 stdout=stdout,
-                stderr=_limit_output(str(e) + stderr_from_file),
+                # N-1: keep the host traceback so intermittent failures are
+                # diagnosable from the report alone (bounded by _limit_output).
+                stderr=_limit_output(
+                    str(e) + "\n" + traceback.format_exc() + stderr_from_file
+                ),
                 elapsed_ms=elapsed_ms,
                 sandbox_dir=sandbox_dir,
                 state_bytes=(

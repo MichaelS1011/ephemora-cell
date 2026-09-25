@@ -153,9 +153,11 @@ class EnginePool:
         # WASI 0.3 gate-off (native async rides on stack-switching; the
         # shipped wasip2 surface does not need it — see wasi_runtime).
         engine_config.wasm_stack_switching = False
-        # CVE-2026-34988 class: pooling allocator unreachable via the Python
-        # binding; guard region set explicitly anyway (see wasi_runtime).
-        engine_config.memory_guard_size = 4 * 1024 * 1024 * 1024
+        # NOTE: no explicit memory_guard_size — an explicit 4 GiB guard
+        # broke run_isolated in constrained Linux VMs (mmap ENOMEM on the
+        # combined reservation+guard); the pooling allocator (CVE-2026-34988
+        # class) is unreachable via the Python binding and the residue test
+        # (tests/test_memory_hygiene.py) guards the behavior instead.
         return _EngineEntry(Engine(engine_config))
 
     def engine_for(self, config: WASIConfig) -> Engine:

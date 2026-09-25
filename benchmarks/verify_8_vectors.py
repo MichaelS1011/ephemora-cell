@@ -20,7 +20,7 @@ Exit code 0 = all 8 blocked, 1 = at least one vector was not blocked.
 """
 
 import json
-import os
+import shutil
 import sys
 import tempfile
 import time
@@ -292,10 +292,12 @@ def main():
     blocked += blocked_ok
 
     # 6. Symlink escape (real execution) + positive control
-    # /tmp -> /private/tmp is forbidden on macOS; fresh clone in /tmp would fail.
-    # Use $HOME which is never in FORBIDDEN (/private, /dev, /proc ...).
+    # TMPDIR is safe on every platform: macOS canonicalizes it to
+    # /private/var/folders (explicitly allowed by the canonical
+    # exceptions), Linux uses /tmp, and containers with HOME=/root no
+    # longer trip the dangerous-dir filter (the old Path.home() choice).
     print("\n[6/8] Symlink escape")
-    _safe_tmp = Path.home() / f".ephemora_verify_{os.getpid()}"
+    _safe_tmp = Path(tempfile.mkdtemp(prefix="ephemora_verify_"))
     _safe_tmp.mkdir(parents=True, exist_ok=True)
     base = Path(tempfile.mkdtemp(prefix="ephemora_sym_", dir=str(_safe_tmp)))
     secret_dir = Path(tempfile.mkdtemp(prefix="ephemora_secret_", dir=str(_safe_tmp)))
@@ -359,11 +361,8 @@ def main():
             f"{'BLOCKED' if r.get('exit_code') != 0 else 'ESCAPED (BUG!)'} "
             f"(errno={r.get('exit_code')})"
         )
-        import shutil
-
-        shutil.rmtree(base, ignore_errors=True)
-        shutil.rmtree(secret_dir, ignore_errors=True)
     blocked += results["symlink"]["blocked"]
+    shutil.rmtree(_safe_tmp, ignore_errors=True)
 
     # 7. Threading (real execution)
     print("\n[7/8] Multi-threading (shared memory)")
