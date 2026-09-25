@@ -1,30 +1,4 @@
-"""Social preview image (1280x640) — GitHub 'Social media preview'.
-
-GitHub has no API for the social preview upload; this script regenerates
-the asset deterministically, a human uploads it in repo Settings ->
-General -> Social media preview. Same visual language (and headless-Chrome
-render path) as assets/make_release_card.py: GitHub Primer dark, blue
-accent, shields-style quality badges mirroring the README hero rows.
-
-Rendered at 2x and downsampled so text stays crisp after GitHub's resize.
-"""
-
-from __future__ import annotations
-
-import struct
-import subprocess
-from pathlib import Path
-
-from PIL import Image
-
-REPO = Path(__file__).resolve().parent.parent
-OUT = REPO / "assets"
-CHROME = Path("/Users/mimiai/Library/Caches/ms-playwright/chromium_headless_shell-1243/"
-              "chrome-headless-shell-mac-arm64/chrome-headless-shell")
-W, H = 1280, 640
-SCALE = 2
-
-HTML = """<!DOCTYPE html>
+<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -115,28 +89,4 @@ HTML = """<!DOCTYPE html>
     <div><b>MCP 2026-07-28 stateless era</b> &mdash; fresh sandbox per call</div>
     <div>Apache-2.0 &middot; Python 3.10+</div>
   </div>
-</body></html>"""
-
-
-def main() -> None:
-    html = OUT / "social-preview.html"
-    png = OUT / "social-preview.png"
-    html.write_text(HTML)
-    big = OUT / ".social-preview-2x.png"
-    subprocess.run(
-        [str(CHROME), "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
-         "--force-device-scale-factor=2",
-         f"--window-size={W},{H}", f"--screenshot={big}", f"file://{html}"],
-        check=True, capture_output=True,
-    )
-    w, h = struct.unpack(">II", big.read_bytes()[16:24])
-    assert (w, h) == (W * SCALE, H * SCALE), f"wrong size {w}x{h}"
-    img = Image.open(big).convert("RGB")
-    img = img.resize((W, H), Image.LANCZOS)
-    img.save(png, optimize=True)
-    big.unlink()
-    print(f"wrote {png} ({png.stat().st_size / 1024:.0f} KB, {W}x{H})")
-
-
-if __name__ == "__main__":
-    main()
+</body></html>

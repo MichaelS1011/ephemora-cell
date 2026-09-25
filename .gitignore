@@ -64,3 +64,4 @@ docs/whitepaper_linkedin.md
 docs/threads_roadmap.md
 assets/carousel/
 assets/make_carousel.py
+benchmarks/workloads/hello_rust.wasm
