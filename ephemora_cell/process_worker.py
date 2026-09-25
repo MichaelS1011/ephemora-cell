@@ -184,6 +184,7 @@ def run_worker(
     stdin_data: str | None = None,
     max_wasm_bytes: int = DEFAULT_MAX_WASM_BYTES,
     abi: str = "auto",
+    expected_sha256: str | None = None,
 ) -> dict:
     """Execute one sandboxed run and return the report dict (no process exit)."""
     start = time.monotonic()
@@ -263,6 +264,7 @@ def run_worker(
             args=args or [],
             stdin_data=stdin_data,
             interrupt_event=interrupt_event,
+            expected_sha256=expected_sha256,
         )
     finally:
         done_event.set()
@@ -326,16 +328,20 @@ def main(argv: list[str] | None = None) -> int:
             config = WASIConfig(**payload.get("config", {}))
             guest_args = payload.get("args") or []
             stdin_data = payload.get("stdin")
+            expected_sha256 = payload.get("expected_sha256")
         else:
             config = WASIConfig()
             guest_args = []
             stdin_data = None
+            expected_sha256 = None
         if not isinstance(guest_args, list) or not all(
             isinstance(a, str) for a in guest_args
         ):
             raise ValueError("payload.args must be a list of strings")
         if stdin_data is not None and not isinstance(stdin_data, str):
             raise ValueError("payload.stdin must be a string or null")
+        if expected_sha256 is not None and not isinstance(expected_sha256, str):
+            raise ValueError("payload.expected_sha256 must be a string or null")
         report = run_worker(
             opts.wasm,
             config,
@@ -343,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             stdin_data=stdin_data,
             max_wasm_bytes=opts.max_wasm_bytes,
             abi=opts.abi,
+            expected_sha256=expected_sha256,
         )
     except Exception:
         sys.stderr.write(f"worker crashed: {sys.exc_info()[1]!r}\n")

@@ -51,7 +51,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ephemora_cell._fsutil import atomic_write_bytes, atomic_write_json
+from ephemora_cell._fsutil import (
+    atomic_write_bytes,
+    atomic_write_json,
+    read_stable_bytes,
+)
 from ephemora_cell.profiles import get as get_profile
 
 from . import protocol
@@ -546,6 +550,14 @@ class Server:
         before = {spec.name for spec in self.registry.list_tools()}
         installed = 0
         for request_path in sorted(requests_dir.glob(f"*{TOOL_REQUEST_SUFFIX}")):
+            # A request file still being written must not produce a
+            # rejection storm (and must never be parsed mid-write):
+            # defer it to the next tick. It stays on disk either way;
+            # the `pending` key only exists when something was deferred,
+            # so the report shape is unchanged otherwise.
+            if read_stable_bytes(request_path) is None:
+                report.setdefault("pending", []).append(request_path.name)
+                continue
             ok, detail = self._evaluate_tool_request(request_path, requests_dir, before)
             if ok:
                 report["accepted"].append(detail)

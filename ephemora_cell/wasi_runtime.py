@@ -12,6 +12,7 @@ This is a standalone wasmtime wrapper for public distribution.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -398,6 +399,7 @@ class WASISandbox:
         abi: str = "preview1",
         interrupt_event: threading.Event | None = None,
         state_store: StateStore | None = None,
+        expected_sha256: str | None = None,
     ) -> ExecutionResult:
         """Execute a WASM module in the sandbox.
 
@@ -418,12 +420,17 @@ class WASISandbox:
                 the subprocess worker watches its own rusage CPU and
                 signals here). When set, the run ends with an ERROR
                 carrying the I/O-budget message.
-            state_store: Optional :class:`ephemora_cell.state.StateStore`
+                state_store: Optional :class:`ephemora_cell.state.StateStore`
                 (ADR-004). Passing it IS the capability grant: the guest
                 may import ``ephemora_state.get/set/del`` to carry named
                 state across consecutive runs. Session-scoped and bounded;
                 None (default) defines no state imports. In-process path
                 only — subprocess runs cannot share host-side state.
+            expected_sha256: Optional lowercase hex digest. When set, the
+                module bytes are read once and verified BEFORE compiling
+                (per-call module binding): executed bytes cannot drift
+                from the registered digest. Applies to all three paths
+                (preview1, component, subprocess worker).
 
         Returns:
             ExecutionResult with status, stdout, stderr, and timing
@@ -432,7 +439,12 @@ class WASISandbox:
             from .process_executor import run_isolated
 
             report = run_isolated(
-                wasm_path, self._config, args=args, stdin_data=stdin_data, abi=abi
+                wasm_path,
+                self._config,
+                args=args,
+                stdin_data=stdin_data,
+                abi=abi,
+                expected_sha256=expected_sha256,
             )
             return self._result_from_report(report)
 
@@ -441,7 +453,10 @@ class WASISandbox:
 
             if abi == "component" or is_component_binary(wasm_path):
                 return ComponentSandbox(self._config).run(
-                    wasm_path, args=args, stdin_data=stdin_data
+                    wasm_path,
+                    args=args,
+                    stdin_data=stdin_data,
+                    expected_sha256=expected_sha256,
                 )
 
         wasm_path_resolved = Path(wasm_path).resolve()
@@ -546,7 +561,31 @@ class WASISandbox:
                 # behavior instead.
                 engine = Engine(engine_config)
 
-            if pool is not None:
+            if expected_sha256 is not None:
+                # Per-call module binding: read once, hash THOSE bytes,
+                # compile those bytes — no re-read between verify and
+                # compile, so the executed module cannot drift from the
+                # registered digest (a swapped on-disk file is refused).
+                try:
+                    wasm_bytes = wasm_path_resolved.read_bytes()
+                except OSError as e:
+                    return ExecutionResult(
+                        status=ExecutionStatus.ERROR,
+                        stderr=f"WASM module unreadable: {e}",
+                    )
+                if hashlib.sha256(wasm_bytes).hexdigest() != expected_sha256:
+                    return ExecutionResult(
+                        status=ExecutionStatus.ERROR,
+                        stderr=(
+                            "module hash mismatch — executed bytes do not "
+                            "match the registered module digest"
+                        ),
+                    )
+                if pool is not None:
+                    module = pool.cached_module_data(engine, wasm_bytes)
+                else:
+                    module = Module(engine, wasm_bytes)
+            elif pool is not None:
                 module = pool.cached_module(engine, str(wasm_path_resolved))
             else:
                 module = Module.from_file(engine, str(wasm_path_resolved))

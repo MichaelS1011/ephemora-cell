@@ -36,9 +36,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ephemora_cell._fsutil import read_stable_bytes
 from ephemora_cell.execution_report import jcs_canonicalize
+from ephemora_cell.process_worker import DEFAULT_MAX_WASM_BYTES
 
 DEFAULT_INPUT_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
+
+# Consumer load-guard: a module is only ever registered when it looks
+# like a module (magic bytes) and is within the same size cap the
+# subprocess path enforces (DEFAULT_MAX_WASM_BYTES).
+_WASM_MAGIC = b"\x00asm"
 
 # Manifest fields that carry the signature itself (never part of the
 # signing input).
@@ -183,6 +190,11 @@ class ToolSpec:
     profile: str = "llm"
     allow_dirs: tuple[str, ...] = ()
     metadata_path: str | None = None
+    # Signed-tools mode only: the register-time digest these bytes
+    # verified against. The execution path binds every call to it (no
+    # re-read between verify and compile). Legacy mode stays disk-truth:
+    # None means the file on disk is the authority.
+    wasm_sha256: str | None = None
 
     def to_mcp(self) -> dict[str, Any]:
         """The ``tools/list`` entry for this tool."""
@@ -245,6 +257,7 @@ class ToolRegistry:
                     profile=spec.profile,
                     allow_dirs=spec.allow_dirs,
                     metadata_path=spec.metadata_path,
+                    wasm_sha256=spec.wasm_sha256,
                 )
             if stem in self._tools:
                 raise ValueError(
@@ -254,6 +267,28 @@ class ToolRegistry:
             self._tools[stem] = spec
 
     def _build_spec(self, stem: str, wasm: Path, sidecar: Path) -> ToolSpec | None:
+        # Consumer load-guard (BOTH modes): register only complete,
+        # well-formed, settled modules — never a file still being
+        # published (two reads must agree), garbage that would only fail
+        # at call time (missing \0asm magic), or a module over the size
+        # cap. Rejection is a warning, never silent.
+        wasm_data = read_stable_bytes(wasm)
+        if (
+            wasm_data is None
+            or not wasm_data.startswith(_WASM_MAGIC)
+            or len(wasm_data) > DEFAULT_MAX_WASM_BYTES
+        ):
+            import warnings
+
+            warnings.warn(
+                f"tool {stem!r}: module failed the load guard (missing "
+                "wasm magic, over the size cap, unreadable, or still "
+                "changing while being read) - rejected",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return None
+        actual = hashlib.sha256(wasm_data).hexdigest()
         metadata: dict[str, Any] = {}
         if sidecar.is_file():
             try:
@@ -294,7 +329,8 @@ class ToolRegistry:
             # manifest is intact — the wasm_sha256 field is what binds it to
             # exactly one module. Same rule as the governed-load path: a
             # sidecar without the binding, or a module whose bytes no longer
-            # match, never registers (fail closed).
+            # match, never registers (fail closed). `actual` is the digest
+            # of the guard-verified in-memory bytes, not a re-read.
             declared = metadata.get("wasm_sha256")
             if not isinstance(declared, str) or not declared:
                 import warnings
@@ -306,7 +342,6 @@ class ToolRegistry:
                     stacklevel=2,
                 )
                 return None
-            actual = tool_wasm_sha256(wasm)
             if declared.lower() != actual:
                 import warnings
 
@@ -338,6 +373,11 @@ class ToolRegistry:
             profile=profile,
             allow_dirs=tuple(str(d) for d in allow_dirs),
             metadata_path=str(sidecar) if sidecar.is_file() else None,
+            # Per-call binding only where a trust claim exists: signed
+            # mode binds every call to the verified digest; legacy mode
+            # keeps the disk-truth convention (file on disk is the
+            # authority, sidecar is metadata only).
+            wasm_sha256=actual if self.manifest_verifier is not None else None,
         )
 
     def list_tools(self) -> list[ToolSpec]:

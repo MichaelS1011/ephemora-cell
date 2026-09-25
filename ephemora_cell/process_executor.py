@@ -44,7 +44,10 @@ _STATUS_BY_VALUE = {status.value: status for status in ExecutionStatus}
 
 
 def _payload_bytes(
-    config: WASIConfig, args: list[str], stdin_data: str | None
+    config: WASIConfig,
+    args: list[str],
+    stdin_data: str | None,
+    expected_sha256: str | None = None,
 ) -> bytes:
     """Serialize the run payload (config, guest argv, stdin) for the pipe.
 
@@ -71,6 +74,7 @@ def _payload_bytes(
             },
             "args": args,
             "stdin": stdin_data,
+            "expected_sha256": expected_sha256,
         }
     ).encode("utf-8")
 
@@ -140,6 +144,7 @@ def run_isolated(
     stdin_data: str | None = None,
     max_wasm_bytes: int = DEFAULT_MAX_WASM_BYTES,
     abi: str = "auto",
+    expected_sha256: str | None = None,
 ) -> dict:
     """Execute a WASI module in an isolated worker subprocess.
 
@@ -175,7 +180,7 @@ def run_isolated(
         config.timeout_seconds + _PROCESS_TIMEOUT_MARGIN, _MIN_PROCESS_TIMEOUT
     )
     cmd = _worker_cmd(str(resolved), max_wasm_bytes, abi)
-    payload = _payload_bytes(config, args or [], stdin_data)
+    payload = _payload_bytes(config, args or [], stdin_data, expected_sha256)
     try:
         returncode, raw_out, raw_err = _spawn_worker(cmd, payload, process_timeout)
     except subprocess.TimeoutExpired:

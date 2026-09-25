@@ -80,7 +80,7 @@ class _EngineEntry:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
         self.lock = threading.Lock()
-        self.modules: OrderedDict[tuple, Module] = OrderedDict()
+        self.modules: OrderedDict[bytes, Module] = OrderedDict()
         self.refcount = 0
         self._stop = threading.Event()
         self._ticker: threading.Thread | None = None
@@ -237,19 +237,33 @@ class EnginePool:
         return entry
 
     def cached_module(self, engine: Engine, wasm_path: str) -> Module:
-        """Return a cached compiled Module for (engine, wasm_path).
+        """Return a cached compiled Module for (engine, module bytes).
 
-        Cache key is (resolved path, mtime, size); file changes invalidate
-        the entry. Access is serialized per engine with the entry lock.
+        The file is read exactly once and the cache is keyed by content
+        hash, so a file swap can neither poison the entry (the old
+        stat-then-open race compiled new bytes under the old key) nor
+        serve a stale module for a mtime-preserving replacement
+        (``cp -p``). Access is serialized per engine with the entry lock.
+        """
+        # Validate the engine FIRST: an unmanaged engine must raise
+        # ValueError even when the module path is gone/unreadable.
+        self._entry_for(engine)
+        data = Path(wasm_path).read_bytes()
+        return self.cached_module_data(engine, data)
+
+    def cached_module_data(self, engine: Engine, wasm_bytes: bytes) -> Module:
+        """Compile (or fetch from cache) a Module for exact bytes.
+
+        Content-hash keyed: the caller can hash-verify the bytes BEFORE
+        calling this (per-call module binding), so a compiled Module and
+        the bytes it was built from can never diverge.
         """
         entry = self._entry_for(engine)
-        resolved = Path(wasm_path).resolve()
-        stat = resolved.stat()
-        key = (str(resolved), stat.st_mtime_ns, stat.st_size)
+        key = hashlib.sha256(wasm_bytes).digest()
         with entry.lock:
             module = entry.modules.pop(key, None)
             if module is None:
-                module = Module.from_file(entry.engine, str(resolved))
+                module = Module(entry.engine, wasm_bytes)
                 entry.modules[key] = module
                 while len(entry.modules) > self._max_modules_per_engine:
                     entry.modules.popitem(last=False)

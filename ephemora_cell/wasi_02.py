@@ -36,6 +36,7 @@ like the Preview1 sandbox (`max_fuel - store.get_fuel()`).
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -120,6 +121,7 @@ class ComponentSandbox:
         args: list[str] | None = None,
         stdin_data: str | None = None,
         interrupt_event: threading.Event | None = None,
+        expected_sha256: str | None = None,
     ) -> ExecutionResult:
         """Execute a WASI 0.2 command component.
 
@@ -131,6 +133,9 @@ class ComponentSandbox:
                 io_cpu_seconds in the subprocess worker) — when set, the
                 guest is interrupted via epoch immediately (deadline=1
                 engine, same semantics as the preview1 timer).
+            expected_sha256: Optional lowercase hex digest — per-call
+                module binding (see WASISandbox.run): the component bytes
+                are read once and verified before compiling.
 
         Returns:
             ExecutionResult with status, stdout, stderr, and timing
@@ -191,7 +196,19 @@ class ComponentSandbox:
             # Python binding and the residue test guards the behavior instead.
             engine = Engine(engine_config)
 
-            component = _component.Component.from_file(engine, str(resolved))
+            component_bytes = resolved.read_bytes()
+            if (
+                expected_sha256 is not None
+                and hashlib.sha256(component_bytes).hexdigest() != expected_sha256
+            ):
+                return ExecutionResult(
+                    status=ExecutionStatus.ERROR,
+                    stderr=(
+                        "module hash mismatch — executed bytes do not "
+                        "match the registered module digest"
+                    ),
+                )
+            component = _component.Component(engine, component_bytes)
 
             store = Store(engine)
             if self._config.max_fuel is not None:

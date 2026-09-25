@@ -75,3 +75,20 @@ def atomic_write_json(path: str | Path, obj: object) -> Path:
 def atomic_copyfile(src: str | Path, dst: str | Path) -> Path:
     """Copy ``src`` → ``dst`` atomically; ``dst`` appears only complete."""
     return _atomic_write(dst, Path(src).read_bytes())
+
+
+def read_stable_bytes(path: str | Path) -> bytes | None:
+    """Read a file only if it is settled, i.e. two consecutive reads agree.
+
+    Returns the content, or ``None`` when the file is unreadable or still
+    changing (a producer streaming it, or a publish racing the read).
+    Consumers use this to defer — not reject — files that a writer has
+    not finished publishing.
+    """
+    try:
+        data = Path(path).read_bytes()
+        if data != Path(path).read_bytes():
+            return None
+    except OSError:
+        return None
+    return data

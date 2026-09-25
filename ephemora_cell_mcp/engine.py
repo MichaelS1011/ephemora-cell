@@ -186,6 +186,9 @@ class CellToolEngine:
                 stdin_data=stdin,
                 use_subprocess=False,
                 abi="auto",
+                # Signed mode: bind the executed bytes to the digest
+                # verified at register time (per-call module binding).
+                expected_sha256=spec.wasm_sha256,
             )
         finally:
             sandbox.cleanup()
