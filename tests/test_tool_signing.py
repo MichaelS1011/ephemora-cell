@@ -364,14 +364,14 @@ class TestGovernedLoad:
 
     def test_unsigned_manifest_rejected(self, keypair, tmp_path):
         key, _, pub = keypair
-        server, _, _, requests = self._server(tmp_path, pub)
+        server, _, _, requests = TestGovernedLoad._server(tmp_path, pub)
         self._drop_request(key, requests, unsigned=True)
         report = server.process_tool_requests()
         assert "signature invalid" in report["rejected"][0]["reason"]
 
     def test_path_escape_rejected(self, keypair, tmp_path):
         key, _, pub = keypair
-        server, _, _, requests = self._server(tmp_path, pub)
+        server, _, _, requests = TestGovernedLoad._server(tmp_path, pub)
         # a module OUTSIDE the allowlisted dir is unreachable by request
         outside = tmp_path / "evil.wasm"
         outside.write_bytes(WASM_STUB)
@@ -387,7 +387,7 @@ class TestGovernedLoad:
 
     def test_unknown_profile_rejected(self, keypair, tmp_path):
         key, _, pub = keypair
-        server, _, _, requests = self._server(tmp_path, pub)
+        server, _, _, requests = TestGovernedLoad._server(tmp_path, pub)
         self._drop_request(key, requests, manifest_extra={"profile": "nope"})
         report = server.process_tool_requests()
         assert "Unknown profile" in report["rejected"][0]["reason"]
@@ -418,7 +418,9 @@ class TestGovernedLoad:
 
     def test_requires_signed_mode(self, keypair, tmp_path):
         key, _, pub = keypair
-        server, _, _, requests = self._server(tmp_path, pub, with_verifier=False)
+        server, _, _, requests = TestGovernedLoad._server(
+            tmp_path, pub, with_verifier=False
+        )
         self._drop_request(key, requests)
         report = server.process_tool_requests()
         assert "signed-tools mode" in report["rejected"][0]["reason"]
@@ -483,3 +485,143 @@ def test_signed_record_demo_detects_tampering():
     assert proc.returncode == 0, proc.stderr[-300:]
     assert "verify(intact): True" in proc.stdout
     assert "verify(tampered): False" in proc.stdout
+
+
+class TestTrustHandoff:
+    """Multi-hop trust-handoff probes (2026 probe class).
+
+    Motivation: Pillar's "Week of Sandbox Escapes" (W5/W6, cited at
+    docs/egress_patterns.md:27) and arXiv 2603.22489 ("Securing the MCP:
+    A Dual-Axis Survey" — handoff erosion, tool poisoning). The invariant
+    under test: verification NEVER inherits across delegation hops — a
+    trusted tool cannot vouch for a follower, and every hop verifies
+    independently on its own merit.
+    """
+
+    def test_trusted_hop_does_not_relax_next_hop_signature(self, keypair, tmp_path):
+        """Hop 1 installs a validly signed tool. Hop 2 submits identical
+        metadata but WITHOUT a signature — the earlier trust buys it
+        nothing (fail closed)."""
+        key, _, pub = keypair
+        server, _, _, requests = TestGovernedLoad._server(tmp_path, pub)
+        first = TestGovernedLoad._drop_request(key, requests, stem="alpha")
+        report = server.process_tool_requests()
+        assert report["accepted"] == ["alpha"]
+        assert first.exists() is False
+        # Hop 2: same manifest shape, unsigned.
+        wasm = requests / "beta.wasm"
+        wasm.write_bytes(WASM_STUB)
+        request_file = requests / f"beta{TOOL_REQUEST_SUFFIX}"
+        request_file.write_text(
+            json.dumps({"wasm_path": str(wasm), "manifest": dict(MANIFEST)}),
+            encoding="utf-8",
+        )
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert "signature invalid" in report["rejected"][0]["reason"]
+        assert [t.name for t in server.registry.list_tools()] == ["alpha"]
+
+    def test_hop1_manifest_cannot_describe_hop2_module(self, keypair, tmp_path):
+        """The signature of a trusted hop is bound to ITS module: reusing
+        hop 1's signed manifest for a DIFFERENT module fails the hash
+        binding even though the signature itself is valid."""
+        import hashlib as _h
+
+        key, _, pub = keypair
+        server, _, _, requests = TestGovernedLoad._server(tmp_path, pub)
+        # Hop 1: a validly signed "alpha" is accepted and consumed.
+        alpha_file = TestGovernedLoad._drop_request(key, requests, stem="alpha")
+        assert server.process_tool_requests()["accepted"] == ["alpha"]
+        assert not alpha_file.exists()
+        # Hop 2: "beta" (different bytes) arrives with alpha's SIGNED
+        # manifest — valid signature over alpha's digest, wrong module.
+        manifest = dict(MANIFEST)
+        manifest["wasm_sha256"] = _h.sha256(WASM_STUB).hexdigest()
+        signed = sign_manifest(manifest, lambda data: key.sign(data))
+        beta = requests / "beta.wasm"
+        beta.write_bytes(WASM_STUB + b"\x00different-bytes")
+        request_file = requests / f"beta{TOOL_REQUEST_SUFFIX}"
+        request_file.write_text(
+            json.dumps({"wasm_path": str(beta), "manifest": signed}),
+            encoding="utf-8",
+        )
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert "hash mismatch" in report["rejected"][0]["reason"]
+        assert [t.name for t in server.registry.list_tools()] == ["alpha"]
+
+    def test_second_hop_collision_never_overwrites_first(self, keypair, tmp_path):
+        """A later hop cannot displace an already-trusted tool by re-using
+        its name with different (even validly signed) bytes."""
+        key, _, pub = keypair
+        server, _, tools, requests = TestGovernedLoad._server(tmp_path, pub)
+        TestGovernedLoad._drop_request(key, requests, stem="gamma")
+        assert server.process_tool_requests()["accepted"] == ["gamma"]
+        installed_before = (tools / "gamma.wasm").read_bytes()
+        # Hop 2: validly signed request for the SAME name, different bytes.
+        request_file = TestGovernedLoad._drop_request(
+            key,
+            requests,
+            stem="gamma",
+            manifest_extra={"description": "IMPOSTOR"},
+        )
+        # _drop_request writes fresh stub bytes at the same path; make
+        # the second hop genuinely different so the hash differs.
+        (requests / "gamma.wasm").write_bytes(WASM_STUB + b"\x00v2")
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert (
+            any("collision" in r["reason"] for r in report["rejected"])
+            or "hash mismatch" in report["rejected"][0]["reason"]
+        )
+        assert (tools / "gamma.wasm").read_bytes() == installed_before
+        assert request_file.exists()  # rejected requests stay on disk
+
+    def test_guest_runtime_writes_cannot_reach_requests_dir(self, keypair, tmp_path):
+        """A running guest can write files — but only into its own
+        scratch. A request-lookalike dropped by the GUEST never reaches
+        the operator-allowlisted requests dir, so process_tool_requests
+        cannot be fed from inside the sandbox."""
+        import wasmtime as _w
+
+        pub = None
+        server, _, _, requests = TestGovernedLoad._server(
+            tmp_path, pub, with_verifier=False
+        )
+        evil_writer = """(module
+          (import "wasi_snapshot_preview1" "path_open" (func $po
+            (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "fd_write" (func $fw
+            (param i32 i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "evil.tool.request.json")
+          (data (i32.const 32) "{}")
+          (func (export "_start")
+            (local $err i32)
+            i32.const 3 i32.const 0 i32.const 0 i32.const 22 i32.const 1
+            i64.const 64 i64.const 0 i32.const 0 i32.const 100
+            call $po local.set $err
+            local.get $err if local.get $err call $exit end
+            i32.const 64 i32.const 32 i32.store
+            i32.const 68 i32.const 2 i32.store
+            i32.const 100 i32.load i32.const 64 i32.const 1 i32.const 72
+            call $fw local.set $err
+            local.get $err call $exit
+          )
+        )"""
+        from ephemora_cell import WASIConfig, WASISandbox
+
+        wasm = tmp_path / "evil_writer.wasm"
+        wasm.write_bytes(_w.wat2wasm(evil_writer))
+        sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
+        try:
+            result = sandbox.run(str(wasm))
+            assert result.exit_code == 0, result.stderr
+        finally:
+            sandbox.cleanup()
+        # The guest wrote SOMETHING (its scratch), but the requests dir
+        # never saw a request file.
+        report = server.process_tool_requests()
+        assert report["accepted"] == []
+        assert list(requests.glob(f"*{TOOL_REQUEST_SUFFIX}")) == []
