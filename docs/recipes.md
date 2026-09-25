@@ -278,3 +278,24 @@ correct.wasm         pass  success          fuel=1 — correct under budget
 compute_bomb.wasm    fail  fuel_exhausted   fuel=1000000 — exceeded the compute budget
 memory_hog.wasm      fail  memory_exceeded  fuel=None — exceeded the memory budget
 ```
+
+## Throughput scale-check (single core)
+
+The README's throughput claim regenerates from a fresh clone with this
+snippet (same workload, `examples/hello.wasm`, n=500):
+
+```python
+from ephemora_cell import run_wasm
+import time
+
+t0 = time.perf_counter()
+for _ in range(500):
+    run_wasm("examples/hello.wasm", max_fuel=1_000_000)
+per_hour = 500 / (time.perf_counter() - t0) * 3600
+print(f"{per_hour/1e6:.1f}M executions/hour on this core (one-liner path)")
+```
+
+Reuse one `WASIConfig`/sandbox across calls in a hot loop to reach the
+pooled path (~5.5M/hour measured). Raw evidence:
+`benchmarks/results/` (`measured:true`), more scenarios in
+[docs/performance.md](performance.md).

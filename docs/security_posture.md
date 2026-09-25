@@ -118,3 +118,66 @@ motivational framing only): [arXiv 2603.22489](https://arxiv.org/abs/2603.22489)
 handoff erosion), OX Security's CVE-2026-82533 advisory
 (supervisor control-plane reachability), and the 2026 persistence-worm
 research line (self-propagating agent payloads via persistent storage).
+
+## The WASI sandbox surface, visually
+
+The README states the boundary in prose; this is the same statement as
+a diagram (the enforced meters wrap the capability-based syscall
+surface, and everything outside it is blocked by design):
+
+```mermaid
+flowchart TB
+    guest["Guest WASM Module<br/>(isolated)"]
+    subgraph sandbox["WASI Sandbox — capability-based isolation"]
+        fuel["Fuel Meter<br/>~13 fuel/iteration"]
+        mem["Memory Limit<br/>128 MB max"]
+        timeout["Timeout Guard<br/>epoch interruption"]
+        syscalls["WASI Preview1 — capability-based,<br/>preopened dirs only<br/>fd_read · fd_write · path_open · clock_time_get<br/>proc_exit · environ_get · random_get"]
+    end
+    blocked["Blocked by design:<br/>exec · fork · socket · /dev · /proc · /sys · threads"]
+
+    guest --> syscalls
+    fuel -.-> sandbox
+    mem -.-> sandbox
+    timeout -.-> sandbox
+    sandbox -.-> blocked
+```
+
+## How the 8/8 is measured — probe equivalence detail
+
+Measurement environment and the probe-by-probe equivalence between the
+Docker probe body and the Cell WASM guest (moved from the README; the
+README keeps the measured result table):
+
+- **Environment:** MacBook Pro M5, macOS arm64, wasmtime 47.0.1,
+  Docker 28.5.1
+- **Docker probes (2026-09-18, `linux/arm64` image pinned by digest):**
+  stock via `docker run --rm`, hardened via exactly the declared flag
+  set — the measured exit code decides ALLOWED vs BLOCKED, nothing
+  hardcoded. Historical stock baseline (2026-09-02, `x86_64` image
+  under emulation): `benchmarks/results/2026-09-02/`
+- **Cell probe (2026-09-18, same day):** `verify_8_vectors.py` against
+  the live runtime — same eight attack intents, expressed natively per
+  platform (equivalence table below)
+- **Workload:** self-contained payloads, no downloads, no credentials
+- **Positive control:** each blocked vector is paired with a
+  granted-capability control that **must succeed** on the same sandbox
+  config (e.g. the symlink test's real target file must open errno 0)
+  — if the control fails, the harness is broken, not the sandbox, and
+  the run does not count
+
+| # | Attack intent | Docker probe body (`python3 -c`) | Cell probe guest (WASM) |
+|---|---|---|---|
+| 1 | shell | `os.system('id …') == 0` | no exec/system entry point in the WASI import surface (live scan) |
+| 2 | fork | `os.fork()` | no fork/vfork in the import surface (live scan) |
+| 3 | socket | `socket.socket(…)` | no socket/sock_\* in the import surface (live scan) |
+| 4 | fsync | open + write + `os.fsync` | module imports `fd_psync` → trapped by the sandbox |
+| 5 | host FS | `open('/etc/passwd').read()` | `path_open('/etc/passwd')` with no preopen |
+| 6 | symlink escape | `os.symlink` + `realpath` outside | `path_open` through a symlink out of a preopened dir (control: real file opens errno 0) |
+| 7 | threading | `threading.Thread(…).start()` | shared-memory module rejected (`wasm_threads=False`) |
+| 8 | env | `'PATH' in os.environ` | env count with `allow_env=()` must be 0 |
+
+- **Raw evidence:** `benchmarks/results/2026-09-18/`
+  (`01_hardened_docker_attack_probe.json` ·
+  `02_docker_attack_probe.json` · `03_cell_8_vector_verify.json`) +
+  historical `benchmarks/results/2026-09-02/`
