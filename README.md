@@ -1,14 +1,36 @@
 # Ephemora Cell
 
-### Deterministic execution for untrusted AI-generated code.
+**Ephemora Cell is a lightweight security and execution primitive for running untrusted code inside AI agents, MCP tools, plugins, and applications.**
 
-Run AI-generated code, MCP tools and plugins with exact, predictable cost — every execution bounded, measured, and reproducible.
-
-**~0.5 ms warm · ~3M executions/hour per core (one-liner) up to ~5.5M pooled · deterministic, not "isolated and hoped for"**
+```text
+Run untrusted code.
+Control its capabilities.
+Bound its resources.
+Record what happened.
+```
 
 Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads.**
 
-Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem budgets enforced per execution, with sign-ready execution records (RFC 8785 JCS canonicalization + ES256 `sign()`/`verify()` primitives).
+```text
+AI Agent / Application
+        │
+        ▼
+   Tool / Plugin / MCP
+        │
+        ▼
+ ┌───────────────────────┐
+ │     Ephemora Cell     │
+ │                       │
+ │ Capabilities          │
+ │ Resource budgets      │
+ │ WASI sandbox          │
+ │ Execution record      │
+ └──────────┬────────────┘
+            ▼
+       WASM module
+```
+
+**~0.5 ms warm · ~3M executions/hour per core (one-liner) up to ~5.5M pooled · deterministic, not "isolated and hoped for"**
 
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/">
@@ -33,7 +55,7 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/tests-440_passing-brightgreen" alt="Tests (440 pass, 4 skipped — see CI)">
+    <img src="https://img.shields.io/badge/tests-470_passing-brightgreen" alt="Tests (470 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
@@ -61,7 +83,6 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
   </a>
 </p>
 
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
@@ -69,21 +90,52 @@ Fast, capability-based WASM execution: CPU, memory, time, I/O and filesystem bud
   </picture>
 </p>
 
-## The problem
+## What is Ephemora Cell?
 
-AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe:
+Ephemora Cell is an embeddable **execution and security primitive** for running untrusted WASM code.
 
-**How do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?**
+It combines:
+
+- WASM/WASI isolation
+- explicit capability control
+- CPU/fuel, memory, I/O and time limits
+- bounded output
+- structured execution records
+- optionally signed execution receipts
+
+Runtime + security primitive + accounting, in one `pip install`. It uses WASM/WASI and Wasmtime to implement that boundary — WASM is the mechanism, the **controlled execution of untrusted code** is the product.
+
+## Why Ephemora Cell?
+
+Wasmtime gives you a WASM runtime.
+
+Ephemora Cell builds an application-level execution boundary around it:
+
+```text
+Wasmtime:            Ephemora Cell:
+    Execute WASM         Execute WASM
+                         + define capabilities
+                         + enforce budgets (fuel, memory, time, I/O)
+                         + bound output
+                         + collect execution metadata
+                         + produce execution records (sign-ready)
+                         + integrate with agents and MCP
+```
+
+**The problem this answers:** AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe: *how do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?* Raw runtimes leave that boundary to you. Cell **is** that boundary.
+
+Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
+
+- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
+- **Deterministic loop-stop** — AI-generated code ships infinite loops and unbounded retries by default. Fuel is the hard CPU-instruction exhaustion boundary: a hostile or buggy module that loops forever is stopped at precisely the budget you set, every time, and the run *cannot* overshoot its fuel budget. The epoch-based wall-clock timeout is the safety net on top of it — fuel counts CPU, the clock bounds everything else; no `timeout` races, no heuristic kill.
+- **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
+- **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
 
 ```text
 AI Agent ──▶ Tool / MCP ──▶ Ephemora Cell ──▶ WASM ──▶ bounded result
 ```
 
-**Ephemora Cell** is a small, capability-based WASM execution runtime for exactly that job: an execution primitive — not an agent framework — that sits underneath your existing agent stack, MCP server, plugin system, or application.
-
-## Every execution leaves evidence
-
-Every tool call answers three questions at once — attached to the result as `_meta.execution`, canonicalized (RFC 8785 JCS) and signable:
+Every execution answers three questions at once — attached to the result as `_meta.execution`, canonicalized (RFC 8785 JCS) and signable:
 
 | | Answer | Example fields |
 |---|---|---|
@@ -92,6 +144,52 @@ Every tool call answers three questions at once — attached to the result as `_
 | **POLICY** | under which rules it ran | memory limit, preopens, network policy, `wasmtime_version` |
 
 "Verifying. Not claimed." is data, not a slogan: any record can be re-checked — rewrite one field and `verify()` fails. Runnable demo: `python examples/signed_record_demo.py`.
+
+## Security Model
+
+Cell assumes that **guest code is untrusted**. The host explicitly decides what the guest can access — and the runtime enforces that decision per execution.
+
+```text
+HOST
+────────────────────────────
+       Cell Boundary
+────────────────────────────
+GUEST / UNTRUSTED CODE
+```
+
+By default:
+
+- no network
+- no arbitrary filesystem access
+- no process spawning
+- no unrestricted environment access
+- bounded CPU/fuel
+- bounded memory
+- bounded execution time
+- bounded output
+
+**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on, neither the guest nor the caller can switch them off). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
+
+| Resource | Default |
+|---|---|
+| WASM memory | 128 MB (`Store.set_limits`) |
+| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000 across the 7 successful points up to 1M iterations; the curve flattens above that — re-measured 2026-09-14, macOS arm64, `benchmarks/results/2026-09-14/fuel_boundary.json`; fuel counts are per-platform, not cross-platform) |
+| Wall-clock timeout | 30 s (epoch interruption) |
+| Captured stdout/stderr | 10 KB |
+| Network | disabled — Preview1: no socket APIs; WASI 0.2: linked, denied at call time (measured) |
+| Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
+| Process exec / fork | unavailable in WASI |
+| Threading | disabled (`wasm_threads=False`) |
+
+The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense, not conservatism: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — is one repeating pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee. Full proposal table: [SECURITY.md](SECURITY.md#proposal-policy--set-not-inherited).
+
+Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
+
+## Core Concepts
+
+- **Capabilities** — the guest receives only what the host explicitly grants: preopened directories (default-deny, dangerous dirs blocked, TOCTOU-revalidated at grant time), controlled environment, nothing else. Network has no API surface at all.
+- **Resource budgets** — fuel (CPU instructions), memory cap, epoch-based wall-clock timeout, I/O byte/CPU walls and disk quota on the isolated path, 10 KB output cap. A hostile or buggy module hits a wall and returns a *graded status* — it never takes your process with it.
+- **Execution records** — every run produces a structured, RFC 8785-canonicalized record of status, cost and the attested security baseline; `sign()`/`verify()` make it tamper-evident.
 
 ## Quick Start
 
@@ -162,53 +260,258 @@ per_hour = 500 / (time.perf_counter() - t0) * 3600
 print(f"{per_hour/1e6:.1f}M executions/hour on this core (one-liner path)")
 ```
 
-**Where to next:** agent/tool isolation → [Secure MCP tool execution](#secure-mcp-tool-execution) (3-line setup) · CI gating for untrusted PRs → [GitHub Action](#untrusted-pr-code-in-github-actions) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
+**Where to next:** agent/tool isolation → [MCP Integration](#mcp-integration) (3-line setup) · CI gating for untrusted PRs → [AI Agent Integration](#ai-agent-integration) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
 
 ![Ephemora Cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
 
 *Real CLI session: install, first run, machine-readable `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, and an attack module (`exploit.wasm`) blocked at the WASI import layer. Verify every frame: the commands run as shown from a clone.*
 
-## The local devtools loop for agent tools
+## Example: the local devtools loop for agent tools
 
 The same three commands above are a development loop for agent tools — edit, run, read the receipt — with no Dockerfile, no image build, no container to provision:
 
 | Command | What it does in the loop |
 |---|---|
-| `ephemora-cell build tool.rs` | Compile Rust, Go, C, AssemblyScript or Zig source straight to WASM ([languages & recipes](#any-language-that-compiles-to-wasm)) |
+| `ephemora-cell build tool.rs` | Compile Rust, Go, C, AssemblyScript or Zig source straight to WASM ([languages & recipes](#architecture)) |
 | `ephemora-cell run tool.wasm --json` | Execute and get the verdict immediately: status, exit code, `fuel_consumed`, `elapsed_ms` |
 | `ephemora-cell inspect tool.wasm` | Imports, exports, memory — see what a module wants before you run it |
 | `ephemora-cell benchmark tool.wasm` | Cold/warm latency and fuel spread while you iterate |
 
 Failures come back **graded, not crashing**: an infinite loop returns `status: "fuel_exhausted"` with its receipt, a memory hog `memory_exceeded`, a crash a non-zero exit code — the same statuses the [auto-grader](examples/auto_grader.py) and the CI test-bench job consume. A tool that misbehaves never takes your terminal with it; you read the cost it caused and fix the code. Warm executions run sub-millisecond (0.17 ms guest / 0.51 ms end-to-end, pooled, measured; `benchmarks/results/`) — feedback at edit speed, against the same enforced boundary your tools will face in production.
 
-## Why this matters
+## MCP Integration
 
-Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
+Listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI) and graded on Glama (license A, quality A, maintenance B — Glama's live classifier, server-side rendered; see the hero badges above).
 
-- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets are enforced per execution; the effective posture is attested in an execution record that is
-  canonicalized (RFC 8785 JCS) and sign-ready (`sign()`/`verify()` shipped).
-- **Deterministic loop-stop** — AI-generated code ships infinite loops and unbounded retries by default. Fuel is the hard CPU-instruction exhaustion boundary: a hostile or buggy module that loops forever is stopped at precisely the budget you set, every time, and the run *cannot* overshoot its fuel budget. The epoch-based wall-clock timeout is the safety net on top of it — fuel counts CPU, the clock bounds everything else; no `timeout` races, no heuristic kill.
-- **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
-- **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`) makes sandboxing every call affordable instead of exceptional.
+Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signable execution records:
 
-## What is enforced
+```bash
+pip install ephemora-cell
+ephemora-cell-mcp          # bundled tools: clock + echo; --tools-dir ./tools replaces the bundled set with your own
 
-**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on, neither the guest nor the caller can switch them off). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
+# One-line setup for GitHub Copilot in VS Code:
+code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
+```
 
-The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense, not conservatism: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — is one repeating pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee.
+Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
 
-| Resource | Default |
-|---|---|
-| WASM memory | 128 MB (`Store.set_limits`) |
-| Fuel / CPU budget | 1,000,000 (~13 fuel/iteration, R² = 1.000 across the 7 successful points up to 1M iterations; the curve flattens above that — re-measured 2026-09-14, macOS arm64, `benchmarks/results/2026-09-14/fuel_boundary.json`; fuel counts are per-platform, not cross-platform) |
-| Wall-clock timeout | 30 s (epoch interruption) |
-| Captured stdout/stderr | 10 KB |
-| Network | disabled — Preview1: no socket APIs; WASI 0.2: linked, denied at call time (measured) |
-| Host filesystem | denied by default; 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, …) |
-| Process exec / fork | unavailable in WASI |
-| Threading | disabled (`wasm_threads=False`) |
+```text
+Agent
+  │  tool call
+  ▼
+MCP Server (ephemora-cell-mcp)
+  │
+  ▼
+Ephemora Cell (fuel, memory, output caps, no network)
+  │
+  ▼
+WASM Tool
+  │
+  ▼
+Result + Execution Record
+```
 
-Additional controls: **I/O budgets** (`io_cpu_seconds=2.0` / `io_budget_bytes=64 MiB` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap** (recorded in the security baseline; fuel remains the effective bound), **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator (allowlist-validated host-side API calls — [docs/egress_patterns.md](docs/egress_patterns.md)).
+**What you get, at a glance:**
+
+- **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
+- **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`: fuel consumed, wall time, security baseline), and `get-policy` reports the exact sandbox policy that enforced it.
+- **Deploy it anywhere.** The server is stateless (MCP `2026-07-28` revision): no session state, so you can restart, replace or load-balance it between calls without breaking a client — and hosts cache the tool list (`ttlMs`/`cacheScope`).
+- **Connect anything, today.** Claude Desktop, VS Code, Copilot, Codex and friends work over the standard handshake; modern clients skip it entirely. Both eras, one process, proven in CI against the official MCP SDK.
+
+What every Cell tool call carries:
+
+- **Isolation you can inspect.** The native `get-policy` tool returns the effective sandbox policy per tool — fuel budget, memory limit, preopens, network policy — computed from the same code path that enforces it, so the report and the enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured). Per-call evidence is measured side-by-side against the alternatives in the [comparison doc](docs/comparison-mcp-servers.md).
+- **Compatibility proven, not assumed.** The shipped server is verified in CI against the official MCP Python SDK on every push — both eras: the legacy handshake (`initialize`, `tools/list`, a real `tools/call` with execution `_meta`) and the stateless `2026-07-28` revision (full round trip without ever sending `initialize`) — with per-client setup documented for Claude Desktop, VS Code, Codex, OpenCode, and Hermes.
+- **Stateless by design (`2026-07-28` revision).** The server speaks both MCP eras: clients on the current `2026-07-28` revision skip the `initialize` handshake entirely — every request stands alone, no session state lives on the server, so you can load-balance, restart or scale the server between calls without breaking a client. Results carry `resultType: "complete"` (no partial-result handling) and `tools/list` answers with `ttlMs`/`cacheScope` so hosts can cache the tool list. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras are served from one process and tested side-by-side. Details: [docs/mcp.md](docs/mcp.md).
+- **Isolation priced for every call** — three numbers, don't mix them up ([comparison](docs/comparison-mcp-servers.md)):
+
+  | Path | Cost per call | Why |
+  |---|---|---|
+  | Library pooled runtime (`io_budget_bytes=None`) | **~0.5 ms** | cached engine, trusted workloads |
+  | MCP stdio server, default | **~12 ms** | fresh sandbox per `tools/call` — the ADR-002 I/O wall enforced via a per-run engine, measured end-to-end |
+  | MCP stdio server, `--pooled` | **~0.5 ms** | verified tools on the pooled engine; the relaxed I/O wall is attested in `get-policy` |
+
+  Sandbox *every* call becomes the default, not a trade-off.
+
+- **The agent cannot rewrite its own security boundary.**
+
+  ```text
+  Agent (LLM) ──▶ Host policy ──▶ Cell runtime ──▶ Execution
+    proposes      verifies         enforces
+    capability    signature,       fuel, memory, wall time,
+    request       module hash,     permissions, exit status
+                  policy
+  ```
+
+  The agent may only *propose* a capability ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)); the host verifies signature, module hash and policy out-of-band before anything runs; the runtime enforces per execution and returns evidence. No arrow in that chain points backwards — there is no tool-call path that widens a grant, and `get-policy` reports exactly what the enforcement path applies (reads are tools; writes are not).
+
+**vs Microsoft Wassette.** Wassette is Microsoft's capability-based runtime for MCP tools, built on the same Wasmtime engine family — the architecture thesis is converging, and its OCI pull model moves the trust decision to install time. Cell adds what a caller can *verify per call*: deterministic fuel metering, I/O budgets, and a sign-ready execution record (`_meta.execution`). Current status and the full side-by-side (Wassette re-verified 2026-09-18): [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
+
+See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
+
+This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.
+
+## AI Agent Integration
+
+**Untrusted PR code in GitHub Actions.** This repository ships a composite action: run a WASM module in the Cell sandbox inside your own workflow — with fuel metering, memory cap, epoch timeout and (default) the `--isolated` subprocess path (OS-level rlimits, hard kill):
+
+```yaml
+- id: run-tool
+  uses: MichaelS1011/ephemora-cell/action@main
+  with:
+    module: path/to/module.wasm   # e.g. built from a PR-provided recipe
+    profile: llm
+    # fuel: 500_000
+- run: echo "status=${{ steps.run-tool.outputs.status }} fuel=${{ steps.run-tool.outputs.fuel_consumed }}"
+```
+
+Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. This repo dogfoods the action on every push: [`.github/workflows/action-demo.yml`](.github/workflows/action-demo.yml) runs a benign module and feeds the same module a 100-unit fuel budget, asserting live that the sandbox stops it and accounts every unit.
+
+Agent-framework integration tests (LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel, Hermes, NemoClaw) live in [`integration/`](integration/) — verified against real framework SDKs.
+
+## Use Cases
+
+What you can build with Cell:
+
+- **AI Code Execution** — safely execute code generated by an LLM, with explicit limits:
+
+  ```python
+  result = run_wasm(
+      "llm_generated.wasm",
+      max_fuel=200_000,
+      timeout_seconds=5,
+      allow_dirs=("/input", "/output")
+  )
+  ```
+
+- **MCP Tool Sandbox** — run MCP tools inside a bounded execution environment (see [MCP Integration](#mcp-integration)).
+
+- **Plugin Runtime** — accept user-uploaded plugins without giving them host-level access:
+
+  ```python
+  config = WASIConfig(allow_dirs=("/data",), max_fuel=500_000)
+  result = WASISandbox(config=config).run("user_plugin.wasm")
+  ```
+
+- **Agent Tool Runtime** — give autonomous agents controlled access to computational tools.
+
+- **Verifiable Execution** — produce structured and optionally signed records describing an execution ([Execution Records](#execution-records)).
+
+Also documented: serverless/edge workloads, air-gapped validation, WASI 0.2 components, FastAPI integration — [docs/recipes.md](docs/recipes.md).
+
+## Architecture
+
+Cell executes the `.wasm` — it does not know the source language. One command compiles five languages, and the runtime sits underneath your stack:
+
+```text
+WASM module
+ ↓
+Wasmtime (Cranelift)
+ ↓
+WASI surface (capability-based)
+ ↓
+Capability configuration (preopens, env)
+ ↓
+Resource limits (fuel, memory, epoch, I/O walls)
+ ↓
+Execution
+ ↓
+Execution record (status, cost, attested baseline)
+```
+
+```mermaid
+flowchart TB
+    guest["Guest WASM Module<br/>(isolated)"]
+    subgraph sandbox["WASI Sandbox — capability-based isolation"]
+        fuel["Fuel Meter<br/>~13 fuel/iteration"]
+        mem["Memory Limit<br/>128 MB max"]
+        timeout["Timeout Guard<br/>epoch interruption"]
+        syscalls["WASI Preview1 — capability-based,<br/>preopened dirs only<br/>fd_read · fd_write · path_open · clock_time_get<br/>proc_exit · environ_get · random_get"]
+    end
+    blocked["Blocked by design:<br/>exec · fork · socket · /dev · /proc · /sys · threads"]
+
+    guest --> syscalls
+    fuel -.-> sandbox
+    mem -.-> sandbox
+    timeout -.-> sandbox
+    sandbox -.-> blocked
+```
+
+The primary API is deliberately simple: `run_wasm(wasm) → result`. Every execution returns structured, auditable information:
+
+```python
+result.status        # SUCCESS | ERROR | TIMEOUT | FUEL_EXHAUSTED | MEMORY_EXCEEDED
+result.exit_code
+result.stdout        # 10 KB cap
+result.stderr
+result.elapsed_ms
+result.fuel_consumed
+```
+
+That makes execution suitable for auditing, policy enforcement, and resource accounting — not just running code. Full CLI (`run`, `--json` with `security_baseline`, `inspect`, `benchmark`, `build`, profiles incl. `--profile analytical`) in the [CLI docs](docs/recipes.md) and `ephemora-cell --help`.
+
+**Any language that compiles to WASM.** One-command build with actionable error hints from the measured friction matrix:
+
+```bash
+ephemora-cell build src/main.rs # inside a cargo project → tool.wasm → run it
+```
+
+A bare `.rs` file outside a cargo project gets actionable guidance instead of
+a guess (the builder searches upward for the manifest, like cargo).
+
+| Language | Compiler | Verified |
+|----------|----------|----------|
+| Rust | `cargo build --target wasm32-wasip1` | ✅ Compiled + executed (CI) |
+| Go | `GOOS=wasip1 GOARCH=wasm go build` | ✅ Compiled + executed (CI) |
+| C | wasi-sdk `clang --target=wasm32-wasip1` | ✅ Compiled + executed (CI) |
+| AssemblyScript | `asc --runtime stub` | ✅ Compiled + executed (CI) |
+| Zig | `zig build-exe -target wasm32-wasi` | ✅ Compiled + executed (CI) |
+| Python | — | Guidance: run on a wasi-python interpreter (no AOT exists) |
+
+All five compiled-language gates verify on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). **Platforms:** macOS (Apple M5) ✅ · Ubuntu 24.04 ✅ · DGX Spark GB10 ✅
+
+## Execution Records
+
+Around the sandbox sits a verifiable trust chain for third-party tools:
+
+```text
+TOOL ──▶ SIGNED MANIFEST ──▶ HOST VERIFY ──▶ EPHEMORA CELL ──▶ SIGNED EXECUTION
+        (vendor ships)     (fail-closed,      runs inside       RECORD
+                           hash + policy      the sandbox       (tamper-evident)
+                           check)
+```
+
+Anything failing verification is rejected before a single instruction executes — execution never depends on a happy path.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/trust-chain-dark.svg">
+  <img src="assets/trust-chain-light.svg" alt="Trust chain: vendor signs manifest, host verifies fail-closed, Cell sandbox runs, signed execution record">
+</picture>
+
+- **Signed tool manifests.** Third-party tools ship an Ed25519-signed manifest (RFC 8785 JCS); the server verifies signature **and module hash** before registering and rejects unsigned, tampered or hash-mismatched tools fail-closed — a bare `.wasm` without a manifest never loads in signed-tools mode. `ephemora-cell-mcp --require-signed-tools pub.pem`, sign with `python -m ephemora_cell_mcp.sign_tool`.
+- **Governed dynamic loading.** An agent can only *propose* a tool — a `tool.request.json` dropped into an operator-allowlisted directory; the server evaluates it before each incoming message, verifies signature, module hash and policy, then installs and announces it (`notifications/tools/list_changed`). The agent proposes; the host disposes ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)).
+- **Signed execution records.** Any run folds into a tamper-evident record covering status, fuel, timing and the attested security baseline — rewrite one field and verification fails. Runnable demo: `python examples/signed_record_demo.py`.
+- **Trusted fast path.** `ephemora-cell-mcp --pooled` serves verified tools from the pooled engine at ~0.5 ms per call instead of ~12 ms (measured) — the relaxed I/O wall is attested in `get-policy`.
+
+![Trust chain in 15 seconds — attested run, fuel bomb stopped at 100/100, signed record survives verification until one field is rewritten, tampered manifest rejected fail-closed](assets/trust-chain.gif)
+
+*Every frame is a verbatim capture from a real run — reproduce them from a clone. Fuel numbers are exact (budgets are enforced); see [SECURITY.md](SECURITY.md) for the platform note on fuel costs.*
+
+The two execution paths differ materially. `run_wasm()` runs the guest inside your process; `run_isolated()` adds OS-level walls around a disposable worker (and returns the report fields as a dict). For guests from outside your own build — agent output, third-party plugins, PR-contributed code — use the isolated path:
+
+| Control | `run_wasm()` (in-process) | `run_isolated()` (subprocess) |
+|---|---|---|
+| Fuel metering (guest CPU) | ✅ | ✅ |
+| Memory cap (`Store.set_limits`) | ✅ | ✅ |
+| Wall-clock timeout (epoch) | ✅ | ✅ + hard process kill |
+| 10 KB output cap | ✅ | ✅ |
+| I/O byte wall (`io_budget_bytes`) | ✅ watcher + epoch interrupt | ✅ |
+| I/O CPU wall (`io_cpu_seconds`) | ❌ documented-trusted | ✅ worker rusage watchdog |
+| Disk quota (`disk_quota_bytes`) | ❌ trusted capability | ✅ RLIMIT_FSIZE (per file) |
+| RLIMIT_NOFILE/AS/RSS, 32 MB module cap | ❌ | ✅ |
+| Preopen deny + grant-time TOCTOU revalidation | ✅ | ✅ |
+
+Rows marked ❌ in-process are *documented-trusted*: the knob is honored as a declared capability, not an enforced wall — a kernel-level cap there would limit your own process. Full matrix and rationale: [SECURITY.md](SECURITY.md).
 
 ## Security
 
@@ -257,9 +560,9 @@ For context, the same eight intents were measured against **gVisor** (`runsc`, p
 *Same eight attack primitives, measured live (arm64 image pinned by digest; positive control proving the preopen grant works): a stock `python:3.12-slim` container lets every one through (0/8 blocked), a hardened container still lets 6 of 8 through — both of its blocks are `--read-only` flag effects — and the Ephemora Cell boundary blocks all eight (8/8). Measured on **two platforms** with identical results: macOS arm64 (2026-09-18) and DGX Spark GB10 / aarch64-Linux (2026-09-20, evidence in `benchmarks/results/2026-09-20/*-dgx-aarch64.json`). Reproduce all three columns:*
 
 ```bash
-python assets/demo_attack_probe.py          # stock Docker    -> 0/8 blocked
-python benchmarks/hardened_docker_probe.py  # hardened Docker -> 2/8 blocked
-python benchmarks/verify_8_vectors.py       # Ephemora Cell   -> 8/8 blocked
+python assets/demo_attack_probe.py          # stock Docker    ->  0/8 blocked
+python benchmarks/hardened_docker_probe.py  # hardened Docker ->  2/8 blocked
+python benchmarks/verify_8_vectors.py       # Ephemora Cell   ->  8/8 blocked
 ```
 
 **How the 8/8 is measured.**
@@ -289,81 +592,7 @@ python benchmarks/verify_8_vectors.py       # Ephemora Cell   -> 8/8 blocked
 - **CVE-2025-54136 class** ("MCPoison", payload swap after trust): a signed tool is accepted once, then a single tampered wasm byte makes the next governed-load request **fail closed** (hash mismatch).
 - **Same replays against WASI 0.2 components** ([evidence](benchmarks/results/2026-09-18/mcp_cve_replay_component.json), `abi: "component"`): the component path denies the same escape intents (symlink escape → `EPERM`, traversal → no preopen base) and the same governed-load tamper fails closed. The network vector gets its own intent — the WASI 0.2 world *links* `wasi:sockets` (unlike Preview1), so a TCP connect is attempted under the sandbox and **refused at call time**, with the granted-read control passing in the same run.
 
-## Secure MCP tool execution
-
-Listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI) and graded on Glama (license A, quality A, maintenance B — Glama's live classifier, server-side rendered; see the hero badges above).
-
-Ephemora Cell ships a dependency-free MCP stdio server whose tools are WASM modules executed inside the Cell — determinism, fuel metering, output cap, no network, SEP-2787-ready signable execution records:
-
-```bash
-pip install ephemora-cell
-ephemora-cell-mcp          # bundled tools: clock + echo; --tools-dir ./tools replaces the bundled set with your own
-
-# One-line setup for GitHub Copilot in VS Code:
-code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
-```
-
-Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
-
-**What you get, at a glance:**
-
-- **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
-- **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`: fuel consumed, wall time, security baseline), and `get-policy` reports the exact sandbox policy that enforced it.
-- **Deploy it anywhere.** The server is stateless (MCP `2026-07-28` revision): no session state, so you can restart, replace or load-balance it between calls without breaking a client — and hosts cache the tool list (`ttlMs`/`cacheScope`).
-- **Connect anything, today.** Claude Desktop, VS Code, Copilot, Codex and friends work over the standard handshake; modern clients skip it entirely. Both eras, one process, proven in CI against the official MCP SDK.
-
-What every Cell tool call carries:
-
-- **Isolation you can inspect.** The native `get-policy` tool returns the effective sandbox policy per tool — fuel budget, memory limit, preopens, network policy — computed from the same code path that enforces it, so the report and the enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured). Per-call evidence is measured side-by-side against the alternatives in the [comparison doc](docs/comparison-mcp-servers.md).
-- **Compatibility proven, not assumed.** The shipped server is verified in CI against the official MCP Python SDK on every push — both eras: the legacy handshake (`initialize`, `tools/list`, a real `tools/call` with execution `_meta`) and the stateless `2026-07-28` revision (full round trip without ever sending `initialize`) — with per-client setup documented for Claude Desktop, VS Code, Codex, OpenCode, and Hermes.
-- **Stateless by design (`2026-07-28` revision).** The server speaks both MCP eras: clients on the current `2026-07-28` revision skip the `initialize` handshake entirely — every request stands alone, no session state lives on the server, so you can load-balance, restart or scale the server between calls without breaking a client. Results carry `resultType: "complete"` (no partial-result handling) and `tools/list` answers with `ttlMs`/`cacheScope` so hosts can cache the tool list. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras are served from one process and tested side-by-side. Details: [docs/mcp.md](docs/mcp.md).
-- **Isolation priced for every call** — three numbers, don't mix them up ([comparison](docs/comparison-mcp-servers.md)):
-
-  | Path | Cost per call | Why |
-  |---|---|---|
-  | Library pooled runtime (`io_budget_bytes=None`) | **~0.5 ms** | cached engine, trusted workloads |
-  | MCP stdio server, default | **~12 ms** | fresh sandbox per `tools/call` — the ADR-002 I/O wall enforced via a per-run engine, measured end-to-end |
-  | MCP stdio server, `--pooled` | **~0.5 ms** | verified tools on the pooled engine; the relaxed I/O wall is attested in `get-policy` |
-
-  Sandbox *every* call becomes the default, not a trade-off.
-
-- **The agent cannot rewrite its own security boundary.**
-
-  ```text
-  Agent (LLM) ──▶ Host policy ──▶ Cell runtime ──▶ Execution
-    proposes      verifies         enforces
-    capability    signature,       fuel, memory, wall time,
-    request       module hash,     permissions, exit status
-                  policy
-  ```
-
-  The agent may only *propose* a capability ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)); the host verifies signature, module hash and policy out-of-band before anything runs; the runtime enforces per execution and returns evidence. No arrow in that chain points backwards — there is no tool-call path that widens a grant, and `get-policy` reports exactly what the enforcement path applies (reads are tools; writes are not).
-
-**vs Microsoft Wassette.** Wassette is Microsoft's capability-based runtime for MCP tools, built on the same Wasmtime engine family — the architecture thesis is converging, and its OCI pull model moves the trust decision to install time. Cell adds what a caller can *verify per call*: deterministic fuel metering, I/O budgets, and a sign-ready execution record (`_meta.execution`). Current status and the full side-by-side (Wassette re-verified 2026-09-18): [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
-
-See [docs/mcp.md](docs/mcp.md) and [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md).
-
-This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.
-
-**The two execution paths differ materially.** `run_wasm()` runs the guest inside your process; `run_isolated()` adds OS-level walls around a disposable worker (and returns the report fields as a dict). For guests from outside your own build — agent output, third-party plugins, PR-contributed code — use the isolated path:
-
-| Control | `run_wasm()` (in-process) | `run_isolated()` (subprocess) |
-|---|---|---|
-| Fuel metering (guest CPU) | ✅ | ✅ |
-| Memory cap (`Store.set_limits`) | ✅ | ✅ |
-| Wall-clock timeout (epoch) | ✅ | ✅ + hard process kill |
-| 10 KB output cap | ✅ | ✅ |
-| I/O byte wall (`io_budget_bytes`) | ✅ watcher + epoch interrupt | ✅ |
-| I/O CPU wall (`io_cpu_seconds`) | ❌ documented-trusted | ✅ worker rusage watchdog |
-| Disk quota (`disk_quota_bytes`) | ❌ trusted capability | ✅ RLIMIT_FSIZE (per file) |
-| RLIMIT_NOFILE/AS/RSS, 32 MB module cap | ❌ | ✅ |
-| Preopen deny + grant-time TOCTOU revalidation | ✅ | ✅ |
-
-Rows marked ❌ in-process are *documented-trusted*: the knob is honored as a declared capability, not an enforced wall — a kernel-level cap there would limit your own process. Full matrix and rationale: [SECURITY.md](SECURITY.md).
-
-Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, residual risks) · [docs/security_posture.md](docs/security_posture.md) (arXiv 2509.11242 evaluation, fuel boundary, related research).
-
-## Conformance: tested against the official suites
+### Conformance: tested against the official suites
 
 Not self-written test suites — the shipped CLI and the engine configuration Cell ships are run against **both official suites**: the [WebAssembly/wasi-testsuite](https://github.com/WebAssembly/wasi-testsuite) preview-1 suite through a runtime adapter, and the official [WebAssembly core spec suite](https://github.com/WebAssembly/testsuite) (W3C Wasm 3.0 era, `wast2json` harness) — evidence committed under `conformance/results/`:
 
@@ -372,6 +601,8 @@ Not self-written test suites — the shipped CLI and the engine configuration Ce
 - **A weekly CI job re-runs the pinned suite** and uploads the raw JSON, so drift surfaces within a week (`.github/workflows/wasi-conformance.yml`). Known, documented runner quirk: shared ubuntu x86_64 runners show rare wasmtime engine aborts on varying fs tests; the CI job absorbs each abort with a single recorded retry ([`adapters/cell_retry_wrapper.py`](conformance/adapters/cell_retry_wrapper.py), every retry visible in the evidence JSON) — a healthy run lands 72 pass, as in the 2026-09-19 CI run — deterministic on macOS arm64 and in clean containers ([conformance/README.md](conformance/README.md))
 - **The one deviation is documented:** `sock_shutdown-invalid_fd` expects `EBADF` on a runtime with no preopens; Cell's sandbox scratch dir is preopened as fd 3 by design, so the call returns `ENOTSOCK`. The property Cell claims — no socket surface — is unaffected.
 - **Honest scope:** this is standards conformance, not a security certification. No third party certifies Cell; the evidence is the pinned suite, the committed JSON and the CI history.
+
+**Can you break Cell?** Found an execution path that violates the documented security boundary — an escape, a budget bypass, an attestation gap? That is exactly the report we want: [SECURITY.md](SECURITY.md#reporting-a-vulnerability) (private disclosure, responsible handling). The [threat model](docs/threat-model.md) and its documented residual risks tell you where to aim; the methodology boxes on this page tell you how we measure. Security research on Cell is welcome.
 
 ## Performance
 
@@ -404,131 +635,52 @@ The same committed `coremark.wasm` (EEMBC CoreMark 1.01, pinned sources, wasi-sd
 
 Read as facts, not a ranking: on this workload the engine choice spans a ~12× range, the Cell sandbox layer costs 8.6–10.0% over the bare engine on the same machine, and instruction-level fuel metering a further 12.5–14.7%. External engines are context, not competitors measured by Cell's API; wasmer requires `--enable-tail-call` (the build ships the upstream Lime1+tail-call feature set). Evidence with verbatim commands, versions and per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`. Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
 
-## Any language that compiles to WASM
+### Fuel is per-platform
 
-Cell executes the `.wasm` — it does not know the source language. One-command build with actionable error hints from the measured friction matrix:
+Fuel counts are deterministic **per platform** (`fuel_spread: 0` on every host measured) but platform-bound — never compare across hosts (details and measured cross-platform examples: [docs/performance.md](docs/performance.md), `python benchmarks/determinism_probe.py`).
 
-```bash
-ephemora-cell build src/main.rs # inside a cargo project → tool.wasm → run it
-```
+### Engine backend & execution mode
 
-A bare `.rs` file outside a cargo project gets actionable guidance instead of
-a guess (the builder searches upward for the manifest, like cargo).
+Every number on this page is a **Cranelift** number: the Python binding cannot select an interpreted backend (Pulley/Winch unreachable, asserted in `tests/test_surface_audit.py`), so no fallback can silently change the posture. Details: [docs/performance.md](docs/performance.md).
 
-| Language | Compiler | Verified |
-|----------|----------|----------|
-| Rust | `cargo build --target wasm32-wasip1` | ✅ Compiled + executed (CI) |
-| Go | `GOOS=wasip1 GOARCH=wasm go build` | ✅ Compiled + executed (CI) |
-| C | wasi-sdk `clang --target=wasm32-wasip1` | ✅ Compiled + executed (CI) |
-| AssemblyScript | `asc --runtime stub` | ✅ Compiled + executed (CI) |
-| Zig | `zig build-exe -target wasm32-wasi` | ✅ Compiled + executed (CI) |
-| Python | — | Guidance: run on a wasi-python interpreter (no AOT exists) |
+## API & CLI
 
-All five compiled-language gates verify on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). **Platforms:** macOS (Apple M5) ✅ · Ubuntu 24.04 ✅ · DGX Spark GB10 ✅
-
-## Use Cases
-
-**AI-generated code** — run agent-produced tools with explicit limits:
+**Python API** — the primary surface is deliberately simple:
 
 ```python
-result = run_wasm(
-    "llm_generated.wasm",
-    max_fuel=200_000,
-    timeout_seconds=5,
-    allow_dirs=("/input", "/output")
-)
-```
+from ephemora_cell import run_wasm, run_isolated, WASIConfig, WASISandbox
 
-**Plugin systems** — accept user-uploaded plugins without giving them unrestricted host access:
-
-```python
-config = WASIConfig(allow_dirs=("/data",), max_fuel=500_000)
-result = WASISandbox(config=config).run("user_plugin.wasm")
-```
-
-Also documented: serverless/edge workloads, air-gapped validation, WASI 0.2 components, FastAPI integration — [docs/recipes.md](docs/recipes.md). Agent-framework integration tests (LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel, Hermes, NemoClaw) live in [`integration/`](integration/).
-
-## Untrusted PR code in GitHub Actions
-
-This repository ships a composite action: run a WASM module in the Cell sandbox inside your own workflow — with fuel metering, memory cap, epoch timeout and (default) the `--isolated` subprocess path (OS-level rlimits, hard kill):
-
-```yaml
-- id: run-tool
-  uses: MichaelS1011/ephemora-cell/action@main
-  with:
-    module: path/to/module.wasm   # e.g. built from a PR-provided recipe
-    profile: llm
-    # fuel: 500_000
-- run: echo "status=${{ steps.run-tool.outputs.status }} fuel=${{ steps.run-tool.outputs.fuel_consumed }}"
-```
-
-Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. This repo dogfoods the action on every push: [`.github/workflows/action-demo.yml`](.github/workflows/action-demo.yml) runs a benign module and feeds the same module a 100-unit fuel budget, asserting live that the sandbox stops it and accounts every unit.
-
-## Verifying. Not claimed.
-
-Around the sandbox sits a verifiable trust chain for third-party tools:
-
-```text
-TOOL ──▶ SIGNED MANIFEST ──▶ HOST VERIFY ──▶ EPHEMORA CELL ──▶ SIGNED EXECUTION
-        (vendor ships)     (fail-closed,      runs inside       RECORD
-                           hash + policy      the sandbox       (tamper-evident)
-                           check)
-```
-
-Anything failing verification is rejected before a single instruction executes — execution never depends on a happy path.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/trust-chain-dark.svg">
-  <img src="assets/trust-chain-light.svg" alt="Trust chain: vendor signs manifest, host verifies fail-closed, Cell sandbox runs, signed execution record">
-</picture>
-
-- **Signed tool manifests.** Third-party tools ship an Ed25519-signed manifest (RFC 8785 JCS); the server verifies before registering and rejects unsigned, tampered or hash-mismatched tools fail-closed — a bare `.wasm` without a manifest never loads in signed-tools mode. `ephemora-cell-mcp --require-signed-tools pub.pem`, sign with `python -m ephemora_cell_mcp.sign_tool`.
-- **Governed dynamic loading.** An agent can only *propose* a tool — a `tool.request.json` dropped into an operator-allowlisted directory; the host verifies signature, module hash and policy, then installs and announces it (`notifications/tools/list_changed`). The agent proposes; the host disposes ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)).
-- **Signed execution records.** Any run folds into a tamper-evident record covering status, fuel, timing and the attested security baseline — rewrite one field and verification fails. Runnable demo: `python examples/signed_record_demo.py`.
-- **Trusted fast path.** `ephemora-cell-mcp --pooled` serves verified tools from the pooled engine at ~0.5 ms per call instead of ~12 ms (measured) — the relaxed I/O wall is attested in `get-policy`.
-
-![Trust chain in 15 seconds — attested run, fuel bomb stopped at 100/100, signed record survives verification until one field is rewritten, tampered manifest rejected fail-closed](assets/trust-chain.gif)
-
-*Every frame is a verbatim capture from a real run — reproduce them from a clone. Fuel numbers are exact (budgets are enforced); see [SECURITY.md](SECURITY.md) for the platform note on fuel costs.*
-
-## Architecture
-
-```mermaid
-flowchart TB
-    guest["Guest WASM Module<br/>(isolated)"]
-    subgraph sandbox["WASI Sandbox — capability-based isolation"]
-        fuel["Fuel Meter<br/>~13 fuel/iteration"]
-        mem["Memory Limit<br/>128 MB max"]
-        timeout["Timeout Guard<br/>epoch interruption"]
-        syscalls["WASI Preview1 — capability-based,<br/>preopened dirs only<br/>fd_read · fd_write · path_open · clock_time_get<br/>proc_exit · environ_get · random_get"]
-    end
-    blocked["Blocked by design:<br/>exec · fork · socket · /dev · /proc · /sys · threads"]
-
-    guest --> syscalls
-    fuel -.-> sandbox
-    mem -.-> sandbox
-    timeout -.-> sandbox
-    sandbox -.-> blocked
-```
-
-The primary API is deliberately simple: `run_wasm(wasm) → result`. Every execution returns structured, auditable information:
-
-```python
+result = run_wasm("tool.wasm", max_fuel=1_000_000, timeout_seconds=30)
 result.status        # SUCCESS | ERROR | TIMEOUT | FUEL_EXHAUSTED | MEMORY_EXCEEDED
 result.exit_code
 result.stdout        # 10 KB cap
-result.stderr
 result.elapsed_ms
 result.fuel_consumed
+
+# OS-level process wall for untrusted guests:
+result = run_isolated("tool.wasm", config=WASIConfig(max_fuel=500_000))
 ```
 
-That makes execution suitable for auditing, policy enforcement, and resource accounting — not just running code. Full CLI (`run`, `--json` with `security_baseline`, `inspect`, `benchmark`, `build`, profiles incl. `--profile analytical`) in the [CLI docs](docs/recipes.md) and `ephemora-cell --help`.
+Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`), named state, the component path (`abi="component"`), disk quotas and GC-heap caps are all `WASIConfig` knobs — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
 
-## What Cell is — and is not
+**CLI** — four verbs cover the loop:
+
+```text
+ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile)
+ephemora-cell inspect   Imports, exports, memory — what a module wants, before you run it
+ephemera-cell benchmark Cold/warm latency and fuel spread
+ephemora-cell build     Compile Rust/Go/C/AssemblyScript/Zig straight to WASM
+```
+
+`ephemora-cell --help` and [docs/recipes.md](docs/recipes.md) for the full reference.
+
+## Limitations
 
 **Cell is:** a WASM execution primitive · a capability-based isolation layer · a resource-bounded runtime · an embeddable Python library · a CLI · an MCP execution layer.
 
-**Cell is not:** an agent framework · an LLM · a code-generation system · a malware detector · a full VM · a replacement for every container workload.
+**Cell is not:** a general VM · a container orchestrator · a malware detection system · a full multi-tenant cloud platform · an agent framework · an LLM · a code-generation system · a full VM replacement for every container workload.
+
+Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Do not use Cell for long-running I/O-heavy services — that is what the `--isolated` subprocess wall or a microVM is for (see [docs/performance.md](docs/performance.md) for the measured third-party comparison).
 
 What each enforced control does **not** claim — every row is an honest boundary, tested at the boundary:
 
@@ -543,19 +695,25 @@ What each enforced control does **not** claim — every row is an honest boundar
 
 > **The goal is narrow: make untrusted execution cheap enough and controlled enough that an application can safely do it by default.**
 
+Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, resource-exhaustion matrix) · [docs/security_posture.md](docs/security_posture.md) (arXiv 2509.11242 evaluation, fuel boundary, related research).
+
+## Roadmap
+
+Real, gated items — no dates promised:
+
+- **Engine upgrade gate (in progress):** wasmtime 48.0.3/49.0.1 closes the 2026 fuel-amplification advisory (GHSA-m63x-6p34-q65x) and the WASIp3-streams advisory; blocked on Python wheels publishing to PyPI (`scripts/check_wasmtime_patch.py` watches), then fuel determinism re-qualification and an extended filesystem-escape test matrix.
+- **WASI 0.3 evaluation gate:** WASI 0.3 (Component-Model async) is deliberately gated off until the 0.3 surface ships in the Python wheels, the streams advisory line is closed, and the surface has its own budget qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
+- **Threading opt-in phase:** shared-everything threads stay frozen by default; enabling them is a separately security-reviewed opt-in with thread-aware fuel and wall-clock accounting ([SECURITY.md](SECURITY.md#threading)).
+
 ## Testing & Verification
 
-424 tests · 85% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
-## Can you break Cell?
-
-Found an execution path that violates the documented security boundary — an escape, a budget bypass, an attestation gap? That is exactly the report we want: [SECURITY.md](SECURITY.md#reporting-a-vulnerability) (private disclosure, responsible handling). The [threat model](docs/threat-model.md) and its documented residual risks tell you where to aim; the methodology boxes on this page tell you how we measure. Security research on Cell is welcome.
+470 tests · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 
 **Getting started** · [Quick Start](#quick-start) above · [docs/recipes.md](docs/recipes.md) — usage patterns (FastAPI, serverless, air-gapped, WASI 0.2) · [`integration/`](integration/) — agent-framework examples
 
-**Security & evidence** · [SECURITY.md](SECURITY.md) — policy, execution-path matrix, vulnerability reporting · [docs/threat-model.md](docs/threat-model.md) — trust boundaries, adversary model · [docs/security_posture.md](docs/security_posture.md) — attack-surface verification · [conformance/README.md](conformance/README.md) — official wasi-testsuite harness
+**Security & evidence** · [SECURITY.md](SECURITY.md) — policy, execution-path matrix, vulnerability reporting · [docs/threat-model.md](docs/threat-model.md) — trust boundaries, adversary model, resource-exhaustion matrix · [docs/security_posture.md](docs/security_posture.md) — attack-surface verification · [conformance/README.md](conformance/README.md) — official wasi-testsuite harness
 
 **Execution records & decisions** · [ADR-006](docs/decisions/ADR-006-governed-tool-loading.md) — who may change a running workload's security boundary · [ADR-001…007](docs/decisions/) — all decision records · `examples/signed_record_demo.py` — sign and tamper-check a run
 
