@@ -71,3 +71,45 @@ are host operations with an audit trace.
   silent empty registries.
 - Trust moves to artifacts, not to the session: an untrusted request
   file is inert by construction.
+
+## Amendment (2026-09-25): atomic publication & per-call module binding
+
+The verify-before-register gate verified bytes at scan/install time but
+bound only the PATH: the registry stored no digest, execution re-read the
+file on every call, and nothing prevented a partially-written file from
+being registered. Two hardenings close this, Wassette-load-path class:
+
+1. **Atomic publication (producer side).** Every producer that publishes
+   into a tools/ or requests directory writes through
+   `ephemera_cell._fsutil` (temp file in the destination directory +
+   fsync + `os.replace`): the governed-load install (sidecar FIRST,
+   module LAST — a racing scan only ever sees a bare `.wasm`, which
+   signed-tools mode rejects), `sign_tool`'s manifest rewrite, and the
+   rust builder's `--out` publish. The governed install reads the module
+   once and hashes the in-memory copy (`tool_wasm_sha256_bytes`), so the
+   verified digest and the installed bytes cannot diverge.
+2. **Consumer load-guard + per-call binding.** `ToolRegistry._build_spec`
+   registers only settled modules (two reads agree), with wasm magic and
+   within the subprocess size cap. In signed-tools mode the spec carries
+   the register-time digest (`ToolSpec.wasm_sha256`) and EVERY execution
+   binds to it: `WASISandbox.run(expected_sha256=...)` reads the bytes
+   once, verifies them and compiles exactly those bytes — preview1,
+   component and subprocess worker paths alike. A swapped on-disk file
+   fails closed with "module hash mismatch" instead of executing.
+   Legacy (unsigned) mode deliberately keeps the disk-truth convention:
+   the file on disk is the authority, the sidecar is metadata only.
+3. **Content-keyed module cache.** `EnginePool` keys compiled modules by
+   content hash instead of (path, mtime, size): a swap can neither
+   poison an entry via the old stat-then-open race nor serve a stale
+   module for a mtime-preserving replacement (`cp -p`).
+4. **Deferred, never half-parsed.** Request files that are not yet
+   settled are deferred to the next tick (`pending` in the report, key
+   present only when non-empty) instead of emitting transient
+   rejections.
+
+Consequences: the request-file REPORT shape gains an optional `pending`
+key (additive); `ToolSpec` gains an optional trailing field;
+`WASISandbox.run` gains a keyword-only `expected_sha256`; the module
+cache key changes (internal). All previously documented contracts —
+request-file format, CLI flags, `sign_manifest`/`verify_manifest` — are
+unchanged.

@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **Atomic publication + per-call module binding (load-path TOCTOU
+  closed):** all producers (governed-load install, `sign_tool`, rust
+  builder) publish files via temp + fsync + `os.replace` — a
+  partially-written module is never visible under its final name, and
+  the governed install publishes exactly the bytes it verified. The
+  registry load-guard registers only settled, magic-prefixed modules
+  within the size cap; in signed-tools mode every execution is bound to
+  the register-time digest (`WASISandbox.run(expected_sha256=...)`,
+  preview1/component/subprocess alike) — a swapped on-disk file fails
+  closed instead of executing. The engine-pool module cache is keyed by
+  content hash (no stat-then-open race, no stale-serve for mtime-preserving
+  swaps). ADR-006 amendment documents the full model.
 - **Explicit proposal policy (set, not inherited):** the engine now also
   enforces `wasm_stack_switching=False` (WASI 0.3 native-async base —
   gate-off until the 0.3 surface is qualified; WASIp3 streams of

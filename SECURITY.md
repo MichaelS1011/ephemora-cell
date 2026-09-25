@@ -105,6 +105,7 @@ result["security_baseline"]   # attested limits, incl. wasmtime_version
 | Disk quota (`disk_quota_bytes`) | ❌ trusted capability * | ✅ RLIMIT_FSIZE (per file) |
 | RLIMIT_NOFILE / AS / RSS, 32 MB module cap | ❌ | ✅ |
 | Preopen deny + grant-time TOCTOU revalidation | ✅ | ✅ |
+| Per-call module binding (`expected_sha256`) | ✅ | ✅ (worker verifies before compiling) |
 
 \* In-process runs execute inside your own process — a kernel-level cap
 there would cap your application itself, so these knobs are honored as
@@ -114,7 +115,9 @@ memory-, timeout- and byte-wall-bounded in-process).
 Backed by tests: `tests/test_run_io_budgets.py` (byte wall on both paths,
 CPU wall on the worker path), `tests/test_disk_quota.py` (RLIMIT_FSIZE),
 `tests/test_process_executor.py` (rlimits, timeout kill, module cap),
-`tests/test_effective_preopens.py` (preopens).
+`tests/test_effective_preopens.py` (preopens),
+`tests/test_load_guard.py` (atomic publication, settled-file load guard,
+per-call digest binding on all paths — ADR-006 amendment, 2026-09-25).
 
 For production and regulated deployments, the Ephemora enterprise edition builds on Cell's isolation.
 
