@@ -30,7 +30,11 @@ the former exceptions.py classes were exported but never raised.
 """
 
 from .engine_pool import EnginePool, config_fingerprint
-from .execution_report import ExecutionReport
+from .execution_report import (
+    ExecutionReport,
+    PreExecutionRecord,
+    verify_chain,
+)
 from .process_executor import measure_overhead
 from .process_executor import run_isolated as _run_isolated_dict
 from .profiles import get as get_profile
@@ -154,6 +158,7 @@ __all__ = [
     "ExecutionResult",
     "ExecutionStatus",
     "ModuleInfo",
+    "PreExecutionRecord",
     "WASIConfig",
     "WASISandbox",
     "config_fingerprint",
@@ -164,6 +169,7 @@ __all__ = [
     "run_isolated",
     "run_isolated_dict",
     "run_wasm",
+    "verify_chain",
 ]
 
 __version__ = "1.0.4.2"

@@ -8,11 +8,17 @@ sign/verify helpers that stay signer-agnostic (bytes in, bytes out).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+
+#: Type tag of the pre-execution attestation payload (ADR-008).
+PRE_EXEC_RECORD_TYPE = "ephemora.pre_exec.v1"
 
 
 def _default_security_baseline() -> dict[str, Any]:
@@ -72,6 +78,10 @@ class ExecutionReport:
     security_baseline: dict[str, Any] = field(
         default_factory=_default_security_baseline
     )
+    # ADR-008 record split: link to the signed pre-execution attestation.
+    # None (default) for every plain report — `to_dict()` output is
+    # byte-identical to pre-ADR-008 reports unless the caller opts in.
+    back_link: dict[str, Any] | None = None
 
     @property
     def fuel_utilization(self) -> float | None:
@@ -135,7 +145,7 @@ class ExecutionReport:
         return self
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "status": self.status,
             "exit_code": self.exit_code,
             "elapsed_ms": round(self.elapsed_ms, 2),
@@ -152,6 +162,9 @@ class ExecutionReport:
             "warnings": self.warnings,
             "security_baseline": dict(self.security_baseline),
         }
+        if self.back_link is not None:
+            out["back_link"] = dict(self.back_link)
+        return out
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
@@ -248,6 +261,189 @@ class ExecutionReport:
             for w in self.warnings:
                 lines.append(f"  ⚠️  {w}")
         return "\n".join(lines)
+
+
+def policy_fingerprint(config: Any) -> str:
+    """SHA-256 over the JCS of the security-relevant policy (ADR-008).
+
+    Deliberately broader than the engine-pool cache fingerprint: this is
+    the PRE-EXECUTION attestation of the policy a run carries, covering
+    every wall the guest experiences. ``allow_env`` contributes its NAMES
+    only — values are secrets, not policy.
+    """
+
+    def _names(pairs: Any) -> list:
+        return [[pair[0], None] for pair in (pairs or ())]
+
+    policy = {
+        "max_memory_mb": getattr(config, "max_memory_mb", None),
+        "max_fuel": getattr(config, "max_fuel", None),
+        "timeout_seconds": getattr(config, "timeout_seconds", None),
+        "memory_capacity_bytes": getattr(config, "memory_capacity_bytes", 0),
+        "max_threads": getattr(config, "max_threads", None),
+        "memory64": getattr(config, "memory64", False),
+        "max_gc_heap_mb": getattr(config, "max_gc_heap_mb", None),
+        "disk_quota_bytes": getattr(config, "disk_quota_bytes", None),
+        "io_cpu_seconds": getattr(config, "io_cpu_seconds", None),
+        "io_budget_bytes": getattr(config, "io_budget_bytes", None),
+        "allow_env_names": _names(getattr(config, "allow_env", None)),
+        "allow_dirs": list(getattr(config, "allow_dirs", ()) or ()),
+    }
+    return hashlib.sha256(jcs_canonicalize(policy).encode("utf-8")).hexdigest()
+
+
+def input_digest(args: list[str] | None, stdin_data: str | None) -> str:
+    """SHA-256 over the JCS of the guest input (argv + stdin)."""
+    payload = jcs_canonicalize({"args": list(args or []), "stdin": stdin_data})
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def module_digest(
+    module_path: str | None = None, module_bytes: bytes | None = None
+) -> str:
+    """Lowercase hex SHA-256 of a module (bytes or streamed file)."""
+    if module_bytes is not None:
+        return hashlib.sha256(module_bytes).hexdigest()
+    if module_path is None:
+        raise ValueError("provide module_path or module_bytes")
+    digest = hashlib.sha256()
+    with open(module_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@dataclass
+class PreExecutionRecord:
+    """Signed pre-execution attestation (ADR-008 record split).
+
+    Signed BEFORE the guest runs and bound to the post-execution receipt
+    via the receipt's optional ``back_link`` field: what is about to
+    execute (module digest), under which policy (policy fingerprint) and
+    with which input (input digest). Same signer-agnostic, JCS-canonical
+    signing conventions as :meth:`ExecutionReport.sign` (SEP-2787
+    style), so the same keys sign both halves of the chain. The split
+    answers the verification-order problem: a verifier can check the
+    pre-exec record BEFORE trusting anything the run claims.
+    """
+
+    id: str
+    timestamp: str
+    module_sha256: str
+    config_fingerprint: str
+    input_hash: str
+    security_baseline: dict[str, Any] = field(
+        default_factory=_default_security_baseline
+    )
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        module_path: str | None = None,
+        module_bytes: bytes | None = None,
+        config: Any = None,
+        args: list[str] | None = None,
+        stdin_data: str | None = None,
+        security_baseline: dict[str, Any] | None = None,
+        record_id: str | None = None,
+        timestamp: str | None = None,
+    ) -> PreExecutionRecord:
+        """Assemble a pre-exec record from the run's inputs.
+
+        ``record_id``/``timestamp`` are injectable for deterministic
+        tests; production callers let them default (uuid4 hex / UTC ISO).
+        """
+        if config is None:
+            raise ValueError("config is required")
+        return cls(
+            id=record_id or uuid.uuid4().hex,
+            timestamp=timestamp
+            or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            module_sha256=module_digest(module_path, module_bytes),
+            config_fingerprint=policy_fingerprint(config),
+            input_hash=input_digest(args, stdin_data),
+            security_baseline=dict(security_baseline or _default_security_baseline()),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "record_type": PRE_EXEC_RECORD_TYPE,
+            "id": self.id,
+            "timestamp": self.timestamp,
+            "module_sha256": self.module_sha256,
+            "config_fingerprint": self.config_fingerprint,
+            "input_hash": self.input_hash,
+            "security_baseline": dict(self.security_baseline),
+        }
+
+    def sign(self, signer: Callable[[bytes], bytes], *, alg: str = "ES256") -> dict:
+        """SEP-2787-style signed copy (same conventions as
+        :meth:`ExecutionReport.sign` — signer-agnostic, JCS input, hex
+        signature, ``alg`` covered by the signature)."""
+        if not callable(signer):
+            raise TypeError(
+                f"signer must be callable bytes->bytes, got {type(signer).__name__}"
+            )
+        record = dict(self.to_dict())
+        record["alg"] = alg
+        raw = signer(canonical_bytes(record))
+        if not isinstance(raw, (bytes, bytearray)):
+            raise TypeError(f"signer must return bytes, got {type(raw).__name__}")
+        record["signature"] = bytes(raw).hex()
+        return record
+
+    @staticmethod
+    def verify(signed_record: Any, verifier: Callable[[bytes, bytes], bool]) -> bool:
+        """Fail-closed verification (same contract as
+        :meth:`ExecutionReport.verify`)."""
+        if not isinstance(signed_record, dict) or not callable(verifier):
+            return False
+        try:
+            signature_hex = signed_record["signature"]
+        except (KeyError, TypeError):
+            return False
+        payload = {k: v for k, v in signed_record.items() if k != "signature"}
+        try:
+            signature = bytes.fromhex(signature_hex)
+            canonical = canonical_bytes(payload)
+        except (TypeError, ValueError):
+            return False
+        try:
+            return bool(verifier(canonical, signature))
+        except Exception:
+            return False
+
+
+def verify_chain(
+    signed_pre_exec: Any,
+    signed_receipt: Any,
+    verifier: Callable[[bytes, bytes], bool],
+) -> bool:
+    """Verify the pre-exec → receipt chain (ADR-008).
+
+    Both halves must verify with the SAME verifier, and the receipt's
+    ``back_link`` must reference the pre-exec record id AND the digest of
+    its canonical payload — the receipt is bound to exactly this
+    pre-exec attestation, not merely to *a* pre-exec attestation. Fails
+    closed on every malformed input.
+    """
+    if not PreExecutionRecord.verify(signed_pre_exec, verifier):
+        return False
+    if not ExecutionReport.verify(signed_receipt, verifier):
+        return False
+    back_link = signed_receipt.get("back_link")
+    if not isinstance(back_link, dict):
+        return False
+    pre_payload = {k: v for k, v in signed_pre_exec.items() if k != "signature"}
+    try:
+        digest = hashlib.sha256(canonical_bytes(pre_payload)).hexdigest()
+    except (TypeError, ValueError):
+        return False
+    return (
+        back_link.get("pre_exec_id") == signed_pre_exec.get("id")
+        and back_link.get("pre_exec_digest") == digest
+    )
 
 
 _SURROGATE_MIN = 0xD800
