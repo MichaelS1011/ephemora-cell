@@ -260,6 +260,8 @@ code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
 
 Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
 
+**Runs entirely on your machine — with any MCP client and any model, including local ones.** The MCP server is a plain stdio process installed from PyPI: no API key, no cloud account, and tools execute offline inside the WASM sandbox (no network unless you explicitly allow it host-side). Point Claude Desktop, VS Code/Copilot, Codex, LM Studio or your local-model stack of choice at it — the sandbox side never leaves your hardware. How much the agent gets out of the tools then depends on your client and model's tool-calling ability; the sandbox itself adds no requirements beyond a local machine.
+
 **What you get:**
 
 - **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
