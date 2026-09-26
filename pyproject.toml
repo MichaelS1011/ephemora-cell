@@ -12,7 +12,7 @@ authors = [
     {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
-dependencies = ["wasmtime>=43.0.1,<48"]  # floor = oldest line carrying the April 2026 advisory fixes (CVE-2026-34971 class)
+dependencies = ["wasmtime>=43.0.1,<48"]  # floor = oldest line carrying the April 2026 advisory fixes (CVE-2026-34971 class); the next lock refresh (48.0.3/49.0.1 wheels) must carry the wasip3 advisory fix line (GHSA-x84v-gj2h-g759, patched 47.0.4/46.0.3) — gate criteria in docs/decisions/ADR-009-language-support.md
 
 classifiers = [
     "Development Status :: 5 - Production/Stable",
