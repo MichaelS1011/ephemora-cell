@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ephemora-cell": {
+      "command": "uvx",
+      "args": ["--from", "ephemora-cell", "ephemora-cell-mcp"]
+    }
+  }
+}

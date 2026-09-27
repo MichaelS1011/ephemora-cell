@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Root `.mcp.json` (project-scope MCP config): launches the server via
+  `uvx --from ephemora-cell ephemora-cell-mcp` — the same start command
+  as `smithery.yaml`. Clients that honor project-scope `.mcp.json`
+  offer the server with a one-time user approval, and agent-plugin
+  scanners (Open Plugins / Cursor Directory) now detect the repo as
+  carrying an MCP component. Floating PyPI version, no secrets, no
+  config required (bundled tool set).
+
 ## [1.0.4.3] - 2026-09-25
 
 First release carrying the 2026-09-25 hardening line (load-path TOCTOU
