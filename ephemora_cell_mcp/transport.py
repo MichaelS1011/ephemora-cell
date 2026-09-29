@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Transports for the ephemora-cell-mcp stdio loop.
 
 The default transport is real stdio (MCP stdio server: NDJSON lines on

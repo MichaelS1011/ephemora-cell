@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Structured ExecutionReport — serializable, machine-readable.
 
 Also provides RFC 8785 (JCS) canonicalization — the deterministic JSON

@@ -86,6 +86,27 @@ show these as untracked files. That is intentional:
 5. Open a Pull Request against `main`
 6. All tests must pass before merge
 
+## Licensing of Contributions
+
+Ephemora Cell is licensed under the Business Source License 1.1
+([LICENSE](LICENSE), BUSL-1.1 — source-available, converting to Apache-2.0
+four years after each version's first public release).
+
+By submitting a pull request or patch, you agree that your contribution is
+accepted under the project license (BUSL-1.1), and you confirm that:
+
+- you have the right to submit the work under those terms (you wrote it or
+  hold the necessary rights), and
+- you grant the Licensor a perpetual, irrevocable, worldwide right to
+  relicense the contribution (including under future versions of the project
+  license and any commercial or open-source license) and to enforce the
+  project license.
+
+Contributions of code keep the project's SPDX header
+(`# SPDX-License-Identifier: BUSL-1.1`) — do not change it or add conflicting
+license notices. If your contribution pulls in third-party code, make sure
+its license is compatible and note it in the PR.
+
 ## Release Checklist
 
 1. Bump the version in ALL FOUR sources together (they must never drift):

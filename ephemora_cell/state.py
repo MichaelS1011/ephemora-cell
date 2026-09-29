@@ -1,5 +1,6 @@
 # Ephemora Cell — Named state across isolated runs (ADR-004)
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
 """Session-scoped named state for consecutive sandbox runs.
 
 Cell runs are fully ephemeral — every ``run()`` gets a fresh sandbox

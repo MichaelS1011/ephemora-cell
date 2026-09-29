@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Run ephemora-cell-mcp as an MCP stdio server: ``python -m ephemora_cell_mcp``.
 
 The server speaks NDJSON/JSON-RPC 2.0 on stdin/stdout — the standard MCP

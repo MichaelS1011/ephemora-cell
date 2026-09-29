@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """ephemora-cell-mcp — MCP (Model Context Protocol) adapter on top of Ephemora Cell.
 
 Tool implementations are WASM modules executed inside the Ephemora Cell

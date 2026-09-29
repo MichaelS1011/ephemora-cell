@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Cell execution engine for MCP tools.
 
 Every tool is a WASM module running inside the Ephemora Cell. The engine

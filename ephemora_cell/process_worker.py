@@ -1,5 +1,6 @@
 # Ephemora Cell — Isolated worker subprocess for subprocess-level sandboxing
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
 """
 Worker subprocess for process-level isolation (run_isolated).
 

@@ -1,6 +1,6 @@
 # Ephemora for Enterprise
 
-[Ephemora Cell](../README.md) is the open-source, Apache-2.0 WASM sandbox
+[Ephemora Cell](../README.md) is the source-available, BUSL-1.1 WASM sandbox
 — complete for **isolation**. The Ephemora enterprise edition builds on
 Cell's isolation for teams whose question is not "does the sandbox hold?"
 but "how do I run, attest and operate it at scale?" Cell is complete for
@@ -48,7 +48,7 @@ isolation primitives, not around them.
 ## Contact
 
 - **Enterprise inquiries:** [LinkedIn — Michael Soppa](https://www.linkedin.com/in/michael-soppa)
-- **Everything open source:** [GitHub Issues](https://github.com/MichaelS1011/ephemora-cell/issues)
+- **Everything source-available:** [GitHub Issues](https://github.com/MichaelS1011/ephemora-cell/issues)
   or [Discussions](https://github.com/MichaelS1011/ephemora-cell/discussions)
 - **Security vulnerabilities:** [SECURITY.md](../SECURITY.md) — never via
   public issues

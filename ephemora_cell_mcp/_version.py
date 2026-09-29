@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Single source of truth for the ephemora-cell-mcp package version.
 
 Kept in its own module so ``protocol.SERVER_VERSION`` can import it

@@ -1,5 +1,6 @@
 # Ephemora Cell — Host-sidecar egress mediator (ADR-002)
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
 """Mediated API egress for sandboxed tools (the host-sidecar pattern).
 
 The guest has NO sockets. A tool that needs an API writes a request

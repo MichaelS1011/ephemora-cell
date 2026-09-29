@@ -7,7 +7,7 @@ name = "ephemora-cell"
 version = "1.0.4.3"
 description = "Ephemora Cell — The execution layer for untrusted AI-generated code. Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits."
 readme = "README.md"
-license = {text = "Apache-2.0"}
+license = {text = "BUSL-1.1"}
 authors = [
     {name = "Michael Soppa"},
 ]
@@ -17,7 +17,6 @@ dependencies = ["wasmtime>=43.0.1,<48"]  # floor = oldest line carrying the Apri
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

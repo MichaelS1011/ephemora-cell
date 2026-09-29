@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """WASM Module Inspector — analyse a module before execution."""
 
 from dataclasses import dataclass, field

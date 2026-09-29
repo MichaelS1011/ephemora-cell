@@ -1,6 +1,6 @@
 # Ephemora Cell WASM Runtime
-# SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 Michael Soppa
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
 """
 Ephemora Cell — Isolated WASM sandbox with resource limits.
 

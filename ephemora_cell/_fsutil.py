@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Atomic file publication — temp file + fsync + ``os.replace``.
 
 Every producer that publishes into a tools/ or requests/ directory goes

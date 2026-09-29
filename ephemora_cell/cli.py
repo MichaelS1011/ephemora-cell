@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """Ephemora Cell CLI — run, inspect, benchmark subcommands."""
 
 from __future__ import annotations

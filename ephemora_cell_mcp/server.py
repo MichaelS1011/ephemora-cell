@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BUSL-1.1
+# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+
 """ephemora-cell-mcp Server — MCP stdio host whose tools are Cell WASM modules.
 
 Protocol surface (dependency-free JSON-RPC 2.0 over NDJSON lines), dual-era

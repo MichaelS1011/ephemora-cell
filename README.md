@@ -39,8 +39,8 @@ AI Agent / Application
   <a href="https://www.python.org/downloads/">
     <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   </a>
-  <a href="https://opensource.org/licenses/Apache-2.0">
-    <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License: BUSL-1.1 (source-available; converts to Apache-2.0 four years after each release)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell">
     <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status">
@@ -79,7 +79,7 @@ AI Agent / Application
     <img src="https://img.shields.io/badge/MCP-Registry-blue" alt="Listed in the official MCP Registry">
   </a>
   <a href="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell">
-    <img src="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg" alt="Glama grade: license A, quality A, maintenance B">
+    <img src="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg" alt="Glama grade: quality A, maintenance B">
   </a>
 </p>
 
@@ -248,7 +248,7 @@ Failures come back **graded, not crashing**: an infinite loop returns `status: "
 
 ## MCP Integration
 
-Listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI) and graded on Glama (license A, quality A, maintenance B — Glama's live classifier; see the hero badges above). The call flow is the hero diagram above: the agent's tool call enters the stdio server, the tool runs inside the Cell, and the result comes back with its execution record.
+Listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI) and graded on Glama (quality A, maintenance B — Glama's live classifier; see the hero badges above). The call flow is the hero diagram above: the agent's tool call enters the stdio server, the tool runs inside the Cell, and the result comes back with its execution record.
 
 ```bash
 pip install ephemora-cell
@@ -587,11 +587,16 @@ Real, gated items — no dates promised:
 
 ## About Ephemora
 
-Ephemora Cell is the open-source isolation layer (Apache 2.0, standalone — no Ephemora dependency). The Ephemora enterprise edition builds on Cell's isolation for production and regulated deployments. Cell is complete for isolation; the enterprise edition is complete for operation — see [docs/enterprise.md](docs/enterprise.md) for when that conversation is worth having.
+Ephemora Cell is the source-available isolation layer (BUSL 1.1, standalone — no Ephemora dependency). The Ephemora enterprise edition builds on Cell's isolation for production and regulated deployments. Cell is complete for isolation; the enterprise edition is complete for operation — see [docs/enterprise.md](docs/enterprise.md) for when that conversation is worth having.
 
 ## License
 
-Apache 2.0 — See `LICENSE`.
+Ephemora Cell is licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1) — source-available, not open source.
+
+- **Free for non-production use** — evaluation, development, research, testing.
+- **Business/production use requires a license from Ephemora** — see [docs/enterprise.md](docs/enterprise.md).
+- **Automatic conversion:** each version converts to **Apache 2.0** four years after its first public release.
+- **Versions ≤ 1.0.4.3 remain Apache-2.0** permanently — the change applies from the next release onward.
 
 ---
 mcp-name: io.github.MichaelS1011/ephemora-cell-mcp
