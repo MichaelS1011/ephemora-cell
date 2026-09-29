@@ -36,6 +36,48 @@ guest output appears on the terminal's stderr channel, which trips up
 `ephemora-cell run tool.wasm --json | python -m json.tool` only if the guest
 writes to stderr *and* the shell merges streams (`2>&1`).
 
+## Troubleshooting
+
+The usual suspects the README's Quick Start warns about, with the mechanism
+behind each failure:
+
+**`externally-managed-environment` on `pip install`** — the interpreter is
+system-managed (PEP 668; Ubuntu ≥ 23.04, Fedora) and refuses packages
+installed outside a virtualenv. Create one and install inside it:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+python -m pip install ephemora-cell
+```
+
+**`python3` not found on Windows** — Windows installs the launcher as
+`python`; a bare `python3` may resolve to the Microsoft Store stub. Use
+`python -m venv .venv` and `python -m pip ...` there, while Git Bash and WSL
+behave like Linux (`python3` works) — the same note as the README Quick
+Start.
+
+**Tool not found / wrong `.wasm` path in an MCP client** — the server
+resolves a relative `--tools-dir` against its own process working directory
+(whatever the client spawned it with), not against your shell's. Point
+`--tools-dir` at an absolute path (see [docs/mcp.md](mcp.md)). For the
+build side: `ephemora-cell build` writes `<crate>.wasm` into the cargo
+project root (Rust) or `<stem>.wasm` next to the source (Go, C,
+AssemblyScript, Zig); `--out` overrides. `ephemora-cell inspect <module>`
+confirms the file is where you think it is.
+
+**`fuel_exhausted` / `timeout` on a legitimate workload** — the run hit its
+budget, it did not crash. `run --json` reports `fuel_consumed` against
+`fuel_budget`; raise `--fuel` / `--timeout` / `--memory-mb` (or the matching
+`WASIConfig` fields, or a larger profile, e.g. `--profile analytical`), and
+read back the effective posture via the MCP `get-policy` tool or the
+report's `security_baseline` block.
+
+**stdout ends with `[... truncated]`** — the guest wrote past the 10 KB
+output cap (10,000 bytes; stdout and stderr share one budget). There is no
+fuller copy on the host: writes past the budget are rejected at the guest's
+write call, so large results belong in a preopened file (`--allow-dirs`),
+not in stdout.
+
 ## Serverless Functions (Edge/Cloud)
 
 Replace Docker with WASM for faster, safer function execution:

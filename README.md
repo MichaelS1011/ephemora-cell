@@ -524,7 +524,7 @@ Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`), named state, disk q
 **CLI** — four verbs cover the loop:
 
 ```text
-ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile)
+ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile, --abi)
 ephemora-cell inspect   Imports, exports, memory — what a module wants, before you run it
 ephemora-cell benchmark Cold/warm latency and fuel spread
 ephemora-cell build     Compile Rust/Go/C/AssemblyScript/Zig straight to WASM
@@ -565,7 +565,7 @@ Real, gated items — no dates promised:
 
 ## Testing & Verification
 
-470 tests passing (4 skipped) · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+566 tests passing (4 skipped) · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 

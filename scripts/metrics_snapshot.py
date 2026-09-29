@@ -72,7 +72,9 @@ def _get_pypi_with_backoff(url: str) -> dict:
 def _update_clones_badge(snap: dict) -> None:
     """Refresh metrics/clones.json (shields.io endpoint schema) from live
     clone data. On null-tolerant runs (no TRAFFIC_TOKEN) any previous badge
-    file is left untouched, so the README keeps its last known value."""
+    file is left untouched, so the badge published on the metrics branch
+    keeps its last known value (README.md embeds no downloads/clones badge
+    itself — the JSONs are consumed from the metrics branch)."""
     clones = (snap.get("github") or {}).get("clones_14d") or {}
     count = clones.get("count")
     if count is None:
@@ -94,10 +96,12 @@ def _update_clones_badge(snap: dict) -> None:
 
 def _update_downloads_badge(snap: dict) -> None:
     """Refresh metrics/downloads.json (shields.io endpoint schema) from live
-    PyPI data — the README badge reads this instead of shields' pypistats
-    source, so a pypistats rate limit can never render an error string on
-    the README. On a failed pypistats fetch the previous badge file is left
-    untouched, so the README keeps its last known value."""
+    PyPI data. The badge JSON is published to the metrics branch
+    (.github/workflows/metrics.yml) — README.md embeds no downloads badge —
+    served from this committed endpoint file instead of shields' pypistats
+    source, so a pypistats rate limit can never render an error string.
+    On a failed pypistats fetch the previous badge file is left untouched,
+    so the published badge keeps its last known value."""
     last_month = (snap.get("pypi") or {}).get("last_month")
     if last_month is None:
         return

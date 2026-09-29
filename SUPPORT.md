@@ -21,7 +21,7 @@
 ## Scope of support
 
 - Supported: the Python package (`ephemora_cell`), the MCP stdio server
-  (`ephemora-cell-mcp`), the CLI (`ephemora-cell`), Python 3.10–3.12 on
+  (`ephemora-cell-mcp`), the CLI (`ephemora-cell`), Python 3.10–3.13 on
   Linux and macOS.
 - Best effort: Windows (wasmtime works, but the RLIMIT-based hardening paths
   in the subprocess worker are POSIX-only; Windows falls back gracefully).

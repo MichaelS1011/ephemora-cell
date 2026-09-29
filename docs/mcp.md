@@ -302,6 +302,33 @@ tools directory if you want them alongside your own).
   requests stay on disk with a reason in the report — never silent. The
   agent proposes; the host disposes.
 
+Two flags live on the library/CLI side (`ephemora-cell run`, same names as
+the `run_wasm` keyword arguments), documented here because tool authors meet
+them when previewing a tool outside the server:
+
+- **`--abi {auto,preview1,component}` (default `auto`)** — which execution
+  ABI serves the run. `auto` detects a WASI 0.2 component by its magic
+  bytes (component binaries carry a version field with low byte `0x0d` —
+  `0x0000000d` in the 0.2 era; core modules use `0x00000001`) and
+  dispatches accordingly; core Preview1 modules run
+  unchanged. Force `component` when the input must be a component — a
+  non-component then fails fast with a clean
+  `Not a component binary` error instead of an auto decision — and force
+  `preview1` to pin core modules on the Preview1 path (a component fed to
+  `--abi preview1` also errors cleanly instead of dispatching). The
+  component path enforces the same budget baseline (fuel, memory, epoch
+  timeout, 10 KB output cap — see the WASI 0.2 recipe in
+  [docs/recipes.md](recipes.md)).
+- **`--no-memory64`** — opts out of the Wasm 3.0 memory64 extension
+  (64-bit address space) for this run: the flag forces `memory64` off no
+  matter what the selected profile declares. Why it exists: profiles carry
+  their own posture — `--profile analytical` enables memory64 for 4.5 GiB
+  linear memory (ADR-003) — and an operator who wants the strict 32-bit
+  posture can keep the analytical budgets while refusing memory64
+  memories (over-cap growth is refused instead of addressable). Mutually
+  exclusive with `--memory64` (which is enable-only: without it, the
+  profile's own setting stands).
+
 ## Integrating with MCP clients
 
 MCP is the industry-standard tool surface: any client that speaks the stdio

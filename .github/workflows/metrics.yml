@@ -2,10 +2,12 @@ name: metrics
 
 # Daily traction snapshot (PyPI downloads, GitHub stars/forks/traffic):
 # publishes the current-aggregate badge JSONs (metrics/clones.json,
-# metrics/downloads.json) for the README badges. The day-level series
-# (history.jsonl) is intentionally NOT published — the badges already carry
-# the current numbers (minimum-viable-disclosure; see AGENTS decision log).
-# Read-only for main; the product never phones home (scripts/metrics_snapshot.py).
+# metrics/downloads.json) to the metrics branch — shields.io endpoint
+# badges; README.md embeds no downloads/clones badge itself. The day-level
+# series (history.jsonl) is intentionally NOT published — the badges already
+# carry the current numbers (minimum-viable-disclosure; see AGENTS decision
+# log). Read-only for main; the product never phones home
+# (scripts/metrics_snapshot.py).
 
 on:
   schedule:
