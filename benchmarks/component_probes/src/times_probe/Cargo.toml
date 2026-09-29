@@ -1,0 +1,13 @@
+[package]
+name = "times_probe"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "times_probe"
+path = "src/main.rs"
+
+[dependencies]
+# WASI 0.2 typed host bindings (facade over wasip2 1.x) — same as the
+# toolchain std; kept explicit so the probe builds against a pinned surface.
+wasi = "0.14"

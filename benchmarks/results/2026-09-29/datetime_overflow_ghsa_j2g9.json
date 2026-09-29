@@ -1,0 +1,79 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-09-29",
+  "python": "3.12.13",
+  "wasmtime": "47.0.1",
+  "package": "1.0.4.3",
+  "platform": "Darwin/arm64",
+  "advisory": "GHSA-j2g9-4prp-pf6h",
+  "probe_sha256": "13ef53da561ea5841d74d6b9494f55f796909b4b4527b9a3077c13b0c577393c",
+  "legs": {
+    "wasip1_scalar_timestamps": {
+      "fd_filestat_set_times(atim=u64max, ATIM)": {
+        "status": "ExecutionStatus.SUCCESS",
+        "errno": "000",
+        "panic": false,
+        "host_survived": true
+      },
+      "fd_filestat_set_times(atim=mtim=u64max, ATIM|MTIM)": {
+        "status": "ExecutionStatus.SUCCESS",
+        "errno": "000",
+        "panic": false,
+        "host_survived": true
+      },
+      "fd_filestat_set_times(u64max, ATIM_NOW|MTIM_NOW)": {
+        "status": "ExecutionStatus.SUCCESS",
+        "errno": "000",
+        "panic": false,
+        "host_survived": true
+      },
+      "path_filestat_set_times(u64max, ATIM)": {
+        "status": "ExecutionStatus.SUCCESS",
+        "errno": "044",
+        "panic": false,
+        "host_survived": true
+      }
+    },
+    "component_set_times_overflow_in_process": {
+      "returncode": -6,
+      "panic_in_stderr": true,
+      "aborted": true,
+      "stdout_tail": [],
+      "stderr_tail": [
+        "thread '<unnamed>' (150096296) panicked at /Users/runner/.rustup/toolchains/1.96.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/core/src/time.rs:201:18:",
+        "overflow in Duration::new"
+      ]
+    },
+    "component_set_times_control_in_process": {
+      "returncode": 0,
+      "panic_in_stderr": false,
+      "aborted": false,
+      "stdout_tail": [
+        "HOST-SURVIVED"
+      ],
+      "stderr_tail": [],
+      "expected_set_times_ok": true
+    },
+    "component_set_times_overflow_subprocess": {
+      "returncode": 0,
+      "panic_in_stderr": false,
+      "aborted": false,
+      "stdout_tail": [
+        "PARENT-SURVIVED"
+      ],
+      "stderr_tail": [],
+      "run_status": "ExecutionStatus.ERROR",
+      "worker_crashed": true,
+      "panic_in_result_stderr": true,
+      "parent_survived": true
+    }
+  },
+  "verdicts": {
+    "wasip1_not_reproducible": true,
+    "component_in_process_aborts": true,
+    "control_succeeds": true,
+    "subprocess_path_contains": true
+  },
+  "pass": true
+}

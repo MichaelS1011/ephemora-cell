@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Regenerate the WASI 0.2 component probes for the CVE replay
-# (benchmarks/mcp_cve_replay.py, component branch):
-#   fs_probe.wasm  — EscapeRoute intents (CVE-2025-53109/53110)
-#   net_probe.wasm — network intent (fail-closed check) + FS control
+# (benchmarks/mcp_cve_replay.py, component branch) and the advisory
+# evidence harness (benchmarks/datetime_overflow_probe.py):
+#   fs_probe.wasm    — EscapeRoute intents (CVE-2025-53109/53110)
+#   net_probe.wasm   — network intent (fail-closed check) + FS control
+#   times_probe.wasm — GHSA-j2g9-4prp-pf6h datetime overflow (its
+#                      default in-process run aborts the host process,
+#                      so it must never be executed inside a shared
+#                      harness process — see the evidence harness)
 #
 # Requirements:
 #   cargo with the wasm32-wasip2 target   (rustup target add wasm32-wasip2)
@@ -15,7 +20,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for crate in fs_probe net_probe; do
+for crate in fs_probe net_probe times_probe; do
   (
     cd "$HERE/src/$crate"
     cargo build --release --target wasm32-wasip2
@@ -25,4 +30,4 @@ for crate in fs_probe net_probe; do
     -o "$HERE/$crate.wasm"
 done
 
-echo "component probes regenerated: fs_probe.wasm, net_probe.wasm"
+echo "component probes regenerated: fs_probe.wasm, net_probe.wasm, times_probe.wasm"

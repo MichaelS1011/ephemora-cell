@@ -303,6 +303,86 @@ advisories affect the pinned 47.0.1 line:
   stay until the M2 upgrade re-runs the matrix on the patched engine — the
   advisory remains authoritative.
 
+**2026-09-24 advisory batch, second wave — triage (2026-09-29):** three further
+wasmtime advisories published 2026-09-24 (none carries a CVE ID — upstream marked
+them "No known CVE"). All three are patched only in **36.0.16 / 48.0.3 / 49.0.1** —
+there is **no 47.x patch**; re-verified against the PyPI JSON API on 2026-09-29
+(47.0.4 / 48.0.3 / 48.0.4 / 49.0.1 all 404), so the engine-upgrade gate (below)
+remains the only closure path and the pinned 47.0.1 stays inside every affected
+range. Triage per advisory:
+
+- **GHSA-j2g9-4prp-pf6h** (wasmtime-wasi filesystem datetime overflow, Moderate,
+  CVSS 6.2, availability-only): a guest-supplied timestamp whose
+  seconds+nanoseconds record overflows Rust's `Duration::new` panics the host,
+  on the wasip1/2/3 `set-times` surfaces. **Cell's exposure: YES —
+  availability-only, default in-process path. Measured, not inferred:** on the
+  component (WASI 0.2) path a guest calling `descriptor.set-times` with
+  `Datetime { seconds: u64::MAX, nanoseconds: 1_000_000_000 }` aborts the
+  embedding process (Rust panic `overflow in Duration::new`, SIGABRT); fuel,
+  epoch timeout and `Store.set_limits` do not apply — the panic happens inside
+  the host call, before any guest instruction can be charged. The positive
+  control (same call with `NewTimestamp::Now`) succeeds, so the only gate is
+  the filesystem preopen grant: the component ABI grants **no** preopen by
+  default (`ephemora_cell/wasi_02.py:251-253` — no `/sandbox` mount on
+  components) and the MCP server grants a component tool only
+  profile-narrowed `allow_dirs` (`ephemora_cell_mcp/engine.py`, `_config_for`;
+  MCP in-process execution: `engine.py:190`), so the vector requires an
+  operator-granted filesystem preopen. On the **Preview1 path the advisory's
+  wasip1 surface did NOT reproduce** on 47.0.1: scalar `u64::MAX`-nanosecond
+  timestamps through `fd_filestat_set_times`/`path_filestat_set_times` return
+  errno 0/44 with no panic (a single u64 nanoseconds value cannot overflow the
+  host's seconds+subsecond split). The advisory page does not detail the
+  wasip1 mechanics, so the advisory stays authoritative and the residual
+  wasip1 question is re-examined at M2. **Mitigation:** the subprocess path
+  contains the abort — measured: worker dies, parent survives with a clean
+  `ExecutionStatus.ERROR` ("worker crashed: … overflow in Duration::new");
+  for untrusted guests use `run_isolated()`. **Patch plan: M2 engine upgrade
+  (48.0.3+).** Evidence: `benchmarks/results/2026-09-29/datetime_overflow_ghsa_j2g9.json`
+  (measured:true; fixture `benchmarks/component_probes/times_probe.wasm`, source
+  under `benchmarks/component_probes/src/times_probe/`, harness
+  `benchmarks/datetime_overflow_probe.py`). The probe is deliberately NOT wired
+  into `mcp_cve_replay.py` — its default in-process run aborts the harness
+  process, so the harness isolates each leg in its own interpreter.
+- **GHSA-c9gc-w9vx-w86p** (wasmtime-wasi-http outgoing-body host memory
+  exhaustion, Moderate, CVSS 6.2, availability-only): the host fails to enforce
+  the allowance returned by `wasi:io/streams.check-write` for WASIp2 outgoing
+  HTTP bodies; a guest creating outgoing-request/outgoing-response resources
+  pins host allocations. **Cell's exposure: NO — structurally unreachable.**
+  Exploitation requires a guest that can invoke WASIp2 outgoing-HTTP APIs (the
+  advisory does not spell the linkage precondition out; invoking those APIs
+  requires a wasi:http world in the guest — our reading), and Cell's
+  guest-facing component linker registers **wasip2 only**:
+  `ephemora_cell/wasi_02.py:260-261` calls `linker.add_wasip2()` and never
+  `add_wasi_http`; a component importing `wasi:http/outgoing-handler` fails at
+  instantiate time with "a matching implementation was not found in the
+  linker" (`wasi_02.py:262-269`, verified empirically). The `add_wasi_http`
+  METHOD exists on the wasmtime-py `Linker` class — existence is not use.
+  Egress is host-mediated regardless (`ephemora_cell/egress_sidecar.py`: the
+  guest has no sockets; a tool writes a request artifact that the host
+  mediates and policy-gates). Pinned in `tests/test_surface_audit.py`
+  (structural: the linker construction site never calls `add_wasi_http`;
+  behavioral: a wasi:http-importing component fails closed) so an upgrade
+  that starts linking wasi-http for guests fails loudly.
+- **GHSA-jqpg-j7w6-42pr** (component-model dynamic record lifting allocates
+  beyond the hostcall fuel limit, Low, CVSS 4.0 score 1.0): lifting a guest
+  value into a host `wasmtime::component::Val` performs host allocations not
+  counted against fuel (~100x). **Cell's exposure: NO for practical
+  purposes.** The advisory affects hosts using the dynamic `component::Val`
+  API — "hosts that use bindgen! and otherwise statically-typed APIs are
+  unaffected". wasmtime-py 47.0.1 exposes no component-model `Val` type (the
+  `wasmtime.Val` it does export is the core-wasm type; the component package
+  marshals values through typed C-repr converters,
+  `wasmtime/component/_func.py` `convert_to_c`/`convert_from_c`), and the
+  WASIp2 host functions Cell links via `add_wasip2()` are Rust-side,
+  statically-typed implementations, not Python host callbacks lifting guest
+  records. The only guest-to-host lift on Cell's component path is the fixed
+  `wasi:cli/run` return (`ephemora_cell/wasi_02.py:307` — a scalar
+  result/exit code; no guest-shaped records); guest linear memory stays
+  bounded by `Store.set_limits` (`wasi_02.py:221`). Honesty note: whether
+  wasmtime's C API routes component calls through `component::Val` internally
+  is a Rust-internal detail not verifiable from the Python package — the
+  class is re-checked at the M2 upgrade. No config change required now.
+
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
 `benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi
 conformance job — before security claims are re-attested. CI watch *detects* new
