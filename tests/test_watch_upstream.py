@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 """Offline tests for scripts/watch_upstream.py (ADR-009 external gates).
 
 Only the pure detection helpers are exercised here — the network paths are

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 
 """Run ephemora-cell-mcp as an MCP stdio server: ``python -m ephemora_cell_mcp``.
 

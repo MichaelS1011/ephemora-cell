@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 
 """Transports for the ephemora-cell-mcp stdio loop.
 

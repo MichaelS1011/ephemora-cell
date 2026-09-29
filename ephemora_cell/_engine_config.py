@@ -1,6 +1,6 @@
 # Ephemora Cell — hardened wasmtime engine config builder (private module)
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 """ONE builder for the hardened wasmtime engine ``Config``.
 
 The proposal-policy freeze below previously existed as THREE

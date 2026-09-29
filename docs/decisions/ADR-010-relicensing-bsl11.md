@@ -64,7 +64,11 @@
 four parameters, applied to both LICENSE copies, `pyproject.toml`, and the
 SPDX headers of all 23 package files:**
 
-- **Licensor:** Ephemora AG (in formation), Zug, Switzerland
+- **Licensor:** Michael Soppa (natural person — chosen over "Ephemora AG
+  (in formation)" on 2026-09-29 after review: an entity in formation
+  cannot yet hold the licensor/copyright role; a future incorporated AG
+  may take over the licensor role for versions published after its
+  incorporation, per-version licensor identity)
 - **Additional Use Grant:** None
 - **Change Date:** the fourth anniversary of the first publicly available
   distribution of each version of the Licensed Work (per-version phrasing —
@@ -101,13 +105,14 @@ relicense and enforce. The clause is mirrored in `CONTRIBUTING.md`
   the claims stay accurate (quality/maintenance grades remain).
 - **Non-production use stays free** — evaluation, development, research,
   testing are explicitly within the BSL grant.
-- **The Licensor is unrestricted:** Ephemora can sell the enterprise edition
-  and commercial licenses without negotiating with itself; the open-core
+- **The Licensor is unrestricted:** the enterprise edition and commercial
+  licenses can be sold without negotiating with ourselves; the open-core
   model in `docs/enterprise.md` becomes enforceable.
 - **Forks of pre-boundary code stay Apache-2.0** (D2); nothing published
   under 1.0.4.3 or earlier changes.
-- **Flagged, non-blocking:** legal counsel should confirm the
-  "Ephemora AG (in formation)" copyright naming — an entity in formation can
-  hold copyright via its founder in the interim, but the naming should be
-  revisited at incorporation (the copyright line is uniform across LICENSE,
-  headers, and docs in the meantime).
+- **Licensor identity resolved 2026-09-29:** the "Ephemora AG (in
+  formation)" naming was replaced with Michael Soppa (personal) before the
+  first BUSL release — an entity in formation cannot yet hold the
+  licensor/copyright role. The licensor role for future versions can move
+  to the incorporated AG once it exists (per-version licensor identity);
+  the copyright line is uniform across LICENSE, headers, and docs.

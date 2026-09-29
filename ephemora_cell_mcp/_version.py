@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 
 """Single source of truth for the ephemora-cell-mcp package version.
 

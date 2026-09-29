@@ -1,6 +1,6 @@
 # Ephemora Cell — WASI 0.2 (Component Model) runtime
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 """
 WASI 0.2 component execution (dual-ABI opt-in).
 

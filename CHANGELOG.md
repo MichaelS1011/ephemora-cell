@@ -110,8 +110,8 @@ of three.
   All versions ≤ 1.0.4.3 remain Apache-2.0 permanently. Decision and
   consequences in ADR-010; contribution terms (BUSL-1.1 + relicensing
   grant) in CONTRIBUTING.md. SPDX headers unified on all 23 package files
-  (`BUSL-1.1`, Ephemora AG in formation — resolving the header/LICENSE
-  copyright mismatch). GitHub license detection will show BUSL-1.1; the
+  (`BUSL-1.1`, Michael Soppa — resolving the header/LICENSE copyright
+  mismatch). GitHub license detection will show BUSL-1.1; the
   Glama license grade is expected to drop and is no longer claimed in the
   README.
 - **Engine-config single-sourcing (behavior-identical).** One

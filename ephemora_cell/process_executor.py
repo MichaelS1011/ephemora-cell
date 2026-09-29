@@ -1,6 +1,6 @@
 # Ephemora Cell — Subprocess-level execution isolation
 # SPDX-License-Identifier: BUSL-1.1
-# Copyright 2026 Ephemora AG (in formation), Zug, Switzerland
+# Copyright 2026 Michael Soppa
 """
 Process-level isolation for WASM execution.
 
