@@ -364,6 +364,98 @@ def test_verify_fails_closed_when_verifier_raises():
     assert not ExecutionReport.verify(signed, boom)
 
 
+# === WP-B2: alg pinning in verify() (alg-confusion audit finding) ===
+
+
+def test_verify_expected_alg_match_verifies():
+    signed = _sample_report().sign(_sha256_signer, alg="HS256")
+    assert ExecutionReport.verify(signed, _sha256_verifier, expected_alg="HS256")
+
+
+def test_verify_expected_alg_mismatch_fails_closed():
+    """The signature itself is valid — but the verifier demanded a
+    DIFFERENT algorithm than the one the record was signed under."""
+    signed = _sample_report().sign(_sha256_signer, alg="HS256")
+    assert not ExecutionReport.verify(signed, _sha256_verifier, expected_alg="EdDSA")
+
+
+def test_verify_expected_alg_missing_alg_field_fails_closed():
+    """A legacy record that carries NO alg at all must not pass an
+    expected_alg-pinned verification (fail-closed)."""
+    payload = _sample_report().to_dict()
+    assert "alg" not in payload
+    record = {**payload, "signature": _sha256_signer(canonical_bytes(payload)).hex()}
+    assert not ExecutionReport.verify(record, _sha256_verifier, expected_alg="HS256")
+
+
+def test_verify_expected_alg_none_keeps_legacy_behavior():
+    """Legacy call (no expectation) is unchanged: a record WITHOUT an alg
+    field still verifies when no expectation is set."""
+    payload = _sample_report().to_dict()
+    record = {**payload, "signature": _sha256_signer(canonical_bytes(payload)).hex()}
+    assert "alg" not in record
+    assert ExecutionReport.verify(record, _sha256_verifier)
+
+
+def test_verify_expected_alg_survives_signature_strip():
+    """The pin reads the SIGNED record's alg (it is part of the signing
+    input), not something reconstructed after stripping the signature."""
+    signed = _sample_report().sign(_sha256_signer, alg="EdDSA")
+    tampered_alg = dict(signed)
+    tampered_alg["alg"] = "HS256"
+    assert not ExecutionReport.verify(
+        tampered_alg, _sha256_verifier, expected_alg="EdDSA"
+    )
+
+
+# === WP-B3: JCS safe-integer range (fail-closed) ===
+
+
+def test_jcs_max_safe_int_signs_and_verifies():
+    """2**53 - 1 is exactly the last integer every JCS consumer reads back
+    identically — it must keep signing (and verifying) fine."""
+    report = _sample_report()
+    report.fuel_consumed = 2**53 - 1
+    signed = report.sign(_sha256_signer, alg="HS256")
+    assert ExecutionReport.verify(signed, _sha256_verifier, expected_alg="HS256")
+
+
+@pytest.mark.parametrize("value", [2**53, -(2**53), 2**64, -(2**64)])
+def test_jcs_rejects_ints_beyond_safe_range(value):
+    """CELL-TODO P2, fail-closed: ints strictly beyond ±(2^53-1) raise
+    ValueError — a Rust/JS verifier parses JSON numbers as IEEE-754
+    doubles and would disagree on the canonical bytes."""
+    with pytest.raises(ValueError, match="safe integer range"):
+        jcs_canonicalize({"fuel": value})
+
+
+def test_jcs_bool_still_serializes_as_literal():
+    """bool is an int subclass — it must keep the true/false handling
+    (branch order in the canonicalizer) and is never range-checked."""
+    assert jcs_canonicalize({"on": True, "off": False}) == '{"off":false,"on":true}'
+
+
+def test_sign_rejects_unsafe_int_payload():
+    """sign() refuses to produce a record third-party verifiers could
+    misread: the canonicalization error propagates."""
+    report = _sample_report()
+    report.fuel_consumed = 2**53
+    with pytest.raises(ValueError, match="safe integer range"):
+        report.sign(_sha256_signer, alg="HS256")
+
+
+def test_verify_fails_closed_on_crafted_unsafe_int_record():
+    """A crafted record carrying an int beyond 2^53-1 returns False
+    (fail-closed) — the canonical bytes cannot be recomputed faithfully,
+    so verification can never succeed."""
+    signed = _sample_report().sign(_sha256_signer, alg="HS256")
+    crafted = {**signed, "fuel_consumed": 2**53}
+    assert not ExecutionReport.verify(crafted, _sha256_verifier)
+    assert not ExecutionReport.verify(
+        crafted, _sha256_verifier, expected_alg="HS256"
+    )
+
+
 def test_sign_rejects_non_callable_signer():
     with pytest.raises(TypeError):
         _sample_report().sign("not-a-callable")

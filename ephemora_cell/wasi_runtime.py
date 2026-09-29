@@ -24,6 +24,27 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
+from ephemora_cell._sandbox_common import (
+    DANGEROUS_DIRS as _DANGEROUS_DIRS_POLICY,
+)
+from ephemora_cell._sandbox_common import (
+    FORBIDDEN_CANONICAL as _FORBIDDEN_CANONICAL_POLICY,
+)
+from ephemora_cell._sandbox_common import (
+    canonicalize_dir as _canonicalize_dir,
+)
+from ephemora_cell._sandbox_common import (
+    filter_dangerous_dirs as _filter_dangerous_dirs_impl,
+)
+from ephemora_cell._sandbox_common import (
+    forbidden_canonical_match as _forbidden_canonical_match_impl,
+)
+from ephemora_cell._sandbox_common import (
+    split_dir_mapping as _split_dir_mapping_impl,
+)
+from ephemora_cell._sandbox_common import (
+    under_canonical_exception as _under_canonical_exception,
+)
 from ephemora_cell.state import StateStore
 
 try:
@@ -61,28 +82,10 @@ STDIN_MAX_BYTES = 9_216
 # WASI errno returned to the guest once the output budget is exhausted.
 _WASI_ERRNO_NOSPC = 51
 
-# macOS temp roots: /tmp and /var/folders are symlinks into /private, so the
-# canonical allowlist would reject the very directories tempfile.mkdtemp()
-# hands out — breaking parity with Linux, where /tmp is allowed. These two
-# canonical prefixes are allowed explicitly; every other /private location
-# (etc, usr, ...) stays forbidden. Shared by the preview1 and component paths.
-_CANONICAL_EXCEPTIONS: tuple[str, ...] = (
-    "/private/tmp",
-    "/private/var/folders",
-)
-
-
-def _under_canonical_exception(dir_path: str) -> bool:
-    """True when ``dir_path`` names a macOS temp root.
-
-    The dangerous-dirs STRING denylist contains "/private"; without this
-    exception that string would filter out /private/tmp even though the
-    canonical check (the authority) allows it.
-    """
-    return any(
-        dir_path == exc or dir_path.startswith(exc + "/")
-        for exc in _CANONICAL_EXCEPTIONS
-    )
+# macOS temp-root exception + canonical denylist policy: the single source
+# of truth lives in ephemora_cell._sandbox_common (shared by the preview1
+# and component paths); the names are imported above so this module keeps
+# referencing/exposing them as before.
 
 
 def _watch_external_interrupt(
@@ -308,43 +311,13 @@ class WASISandbox:
     # two-layer design (string denylist + canonical allowlist) is intentional:
     # string matching is fast and catches obvious mistakes, canonical matching
     # closes symlink bypasses (e.g. /tmp -> /private/tmp on macOS).
-    _DANGEROUS_DIRS: frozenset[str] = frozenset(
-        [
-            "/dev",
-            "/proc",
-            "/sys",
-            "/etc",
-            "/root",
-            "/usr",
-            "/bin",
-            "/sbin",
-            "/lib",
-            "/lib64",
-            "/boot",
-            "/snap",
-            "/kernel",
-            "/private",
-        ]
-    )
+    # The policy itself lives in _sandbox_common (shared with the component
+    # path); the class attributes stay as aliases for compatibility.
+    _DANGEROUS_DIRS: frozenset[str] = _DANGEROUS_DIRS_POLICY
 
     # Canonical (realpath) locations that are NEVER allowed in allow_dirs.
     # "/" is handled explicitly in _forbidden_canonical_match.
-    _FORBIDDEN_CANONICAL: tuple[str, ...] = (
-        "/etc",
-        "/usr",
-        "/bin",
-        "/sbin",
-        "/lib",
-        "/lib64",
-        "/dev",
-        "/proc",
-        "/sys",
-        "/boot",
-        "/snap",
-        "/kernel",
-        "/root",
-        "/private",
-    )
+    _FORBIDDEN_CANONICAL: tuple[str, ...] = _FORBIDDEN_CANONICAL_POLICY
 
     def __init__(self, config: WASIConfig | None = None) -> None:
         """Initialize the sandbox with the given configuration.
@@ -1022,25 +995,18 @@ class WASISandbox:
     def _forbidden_canonical_match(cls, canon: str) -> str | None:
         """Return the forbidden canonical location that ``canon`` resolves into.
 
-        ``canon`` is expected to already be realpath-normalized. "/" is always
-        forbidden; every other forbidden location is checked as a realpath
-        prefix, closing symlink-based bypasses such as /private/etc on macOS.
-        The macOS temp roots (``_CANONICAL_EXCEPTIONS``) are allowed
-        explicitly.
+        Delegates to the shared policy in ``_sandbox_common`` (one
+        implementation for the preview1 and component paths). ``canon`` is
+        expected to already be realpath-normalized. "/" is always forbidden;
+        every other forbidden location is checked as a realpath prefix,
+        closing symlink-based bypasses such as /private/etc on macOS. The
+        macOS temp roots (``_CANONICAL_EXCEPTIONS``) are allowed explicitly.
         """
-        if canon == "/":
-            return "/"
-        for exc in _CANONICAL_EXCEPTIONS:
-            if canon == exc or canon.startswith(exc + "/"):
-                return None
-        for f in cls._FORBIDDEN_CANONICAL:
-            if canon == f or canon.startswith(f + "/"):
-                return f
-        return None
+        return _forbidden_canonical_match_impl(canon)
 
     @staticmethod
     def _canonicalize(dir_path: str) -> str:
-        return os.path.realpath(os.path.expanduser(dir_path))
+        return _canonicalize_dir(dir_path)
 
     @staticmethod
     def _split_dir_mapping(entry: str) -> tuple[str, str]:
@@ -1052,10 +1018,7 @@ class WASISandbox:
         host path under its own name. Validation always applies to the
         HOST side; the guest name is only a label inside the sandbox.
         """
-        host, sep, guest = entry.partition("::")
-        if not sep or not host or not guest:
-            return entry, entry
-        return host, guest
+        return _split_dir_mapping_impl(entry)
 
     @staticmethod
     def _validate_allow_dirs(allow_dirs: tuple[str, ...]) -> None:
@@ -1162,25 +1125,20 @@ class WASISandbox:
     def _filter_dangerous_dirs(self, allow_dirs: tuple[str, ...]) -> tuple[str, ...]:
         """Filter allow_dirs down to entries that pass the canonical allowlist.
 
-        Entries whose realpath lands in a forbidden location are dropped, as
-        are plain string matches against the denylist (except the macOS temp
-        roots, which the canonical check decides).
+        ONE shared implementation (``_sandbox_common.filter_dangerous_dirs``)
+        serves the Preview1 AND the component path: mapping-style
+        ``host::guest`` entries are split FIRST and the HOST part is checked
+        against the canonical allowlist and the string denylist (except the
+        macOS temp roots, which the canonical check decides).
         """
-        if not allow_dirs:
-            return ()
-        safe: list[str] = []
-        for d in allow_dirs:
-            host, _ = self._split_dir_mapping(d)
-            canon = self._canonicalize(host)
-            if self._forbidden_canonical_match(canon) is not None:
-                continue
-            if host in self._DANGEROUS_DIRS or any(
-                host == dd or host.startswith(dd + "/") for dd in self._DANGEROUS_DIRS
-            ):
-                if not _under_canonical_exception(host):
-                    continue
-            safe.append(d)
-        return tuple(safe)
+        return _filter_dangerous_dirs_impl(
+            allow_dirs,
+            split_dir_mapping=self._split_dir_mapping,
+            canonicalize=self._canonicalize,
+            forbidden_canonical_match=self._forbidden_canonical_match,
+            dangerous_dirs=self._DANGEROUS_DIRS,
+            under_canonical_exception=_under_canonical_exception,
+        )
 
     @staticmethod
     def _make_output_sink(file_path: str, budget: list[int]):

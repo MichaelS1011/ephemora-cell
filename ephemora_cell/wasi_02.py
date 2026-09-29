@@ -54,6 +54,12 @@ try:
 except ImportError:
     HAS_WASMTIME = False
 
+from ._sandbox_common import (
+    filter_dangerous_dirs as _filter_dangerous_dirs_impl,
+)
+from ._sandbox_common import (
+    split_dir_mapping as _split_dir_mapping_impl,
+)
 from .wasi_runtime import (
     STDIN_MAX_BYTES,
     ExecutionResult,
@@ -470,21 +476,25 @@ class ComponentSandbox:
         return os.path.realpath(os.path.expanduser(dir_path))
 
     def _filter_dangerous_dirs(self, allow_dirs: tuple[str, ...]) -> tuple[str, ...]:
-        safe: list[str] = []
-        for d in allow_dirs:
-            canon = self._canonicalize(d)
-            if WASISandbox._forbidden_canonical_match(canon) is not None:
-                continue
-            if d in WASISandbox._DANGEROUS_DIRS or any(
-                d == dd or d.startswith(dd + "/") for dd in WASISandbox._DANGEROUS_DIRS
-            ):
-                # macOS temp roots (/private/tmp, /private/var/folders) pass
-                # the canonical check — the /private string denylist entry
-                # must not drop them here either (audit 2026-09-12 F3).
-                if not _under_canonical_exception(d):
-                    continue
-            safe.append(d)
-        return tuple(safe)
+        """Filter allow_dirs down to entries that pass the canonical allowlist.
+
+        ONE shared implementation with the Preview1 sandbox
+        (``_sandbox_common.filter_dangerous_dirs``): mapping-style
+        ``host::guest`` entries are split FIRST and the HOST part is checked
+        against the canonical allowlist and the string denylist. (This path
+        used to check the RAW entry string without splitting, so an entry
+        like ``/etc::guest-etc`` bypassed the string-denylist layer here
+        while being filtered on the Preview1 path — denylist drift between
+        ABI paths, fixed 2026-09-29.)
+        """
+        return _filter_dangerous_dirs_impl(
+            allow_dirs,
+            split_dir_mapping=_split_dir_mapping_impl,
+            canonicalize=self._canonicalize,
+            forbidden_canonical_match=WASISandbox._forbidden_canonical_match,
+            dangerous_dirs=self._DANGEROUS_DIRS,
+            under_canonical_exception=_under_canonical_exception,
+        )
 
     def cleanup(self) -> None:
         """Remove the host-owned capture directory."""

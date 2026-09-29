@@ -113,6 +113,32 @@ class TestManifestSignVerify:
         # A non-callable verifier is malformed input, not a bypass.
         assert not verify_manifest({"alg": "EdDSA", "signature": "00"}, "nope")
 
+    # === WP-B2: alg pinning in verify_manifest (alg-confusion finding) ===
+
+    def test_verify_manifest_expected_alg_match(self, keypair):
+        key, _, pub = keypair
+        signed = sign_manifest(dict(MANIFEST), lambda data: key.sign(data))
+        verifier = ed25519_verifier_from_pem(str(pub))
+        assert verify_manifest(signed, verifier, expected_alg="EdDSA")
+
+    def test_verify_manifest_expected_alg_mismatch_rejected(self, keypair):
+        """A VALID signature under a different algorithm than the verifier
+        expects must not pass (fail-closed alg pinning)."""
+        key, _, pub = keypair
+        signed = sign_manifest(dict(MANIFEST), lambda data: key.sign(data))
+        verifier = ed25519_verifier_from_pem(str(pub))
+        assert signed["alg"] == "EdDSA"
+        assert not verify_manifest(signed, verifier, expected_alg="ES256")
+
+    def test_verify_manifest_missing_alg_rejected_with_and_without_pin(self, keypair):
+        """verify_manifest already required a str alg field before the pin
+        existed; a pinned call is equally fail-closed on a missing alg."""
+        _, _, pub = keypair
+        verifier = ed25519_verifier_from_pem(str(pub))
+        unsigned = dict(MANIFEST)  # no alg, no signature
+        assert not verify_manifest(unsigned, verifier)
+        assert not verify_manifest(unsigned, verifier, expected_alg="EdDSA")
+
     def test_signer_contract_enforced(self):
         with pytest.raises(TypeError):
             sign_manifest(dict(MANIFEST), "not-callable")

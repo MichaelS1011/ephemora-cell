@@ -90,6 +90,33 @@ class TestPreExecutionChain:
         assert not PreExecutionRecord.verify({}, _verifier)
         assert not PreExecutionRecord.verify({"signature": "zz"}, _verifier)
 
+    # === WP-B2: alg pinning (alg-confusion audit finding) ===
+
+    def test_verify_expected_alg_match(self):
+        signed = _pre_exec()
+        assert PreExecutionRecord.verify(signed, _verifier, expected_alg="EdDSA")
+
+    def test_verify_expected_alg_mismatch_fails_closed(self):
+        """Valid signature, but signed under a different algorithm than the
+        verifier pins — must not verify (fail-closed)."""
+        signed = _pre_exec()
+        assert not PreExecutionRecord.verify(signed, _verifier, expected_alg="ES256")
+
+    def test_verify_expected_alg_missing_alg_field_fails_closed(self):
+        """A pre-exec record carrying no alg at all never passes a pinned
+        verification, even though the signature itself is intact."""
+        record = PreExecutionRecord.build(
+            module_bytes=b"\x00asm\x01\x00\x00\x00",
+            config=WASIConfig(max_fuel=500_000),
+            record_id="fixed-id-0001",
+            timestamp="2026-09-25T00:00:00.000Z",
+        )
+        payload = record.to_dict()
+        assert "alg" not in payload
+        no_alg = {**payload, "signature": _signer(canonical_bytes(payload)).hex()}
+        assert PreExecutionRecord.verify(no_alg, _verifier)  # legacy: still True
+        assert not PreExecutionRecord.verify(no_alg, _verifier, expected_alg="EdDSA")
+
     def test_chain_verifies(self):
         signed_pre = _pre_exec()
         signed_receipt = _receipt_with_back_link(signed_pre)

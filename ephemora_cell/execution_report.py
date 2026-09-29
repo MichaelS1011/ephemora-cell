@@ -226,18 +226,40 @@ class ExecutionReport:
         return record
 
     @staticmethod
-    def verify(signed_record: dict, verifier: Callable[[bytes, bytes], bool]) -> bool:
+    def verify(
+        signed_record: dict,
+        verifier: Callable[[bytes, bytes], bool],
+        *,
+        expected_alg: str | None = None,
+    ) -> bool:
         """Verify a signed record produced by :meth:`sign`.
 
         The verifier is an opaque bytes-in/bytes-out callable
         ``verifier(canonical_bytes, signature_bytes) -> bool`` (e.g. an
         Ed25519 public-key verify from ``cryptography``).
 
+        Args:
+            signed_record: The signed record (payload plus ``alg`` and
+                ``signature``).
+            verifier: Opaque verification callable.
+            expected_alg: When given, the record MUST carry an ``alg``
+                field equal to it — a mismatching OR MISSING ``alg``
+                returns ``False`` (fail-closed). This pins the verifier to
+                the algorithm the signer declared and closes the
+                alg-confusion audit finding ("alg-Verwechslung möglich"):
+                without the pin, a record signed under a different
+                algorithm than the verifier's key verifies whenever the
+                raw signature happens to fit. ``None`` (default) keeps the
+                legacy behavior (``alg`` is covered by the signature but
+                not checked here).
+
         Fails closed: any malformed input (missing signature field,
-        non-hex signature, non-JSON payload, verifier exception) returns
-        ``False``.
+        non-hex signature, non-JSON payload, integer beyond the JCS safe
+        range, verifier exception) returns ``False``.
         """
         if not isinstance(signed_record, dict) or not callable(verifier):
+            return False
+        if expected_alg is not None and signed_record.get("alg") != expected_alg:
             return False
         try:
             signature_hex = signed_record["signature"]
@@ -424,10 +446,23 @@ class PreExecutionRecord:
         return record
 
     @staticmethod
-    def verify(signed_record: Any, verifier: Callable[[bytes, bytes], bool]) -> bool:
+    def verify(
+        signed_record: Any,
+        verifier: Callable[[bytes, bytes], bool],
+        *,
+        expected_alg: str | None = None,
+    ) -> bool:
         """Fail-closed verification (same contract as
-        :meth:`ExecutionReport.verify`)."""
+        :meth:`ExecutionReport.verify`).
+
+        With ``expected_alg``, the record must carry an ``alg`` field equal
+        to it — mismatching or missing ``alg`` returns ``False``
+        (fail-closed alg pinning; closes the alg-confusion audit finding).
+        ``None`` (default) keeps the legacy behavior.
+        """
         if not isinstance(signed_record, dict) or not callable(verifier):
+            return False
+        if expected_alg is not None and signed_record.get("alg") != expected_alg:
             return False
         try:
             signature_hex = signed_record["signature"]
@@ -496,20 +531,39 @@ def verify_chain(
 _SURROGATE_MIN = 0xD800
 _SURROGATE_MAX = 0xDFFF
 
+#: Largest JSON integer every JCS consumer must read identically. JSON has
+#: no integer type: a Rust/JS verifier parses numbers as IEEE-754 doubles,
+#: so any int beyond ±(2^53 - 1) round-trips to a DIFFERENT value there and
+#: the canonical bytes (hence signatures) disagree (CELL-TODO P2).
+JCS_MAX_SAFE_INTEGER = 2**53 - 1
+
 
 def _jcs_number(v: int | float) -> str:
     """Serialize a JSON number per RFC 8785 §3.2.2.3 / ES6 Number::toString.
 
-    Integers print as plain decimal digits. Floats use the shortest
-    round-trip decimal digits, laid out per ECMA-262 7.1.12.1:
-    decimal notation when -6 < n <= 21 (n = integer-part digit count),
-    otherwise exponent notation with a one-digit mantissa head and a
-    sign-bearing exponent. IEEE-754 NaN/Infinity are not valid JSON and
-    raise TypeError. -0.0 serializes as "0".
+    Integers print as plain decimal digits — but only within the JCS safe
+    range: ints strictly beyond ±(2**53 - 1) raise ``ValueError``
+    (fail-closed). Third-party verifiers (Rust/JS) parse JSON numbers as
+    IEEE-754 doubles and would read those ints back differently, so signed
+    records must not contain them (the ``sign()``/``verify()`` callers
+    turn this into sign-time rejection / verify-time ``False``).
+    Floats use the shortest round-trip decimal digits, laid out per
+    ECMA-262 7.1.12.1: decimal notation when -6 < n <= 21 (n =
+    integer-part digit count), otherwise exponent notation with a
+    one-digit mantissa head and a sign-bearing exponent. IEEE-754
+    NaN/Infinity are not valid JSON and raise TypeError. -0.0 serializes
+    as "0". ``bool`` (an int subclass) is handled before this branch and
+    serializes as ``true``/``false``.
     """
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, int):
+        if v > JCS_MAX_SAFE_INTEGER or v < -JCS_MAX_SAFE_INTEGER:
+            raise ValueError(
+                f"integer value {v} exceeds the JCS safe integer range "
+                "(2^53-1); signed records must not contain them "
+                "(third-party verifiers would disagree)"
+            )
         return str(v)
     if not isinstance(v, float):
         raise TypeError(f"value of type {type(v).__name__} is not a JSON number")
@@ -619,8 +673,11 @@ def jcs_canonicalize(value: Any) -> str:
     """RFC 8785 (JCS) canonicalization of any JSON-serializable value.
 
     Raises TypeError for values outside the JSON data model (NaN,
-    Infinity, bytes, sets, objects, ...) and ValueError for lone
-    surrogates inside strings.
+    Infinity, bytes, sets, objects, ...), ValueError for lone surrogates
+    inside strings, and ValueError for integers strictly beyond the JCS
+    safe range ±(2**53 - 1) — those would serialize differently in
+    third-party verifiers (Rust/JS read IEEE-754), so they are rejected
+    fail-closed instead of producing disagreeing bytes.
     """
     return _jcs_value(value)
 
@@ -633,6 +690,12 @@ def canonical_bytes(record: Any) -> bytes:
     payload is used. This is the exact byte string that
     :meth:`ExecutionReport.sign` feeds to the signer and that
     :meth:`ExecutionReport.verify` recomputes.
+
+    Raises ValueError (fail-closed) for integers strictly beyond the JCS
+    safe range ±(2**53 - 1): :meth:`ExecutionReport.sign` propagates the
+    error (a record that cannot be canonicalized is never signed) and
+    :meth:`ExecutionReport.verify` returns ``False`` for crafted records
+    containing such ints.
     """
     if isinstance(record, ExecutionReport):
         record = record.to_dict()

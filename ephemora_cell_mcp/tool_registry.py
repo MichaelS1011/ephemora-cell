@@ -99,18 +99,28 @@ def sign_manifest(
 def verify_manifest(
     manifest: Any,
     verifier: Callable[[bytes, bytes], bool],
+    *,
+    expected_alg: str | None = None,
 ) -> bool:
     """Verify a signed tool manifest. **Fails closed.**
 
     Any malformed input (not a dict, missing/non-hex signature, unknown
     structure, verifier exception) returns ``False`` — only a valid
     signature over the exact canonical payload returns ``True``.
+
+    With ``expected_alg``, the manifest's ``alg`` field must equal it — a
+    mismatching or missing ``alg`` returns ``False`` (fail-closed alg
+    pinning, same alg-confusion fix as
+    :meth:`ephemora_cell.execution_report.ExecutionReport.verify`).
+    ``None`` (default) keeps the legacy behavior.
     """
     if not isinstance(manifest, dict) or not callable(verifier):
         return False
     alg = manifest.get("alg")
     signature_hex = manifest.get("signature")
     if not isinstance(alg, str) or not isinstance(signature_hex, str):
+        return False
+    if expected_alg is not None and alg != expected_alg:
         return False
     payload = manifest_payload(manifest)
     payload["alg"] = alg
