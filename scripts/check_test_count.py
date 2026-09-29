@@ -20,12 +20,15 @@ What is reported only (WARNING, exit 0 unless strict mode):
   * README.md hero badge        ``tests-N_passing``
   * README.md freshness block   ``N tests passing, P% coverage``
 
-These two are re-stamped by the release step with the final numbers (the
-badge/freshness line is deliberately refreshed last, per release); in the
-default CI mode a stale badge prints a warning instead of failing so the
-guard can ship before that re-stamp. Set ``CHECK_TEST_COUNT_STRICT=1`` to
-make badge/freshness drift a hard failure — intended for after the release
-re-stamp, when every number must agree with the collection.
+These two must carry the same passing count as the hard claims —
+``passing = collected - skipped`` (xpassed counts as passing, matching
+the historical badge convention). They are re-stamped by the release
+step with the final numbers (the badge/freshness line is deliberately
+refreshed last, per release); in the default CI mode a stale badge
+prints a warning instead of failing so the guard can ship before that
+re-stamp. Set ``CHECK_TEST_COUNT_STRICT=1`` to make badge/freshness
+drift a hard failure — intended for after the release re-stamp, when
+every number must agree.
 
 Exit 0 = all hard checks match (warnings allowed in default mode).
 Exit 1 = any hard mismatch, or a source (pytest run / file / pattern)
@@ -128,7 +131,7 @@ def _passing_skipped(
     collected: int,
     *,
     fix_hint: str,
-) -> None:
+) -> tuple[int, int]:
     """Check a ``N passing (M skipped)`` pair: N + M == collected."""
     pairs = {(int(p), int(s)) for p, s in re.findall(pattern, text, re.MULTILINE)}
     if not pairs:
@@ -156,9 +159,10 @@ def _passing_skipped(
             file=sys.stderr,
         )
         raise SystemExit(1)
+    return passing, skipped
 
 
-def _soft_claim(pattern: str, text: str, where: str, collected: int) -> None:
+def _soft_claim(pattern: str, text: str, where: str, expected_passing: int) -> None:
     """Report-only check (badge/freshness): warn on drift, never fail —
     unless CHECK_TEST_COUNT_STRICT=1 (see module docstring)."""
     matches = _unique_int(pattern, text, where)
@@ -166,10 +170,10 @@ def _soft_claim(pattern: str, text: str, where: str, collected: int) -> None:
         print(f"note: {where}: no badge/freshness test count found (skipped)")
         return
     value = matches[0]
-    if value != collected:
+    if value != expected_passing:
         message = (
             f"WARNING: {where}: badge/freshness says {value} but "
-            f"{collected} tests are collected — re-stamp at release "
+            f"{expected_passing} tests pass — re-stamp at release "
             "(CHECK_TEST_COUNT_STRICT=1 makes this a hard failure)"
         )
         if STRICT:
@@ -177,7 +181,7 @@ def _soft_claim(pattern: str, text: str, where: str, collected: int) -> None:
             raise SystemExit(1)
         print(message)
     else:
-        print(f"ok: {where}: {value} matches the collection")
+        print(f"ok: {where}: {value} matches the passing count")
 
 
 def main() -> int:
@@ -202,7 +206,7 @@ def main() -> int:
     # --- hard checks (drift = exit 1) -----------------------------------
     # Patterns are whitespace-tolerant (\s+): prose reflows across lines,
     # the claim must still be found.
-    _passing_skipped(
+    tv_passing, _tv_skipped = _passing_skipped(
         r"(\d+)\s+tests\s+passing\s+\((\d+)\s+skipped\)",
         readme,
         'README.md "Testing & Verification"',
@@ -243,12 +247,14 @@ def main() -> int:
     )
 
     # --- soft checks (badge/freshness — release re-stamps) ---------------
-    _soft_claim(r"tests-(\d+)_passing", readme, "README.md hero badge", collected)
+    # Both carry the passing count (= collected - skipped), same convention
+    # as the hard claims above.
+    _soft_claim(r"tests-(\d+)_passing", readme, "README.md hero badge", tv_passing)
     _soft_claim(
         r"(\d+)\s+tests\s+passing,\s*\d+%\s*coverage",
         readme,
         "README.md freshness block",
-        collected,
+        tv_passing,
     )
 
     print(

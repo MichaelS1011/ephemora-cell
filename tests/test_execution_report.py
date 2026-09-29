@@ -451,9 +451,7 @@ def test_verify_fails_closed_on_crafted_unsafe_int_record():
     signed = _sample_report().sign(_sha256_signer, alg="HS256")
     crafted = {**signed, "fuel_consumed": 2**53}
     assert not ExecutionReport.verify(crafted, _sha256_verifier)
-    assert not ExecutionReport.verify(
-        crafted, _sha256_verifier, expected_alg="HS256"
-    )
+    assert not ExecutionReport.verify(crafted, _sha256_verifier, expected_alg="HS256")
 
 
 def test_sign_rejects_non_callable_signer():

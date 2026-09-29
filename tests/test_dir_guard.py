@@ -58,17 +58,17 @@ def test_mapping_entry_with_dangerous_host_filtered_on_both_paths():
     this test failed there while passing on Preview1.
     """
     for sandbox in _both_sandboxes():
-        assert sandbox._filter_dangerous_dirs((DANGEROUS_MAPPING_ENTRY,)) == (), (
-            type(sandbox).__name__
-        )
+        assert sandbox._filter_dangerous_dirs((DANGEROUS_MAPPING_ENTRY,)) == (), type(
+            sandbox
+        ).__name__
 
 
 def test_mapping_entry_dangerous_host_subpath_filtered_on_both_paths():
     """Prefix form: host under a dangerous dir, mapped to a guest name."""
     for sandbox in _both_sandboxes():
-        assert sandbox._filter_dangerous_dirs(("/etc/passwd::shadow",)) == (), (
-            type(sandbox).__name__
-        )
+        assert sandbox._filter_dangerous_dirs(("/etc/passwd::shadow",)) == (), type(
+            sandbox
+        ).__name__
 
 
 def test_plain_entries_filtered_or_kept_identically_on_both_paths():
@@ -127,9 +127,7 @@ def test_macos_temp_root_exception_honored_on_both_paths():
         canon = str(Path(d).resolve())
         assert canon.startswith("/private/")
         for sandbox in _both_sandboxes():
-            assert sandbox._filter_dangerous_dirs((d,)) == (d,), type(
-                sandbox
-            ).__name__
+            assert sandbox._filter_dangerous_dirs((d,)) == (d,), type(sandbox).__name__
             assert sandbox._filter_dangerous_dirs((canon,)) == (canon,), type(
                 sandbox
             ).__name__

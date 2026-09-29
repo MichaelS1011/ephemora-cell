@@ -55,10 +55,10 @@ AI Agent / Application
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/tests-532_passing-brightgreen" alt="Tests (532 pass, 4 skipped — see CI)">
+    <img src="https://img.shields.io/badge/tests-589_passing-brightgreen" alt="Tests (589 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/coverage-86%25-brightgreen" alt="Coverage">
+    <img src="https://img.shields.io/badge/coverage-87%25-brightgreen" alt="Coverage">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/badge/types-mypy%20clean-brightgreen" alt="Type-checked with mypy (22 files, 0 errors)">
@@ -92,7 +92,7 @@ AI Agent / Application
   <a href="#documentation">Docs</a>
 </p>
 
-> **Status (2026-09-25):** latest release **v1.0.4.3** (2026-09-25, docs & hardening release — [changelog](CHANGELOG.md)) · full functional audit 2026-09-24, findings fixed and released the same day · latest reproducible evidence: 2026-09-25 (probe classes, [`benchmarks/results/`](benchmarks/results/)) · 532 tests passing, 86% coverage (see CI badge — refreshed per release)
+> **Status (2026-09-29):** latest release **v1.0.5** (2026-09-29, licensing & security-readiness release — [changelog](CHANGELOG.md)) · license now **BUSL-1.1** (source-available; ≤ 1.0.4.3 stays Apache-2.0 — [ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)) · 2026-09-24 wasmtime advisory wave triaged with measured evidence (see [SECURITY.md](SECURITY.md)) · latest reproducible evidence: 2026-09-29 (CVE replays + component security matrix, [`benchmarks/results/`](benchmarks/results/)) · 589 tests passing, 87% coverage (see CI badge — refreshed per release)
 
 <p align="center">
   <picture>
@@ -565,7 +565,7 @@ Real, gated items — no dates promised:
 
 ## Testing & Verification
 
-584 tests passing (4 skipped) · 86% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+589 tests passing (4 skipped) · 87% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 

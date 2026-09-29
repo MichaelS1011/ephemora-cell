@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+Nothing staged.
+
+## [1.0.5] - 2026-09-29
+
+Licensing, security-readiness and evidence release. The license changes
+from Apache-2.0 to the Business Source License 1.1 (BUSL-1.1) —
+source-available, free for non-production use, converting back to
+Apache-2.0 four years after each version's first public release; all
+versions ≤ 1.0.4.3 remain Apache-2.0 (ADR-010). The 2026-09-24 wasmtime
+advisory wave — three GHSAs this repo did not previously track — is
+triaged against the 47.0.1 pin with measured evidence, the sandbox
+receives three security fixes, and the engine-config construction is
+consolidated so the blocked M2 engine upgrade touches one site instead
+of three.
+
+### Security
+
+- **Denylist drift on the component path (fix + regression test).**
+  Mapping-style `host:guest` preopen grants bypassed the string denylist
+  on the component ABI: `ComponentSandbox._filter_dangerous_dirs` checked
+  the raw `"host:guest"` string where the Preview1 path splits the
+  mapping first — an entry like `/etc::guest-etc` passed the component
+  filter. One shared dir-guard (`ephemora_cell/_sandbox_common.py`) now
+  serves both ABI paths. Guarded by `tests/test_dir_guard.py` (verified
+  to fail on the pre-fix implementation) and the component security
+  matrix.
+- **Verifier alg pinning (audit finding, closed).** `ExecutionReport.verify`
+  and `PreExecutionRecord.verify` accept `expected_alg` (forwarded by
+  `verify_manifest`): a record whose `alg` field is missing or differs
+  fails closed. Calls without the parameter behave exactly as before.
+- **JCS safe-integer guard (audit finding, closed).** Canonicalization
+  rejects integers beyond ±(2^53−1) instead of silently serializing them
+  as strings — third-party verifiers (Rust/JS) would read such records
+  differently. Fail-closed on sign and verify.
+- **2026-09-24 advisory wave triaged (measured, 2026-09-29):**
+  GHSA-j2g9-4prp-pf6h reproduces on the in-process component path — a
+  guest can panic the host (`SIGABRT`) via filesystem datetime overflow;
+  fuel, epoch and memory caps do not apply inside the host call. Measured
+  containment: the subprocess path survives (worker dies, parent reports
+  a clean error) — run untrusted guests with `use_subprocess=True` until
+  the M2 engine upgrade. GHSA-c9gc-w9vx-w86p is structurally unreachable:
+  guests are never linked against wasi-http (pinned in
+  `tests/test_surface_audit.py`). GHSA-jqpg-j7w6-42pr does not apply as
+  read (statically-typed host, no dynamic-Val lifting); re-check at M2.
+  Full table in SECURITY.md; fresh evidence in
+  `benchmarks/results/2026-09-29/` (Preview1 + component CVE replays
+  PASS, `datetime_overflow_ghsa_j2g9.json` PASS).
+
 ### Added
 
 - Root `.mcp.json` (project-scope MCP config): launches the server via
@@ -15,6 +63,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   scanners (Open Plugins / Cursor Directory) now detect the repo as
   carrying an MCP component. Floating PyPI version, no secrets, no
   config required (bundled tool set).
+- `scripts/watch_upstream.py` — watches the three ADR-009 external gates
+  (patched wasmtime wheels on PyPI, wasmtime-py `add_wasip3` surface,
+  GC-heap limiter binding) with `--json` output; offline unit tests in
+  `tests/test_watch_upstream.py`. The ADR-009 watcher statement is now
+  true.
+- Component-path security matrix (`tests/test_component_security.py`,
+  10 tests): fuel bomb stops budget-exact (1k / 1M / 0 boundary), memory
+  bomb faults exactly at the cap, 10 KB output cap, 9,216 B stdin cap,
+  dangerous-dir fail-closed end-to-end (incl. the mapping regression),
+  named-state gap pinned explicitly. WAT-generated fixtures — runs in CI
+  without a toolchain. Evidence for the dual-ABI claim.
+- CI test-count guard (`scripts/check_test_count.py` + ci.yml step, run
+  in strict mode): the static test-count claims in README and the
+  comparison doc must match the real pytest collection — mechanizes
+  "CI counter = README number".
+- Project-meta pins: `tests/test_project_meta.py` (SPDX BUSL-1.1 headers
+  on every shipped file, LICENSE copies byte-equal, license parameters
+  present) and `tests/test_mcp_config.py` (`.mcp.json`/smithery command
+  parity).
+- Python 3.13: CI matrix, classifiers, SUPPORT.md/requirements.txt
+  (smoke-tested locally on 3.13.14: surface/policy + component/state/
+  security suites green).
+- Troubleshooting section in docs/recipes.md (fulfils the README promise:
+  venv/PEP 668, Windows `python`, tool-path resolution, fuel/timeout
+  tuning, 10 KB output cap) and documented `--abi` / `--no-memory64`
+  flags.
+
+### Fixed
+
+- Test-count drift across public docs: badge/freshness (532), "Testing &
+  Verification" (470) and the comparison doc (424) disagreed — now
+  single-sourced from the pytest collection and CI-guarded (589 passing,
+  4 skipped, 87% coverage).
+- `ephemora_cell/LICENSE` shipped with the unfilled
+  `Copyright [yyyy] [name of copyright owner]` placeholder since 1.0.0 —
+  replaced by the canonical license text (see Changed).
+
+### Changed
+
+- **License: Apache-2.0 → BUSL-1.1.** Ephemora Cell is now
+  source-available under the Business Source License 1.1: free for
+  non-production use (evaluation, development, research, testing);
+  business/production use requires a license from Ephemora; every version
+  converts back to Apache-2.0 four years after its first public release.
+  All versions ≤ 1.0.4.3 remain Apache-2.0 permanently. Decision and
+  consequences in ADR-010; contribution terms (BUSL-1.1 + relicensing
+  grant) in CONTRIBUTING.md. SPDX headers unified on all 23 package files
+  (`BUSL-1.1`, Ephemora AG in formation — resolving the header/LICENSE
+  copyright mismatch). GitHub license detection will show BUSL-1.1; the
+  Glama license grade is expected to drop and is no longer claimed in the
+  README.
+- **Engine-config single-sourcing (behavior-identical).** One
+  `build_engine_config` (`ephemora_cell/_engine_config.py`) serves
+  `wasi_runtime`, `engine_pool` and `wasi_02` — the next advisory
+  hardening edits one site instead of three; shared sandbox helpers
+  replace the component path's private imports from the runtime.
+  `tests/test_proposal_policy.py` (SpyConfig) stays green untouched.
 
 ## [1.0.4.3] - 2026-09-25
 

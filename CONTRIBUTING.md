@@ -119,7 +119,7 @@ its license is compatible and note it in the PR.
    in the `security` job — a push with drifted sources fails there)
 5. Build, upload to PyPI, publish the GitHub release
 6. Smoke-test: fresh venv, `pip install ephemora-cell==<version>`,
-   `python -m ephemora_cell --version` reports `<version>`
+   `ephemora-cell --version` reports `<version>` (console script — the package has no `__main__`)
 
 Tone rule for docs: numbers speak, adjectives sparingly — measured
 claims with evidence links, no marketing adjectives around them.

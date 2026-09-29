@@ -62,16 +62,14 @@ def test_guest_facing_linker_never_registers_wasi_http():
     Structural: an upgrade that starts linking wasi-http for guests must
     fail loudly here — the method's existence on the binding's Linker
     class (previous test) is existence, not use."""
-    path = os.path.join(
-        os.path.dirname(__file__), "..", "ephemora_cell", "wasi_02.py"
-    )
+    path = os.path.join(os.path.dirname(__file__), "..", "ephemora_cell", "wasi_02.py")
     with open(path, encoding="utf-8") as f:
         source = f.read()
     called = _called_attribute_names(source)
     assert "add_wasip2" in called, "component linker must register wasip2"
-    assert "add_wasi_http" not in called, (
-        "guest-facing linker must never register wasi-http (GHSA-c9gc-w9vx-w86p)"
-    )
+    assert (
+        "add_wasi_http" not in called
+    ), "guest-facing linker must never register wasi-http (GHSA-c9gc-w9vx-w86p)"
 
 
 def test_component_with_wasi_http_import_fails_closed(tmp_path):

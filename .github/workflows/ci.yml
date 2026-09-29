@@ -46,16 +46,13 @@ jobs:
           python -m pytest tests/ -v --tb=short
 
       # Docs/platform truth guard: the static test-count claims in
-      # README.md ("Testing & Verification") and
+      # README.md ("Testing & Verification", badge, freshness block) and
       # docs/comparison-mcp-servers.md must match the real pytest
-      # collection (passing + skipped == collected). Default mode: the
-      # README badge/freshness numbers are report-only warnings — the
-      # release step re-stamps them last. CHECK_TEST_COUNT_STRICT=1 turns
-      # badge/freshness drift into a hard failure once that re-stamp is
-      # in place.
+      # collection (passing + skipped == collected). Strict mode is on:
+      # badge/freshness drift fails CI just like the paragraph claims.
       - name: Test-count sync guard (docs vs. pytest collection)
         run: |
-          python scripts/check_test_count.py
+          CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py
 
       - name: Lint (black + ruff)
         run: |
