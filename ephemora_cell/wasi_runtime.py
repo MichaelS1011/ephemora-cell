@@ -24,6 +24,11 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
+from ephemora_cell._engine_config import build_engine_config
+from ephemora_cell._sandbox_common import (
+    _MAX_OUTPUT_BYTES,
+    STDIN_MAX_BYTES,
+)
 from ephemora_cell._sandbox_common import (
     DANGEROUS_DIRS as _DANGEROUS_DIRS_POLICY,
 )
@@ -34,16 +39,43 @@ from ephemora_cell._sandbox_common import (
     canonicalize_dir as _canonicalize_dir,
 )
 from ephemora_cell._sandbox_common import (
+    check_dangerous_dirs as _check_dangerous_dirs_impl,
+)
+from ephemora_cell._sandbox_common import (
     filter_dangerous_dirs as _filter_dangerous_dirs_impl,
 )
 from ephemora_cell._sandbox_common import (
     forbidden_canonical_match as _forbidden_canonical_match_impl,
 )
 from ephemora_cell._sandbox_common import (
+    fuel_consumed as _fuel_consumed_impl,
+)
+from ephemora_cell._sandbox_common import (
+    grant_preopens as _grant_preopens_impl,
+)
+from ephemora_cell._sandbox_common import (
+    is_memory_fault_trap as _is_memory_fault_trap,
+)
+from ephemora_cell._sandbox_common import (
+    make_output_sink as _make_output_sink,
+)
+from ephemora_cell._sandbox_common import (
+    read_capped_output as _read_capped_output,
+)
+from ephemora_cell._sandbox_common import (
     split_dir_mapping as _split_dir_mapping_impl,
 )
 from ephemora_cell._sandbox_common import (
+    start_epoch_timer as _start_epoch_timer,
+)
+from ephemora_cell._sandbox_common import (
+    start_interrupt_watch as _start_interrupt_watch,
+)
+from ephemora_cell._sandbox_common import (
     under_canonical_exception as _under_canonical_exception,
+)
+from ephemora_cell._sandbox_common import (
+    validate_allow_dirs as _validate_allow_dirs_impl,
 )
 from ephemora_cell.state import StateStore
 
@@ -65,22 +97,17 @@ except ImportError:
     HAS_WASMTIME = False
 
 
-# --- Output Budget (max 10 KB of UTF-8 bytes per execution) ---
+# --- Shared output budget / stdin cap (single source: _sandbox_common) ---
 # One budget, byte-based everywhere: the guest-side fd_write sink,
 # the host-side capture-file read-back, and in-memory string truncation
 # all measure encoded bytes, so the cap means the same thing at every
 # layer. (Previously the in-memory truncation counted characters while
-# the sink counted bytes — a two-byte-per-char discrepancy.)
-_MAX_OUTPUT_BYTES = 10_000
+# the sink counted bytes — a two-byte-per-char discrepancy.) The budget,
+# the wasmtime host stdin cap and the shared output helpers live in
+# _sandbox_common; this module re-exports them (package __init__ and
+# tests import them from here).
 # Backwards-compatible alias (the budget used to be char-based).
 _MAX_OUTPUT_CHARS = _MAX_OUTPUT_BYTES
-# Host-side stdin cap: wasmtime's WASI preview1 host feeds fd 0 from a fixed
-# worker-thread buffer (crates/wasi/src/cli/worker_thread_stdin.rs), silently
-# truncating anything larger. Ephemora Cell never passes more than this to a
-# guest — larger input must be read from a preopened file instead.
-STDIN_MAX_BYTES = 9_216
-# WASI errno returned to the guest once the output budget is exhausted.
-_WASI_ERRNO_NOSPC = 51
 
 # macOS temp-root exception + canonical denylist policy: the single source
 # of truth lives in ephemora_cell._sandbox_common (shared by the preview1
@@ -88,19 +115,10 @@ _WASI_ERRNO_NOSPC = 51
 # referencing/exposing them as before.
 
 
-def _watch_external_interrupt(
-    engine: wasmtime.Engine,
-    interrupt_event: threading.Event,
-    timeout_event: threading.Event,
-) -> None:
-    """External watchdog (worker io_cpu_seconds): one increment fires the
-    per-run engine's deadline=1 immediately."""
-    while not timeout_event.is_set():
-        if interrupt_event.is_set():
-            engine.increment_epoch()
-            return
-        timeout_event.wait(0.02)
-
+# Trap classification, output capture and the interrupt-watcher loop are
+# shared with the component path (single implementations in
+# _sandbox_common; the names above re-export them for this module's own
+# code and any external references).
 
 # Process-wide engine pool. Created lazily on first use because
 # engine_pool imports this module (circular import guard).
@@ -128,41 +146,6 @@ def _limit_output(text: str, max_bytes: int = _MAX_OUTPUT_BYTES) -> str:
     if len(raw) > max_bytes:
         return raw[:max_bytes].decode("utf-8", errors="ignore") + "\n[... truncated]"
     return text
-
-
-def _is_memory_fault_trap(message: str) -> bool:
-    """True when a wasmtime trap is a memory violation (OOB access, fault, or
-    failed memory growth) — mapped to MEMORY_EXCEEDED instead of ERROR."""
-    lowered = message.lower()
-    return (
-        "out of bounds memory access" in lowered
-        or "memory fault" in lowered
-        or "memory allocation failed" in lowered
-        or "failed to grow memory" in lowered
-    )
-
-
-def _read_capped_output(path: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
-    """Read a host-owned capture file, bounding it at ``limit`` chars.
-
-    Defense-in-depth: reads at most ``limit + 1`` bytes and truncates the
-    file on disk if it somehow grew past the budget.
-    """
-    if not os.path.exists(path):
-        return ""
-    try:
-        with open(path, "rb") as f:
-            raw = f.read(limit + 1)
-    except OSError:
-        return ""
-    if len(raw) > limit:
-        try:
-            with open(path, "r+b") as f:
-                f.truncate(limit)
-        except OSError:
-            pass
-        return raw[:limit].decode("utf-8", errors="replace") + "\n[... truncated]"
-    return raw.decode("utf-8", errors="replace")
 
 
 class ExecutionStatus(Enum):
@@ -503,35 +486,14 @@ class WASISandbox:
                         math.ceil(self._config.timeout_seconds / pool.TICK_SECONDS),
                     )
             else:
-                engine_config = wasmtime.Config()
-                if self._config.max_fuel is not None:
-                    engine_config.consume_fuel = True
-                engine_config.epoch_interruption = True
-                # P1 #11: Disable threads (single-thread only for security)
-                engine_config.wasm_threads = False
-                # P1/K2: Freeze the baseline — multi-memory stays off; memory64
-                # is a per-config opt-in (WASIConfig.memory64).
-                engine_config.wasm_memory64 = self._config.memory64
-                engine_config.wasm_multi_memory = False
-                # GHSA-m63x-6p34-q65x: call_ref (function-references) and
-                # try_table (exceptions) can discard callee fuel — deterministic
-                # fuel accounting requires these proposals off. GC and tail-calls
-                # are not needed by any Cell workload; enforced like threads.
-                engine_config.wasm_function_references = False
-                engine_config.wasm_exceptions = False
-                engine_config.wasm_gc = False
-                engine_config.wasm_tail_call = False
-                # WASI 0.3 (2026-06-11) positions native async on component
-                # stack-switching primitives — not needed by the shipped
-                # wasip2 surface, gate-off until the 0.3 story is qualified
-                # (SECURITY_ADVISORY_PLAN: WASIp3 streams, GHSA-x84v-gj2h-g759).
-                engine_config.wasm_stack_switching = False
-                # NOTE: no explicit memory_guard_size — an explicit 4 GiB
-                # guard broke run_isolated in constrained Linux VMs
-                # (mmap ENOMEM on the combined reservation+guard); the
-                # pooling allocator (CVE-2026-34988 class) is unreachable
-                # via the Python binding and the residue test guards the
-                # behavior instead.
+                # Hardened proposal-policy engine — ONE shared builder
+                # (ephemora_cell._engine_config) serves the inline preview1
+                # path, the engine pool and the component path, so the
+                # freeze cannot drift between construction sites again.
+                engine_config = build_engine_config(
+                    max_fuel=self._config.max_fuel,
+                    memory64=self._config.memory64,
+                )
                 engine = Engine(engine_config)
 
             if expected_sha256 is not None:
@@ -697,14 +659,7 @@ class WASISandbox:
             timeout_event = threading.Event()
 
             if pool is None:
-
-                def _epoch_timer() -> None:
-                    """Increment WASM epoch on timeout — triggers epoch_interruption trap."""
-                    if not timeout_event.wait(self._config.timeout_seconds):
-                        engine.increment_epoch()
-
-                timer = threading.Thread(target=_epoch_timer, daemon=True)
-                timer.start()
+                _start_epoch_timer(engine, timeout_event, self._config.timeout_seconds)
 
             # ADR-002 I/O budgets. Both watchers interrupt the guest via
             # epoch — for pooled engines one extra increment can pull a
@@ -735,11 +690,7 @@ class WASISandbox:
                     timeout_event.wait(0.1)
 
             if interrupt_event is not None:
-                threading.Thread(
-                    target=_watch_external_interrupt,
-                    args=(engine, interrupt_event, timeout_event),
-                    daemon=True,
-                ).start()
+                _start_interrupt_watch(engine, interrupt_event, timeout_event)
             if self._config.io_budget_bytes is not None:
                 threading.Thread(target=_bytes_watch, daemon=True).start()
 
@@ -968,12 +919,9 @@ class WASISandbox:
         refuses a fuel read past the trap, report the full budget instead
         of an unaccounted None.
         """
-        if self._config.max_fuel is None:
-            return None
-        try:
-            return self._config.max_fuel - store.get_fuel()
-        except Exception:
-            return self._config.max_fuel
+        return _fuel_consumed_impl(
+            self._config.max_fuel, store, on_read_error="full_budget"
+        )
 
     def _create_test_wasm(self, wat_bytes: bytes, filename: str) -> Path:
         """Write raw WASM bytes to the sandbox dir for testing.
@@ -1024,44 +972,36 @@ class WASISandbox:
     def _validate_allow_dirs(allow_dirs: tuple[str, ...]) -> None:
         """Fail fast if any allow_dirs entry is canonically forbidden.
 
+        Delegates to the shared policy in ``_sandbox_common``.
+
         Raises:
             ValueError: with the offending entry and its canonical path.
         """
-        for d in allow_dirs:
-            host, _ = WASISandbox._split_dir_mapping(d)
-            canon = WASISandbox._canonicalize(host)
-            match = WASISandbox._forbidden_canonical_match(canon)
-            if match is not None:
-                raise ValueError(
-                    f"allow_dirs entry {d!r} is forbidden: canonical path "
-                    f"{canon!r} resolves into blocked location {match!r}"
-                )
+        _validate_allow_dirs_impl(
+            allow_dirs,
+            split_dir_mapping=WASISandbox._split_dir_mapping,
+            canonicalize=WASISandbox._canonicalize,
+            forbidden_canonical_match=WASISandbox._forbidden_canonical_match,
+        )
 
     @staticmethod
     def _check_dangerous_dirs(allow_dirs: tuple[str, ...]) -> None:
         """Warn if allow_dirs entries match the denylist by string.
 
-        The canonical realpath check already rejects true forbidden paths;
-        this remains as an additional visibility layer for suspicious strings.
+        Delegates to the shared policy in ``_sandbox_common``. The canonical
+        realpath check already rejects true forbidden paths; this remains as
+        an additional visibility layer for suspicious strings.
         """
-        if not allow_dirs:
-            return
-        for d in allow_dirs:
-            host, _ = WASISandbox._split_dir_mapping(d)
-            if _under_canonical_exception(host):
-                continue
-            if host in WASISandbox._DANGEROUS_DIRS or any(
-                host == dd or host.startswith(dd + "/")
-                for dd in WASISandbox._DANGEROUS_DIRS
-            ):
-                import warnings
-
-                warnings.warn(
-                    f"Preopen directory '{d}' matches the dangerous dirs denylist. "
-                    "It will be filtered out at runtime.",
-                    RuntimeWarning,
-                    stacklevel=3,
-                )
+        _check_dangerous_dirs_impl(
+            allow_dirs,
+            dangerous_dirs=WASISandbox._DANGEROUS_DIRS,
+            split_dir_mapping=WASISandbox._split_dir_mapping,
+            under_canonical_exception=_under_canonical_exception,
+            # One extra delegation frame vs the historical inline
+            # implementation — keep the warning attributed to the
+            # WASISandbox(...) call site.
+            stacklevel=4,
+        )
 
     @staticmethod
     def _dangerous_prefix_match(dir_path: str) -> str:
@@ -1082,45 +1022,21 @@ class WASISandbox:
         """Preopen the filtered dirs (plus the sandbox dir) and record what
         was ACTUALLY granted (S2 attestation input).
 
-        TOCTOU: an entry validated at config time can be swapped before the
-        grant happens (e.g. replaced with a symlink into a forbidden
-        location). Every entry is therefore re-realpath'd immediately
-        before ``preopen_dir`` and skipped with a warning when it now
-        resolves into a forbidden canonical location. The guest-visible
-        name stays the configured string; the host path is the canonical
-        one. ``sandbox_dir=None`` grants no /sandbox mount (component ABI).
+        Delegates to the shared implementation in ``_sandbox_common`` (the
+        component path calls the same one — no /sandbox mount there).
         """
-        granted: list[str] = []
-        for dir_path in safe_dirs:
-            host_path, guest_name = WASISandbox._split_dir_mapping(dir_path)
-            canon = WASISandbox._canonicalize(host_path)
-            if WASISandbox._forbidden_canonical_match(canon) is not None:
-                import warnings
-
-                warnings.warn(
-                    "Preopen skipped at grant time (TOCTOU revalidation): "
-                    f"{dir_path!r} now resolves to forbidden canonical path "
-                    f"{canon!r}",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                continue
-            if not os.path.isdir(canon):
-                import warnings
-
-                warnings.warn(
-                    f"Preopen skipped: directory does not exist: {dir_path!r} "
-                    f"(canonical: {canon!r}) — guest path {guest_name!r} will not be available",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-                continue
-            wasi_cfg.preopen_dir(canon, guest_name)
-            granted.append(canon)
-        if sandbox_dir is not None:
-            wasi_cfg.preopen_dir(sandbox_dir, "/sandbox")
-            granted.append("/sandbox")
-        return tuple(granted)
+        return _grant_preopens_impl(
+            wasi_cfg,
+            safe_dirs,
+            sandbox_dir,
+            split_dir_mapping=WASISandbox._split_dir_mapping,
+            canonicalize=WASISandbox._canonicalize,
+            forbidden_canonical_match=WASISandbox._forbidden_canonical_match,
+            # One extra delegation frame vs the historical inline
+            # implementation — keep the warnings attributed to the run()
+            # grant line.
+            stacklevel=3,
+        )
 
     def _filter_dangerous_dirs(self, allow_dirs: tuple[str, ...]) -> tuple[str, ...]:
         """Filter allow_dirs down to entries that pass the canonical allowlist.
@@ -1144,27 +1060,10 @@ class WASISandbox:
     def _make_output_sink(file_path: str, budget: list[int]):
         """Build a WASI stdout/stderr sink that enforces the byte budget.
 
-        Returns None to accept a write. Once the shared budget is exhausted
-        the sink returns a NEGATIVE errno so the guest's fd_write fails
-        without further output being appended to the host-owned capture file.
-
-        NOTE: positive errno returns are NOT usable here — wasmtime-py 47
-        misinterprets them as byte counts and panics ("cannot advance past
-        remaining"). Negative returns take the C error path (guest sees EIO).
+        Thin delegate to the shared implementation in ``_sandbox_common``
+        (the component path uses the same sink).
         """
-
-        def _sink(data: bytes) -> int | None:
-            if len(data) > budget[0]:
-                return -_WASI_ERRNO_NOSPC
-            budget[0] -= len(data)
-            try:
-                with open(file_path, "ab") as f:
-                    f.write(data)
-            except OSError:
-                return -_WASI_ERRNO_NOSPC
-            return None
-
-        return _sink
+        return _make_output_sink(file_path, budget)
 
     # --- P0 #3: Sandbox dir cleanup ---
 

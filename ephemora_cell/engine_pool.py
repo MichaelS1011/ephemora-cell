@@ -34,13 +34,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 try:
-    import wasmtime
     from wasmtime import Engine, Module
 
     HAS_WASMTIME = True
 except ImportError:
     HAS_WASMTIME = False
 
+from ._engine_config import build_engine_config
 from .wasi_runtime import WASIConfig
 
 __all__ = ["EnginePool", "config_fingerprint"]
@@ -137,28 +137,14 @@ class EnginePool:
         self._lock = threading.Lock()
 
     def _new_entry(self, config: WASIConfig) -> _EngineEntry:
-        engine_config = wasmtime.Config()
-        if config.max_fuel is not None:
-            engine_config.consume_fuel = True
-        engine_config.epoch_interruption = True
-        engine_config.wasm_threads = False
-        engine_config.wasm_memory64 = config.memory64
-        engine_config.wasm_multi_memory = False
-        # GHSA-m63x-6p34-q65x: call_ref/try_table can discard callee fuel;
-        # deterministic fuel accounting requires these proposals off. GC and
-        # tail-calls are not needed by any Cell workload; enforced like threads.
-        engine_config.wasm_function_references = False
-        engine_config.wasm_exceptions = False
-        engine_config.wasm_gc = False
-        engine_config.wasm_tail_call = False
-        # WASI 0.3 gate-off (native async rides on stack-switching; the
-        # shipped wasip2 surface does not need it — see wasi_runtime).
-        engine_config.wasm_stack_switching = False
-        # NOTE: no explicit memory_guard_size — an explicit 4 GiB guard
-        # broke run_isolated in constrained Linux VMs (mmap ENOMEM on the
-        # combined reservation+guard); the pooling allocator (CVE-2026-34988
-        # class) is unreachable via the Python binding and the residue test
-        # (tests/test_memory_hygiene.py) guards the behavior instead.
+        # Hardened proposal-policy engine — ONE shared builder
+        # (ephemora_cell._engine_config) serves the engine pool, the inline
+        # preview1 path and the component path, so the freeze cannot drift
+        # between construction sites again.
+        engine_config = build_engine_config(
+            max_fuel=config.max_fuel,
+            memory64=config.memory64,
+        )
         return _EngineEntry(Engine(engine_config))
 
     def engine_for(self, config: WASIConfig) -> Engine:

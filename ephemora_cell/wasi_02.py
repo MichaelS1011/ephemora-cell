@@ -54,21 +54,60 @@ try:
 except ImportError:
     HAS_WASMTIME = False
 
+from ._engine_config import build_engine_config
+from ._sandbox_common import (
+    _MAX_OUTPUT_BYTES,
+    STDIN_MAX_BYTES,
+)
+from ._sandbox_common import (
+    DANGEROUS_DIRS as _DANGEROUS_DIRS_POLICY,
+)
+from ._sandbox_common import (
+    canonicalize_dir as _canonicalize_dir,
+)
+from ._sandbox_common import (
+    check_dangerous_dirs as _check_dangerous_dirs_impl,
+)
 from ._sandbox_common import (
     filter_dangerous_dirs as _filter_dangerous_dirs_impl,
 )
 from ._sandbox_common import (
+    forbidden_canonical_match as _forbidden_canonical_match_impl,
+)
+from ._sandbox_common import (
+    fuel_consumed as _fuel_consumed_impl,
+)
+from ._sandbox_common import (
+    grant_preopens as _grant_preopens_impl,
+)
+from ._sandbox_common import (
+    is_memory_fault_trap as _is_memory_fault_trap,
+)
+from ._sandbox_common import (
+    make_output_sink as _make_output_sink,
+)
+from ._sandbox_common import (
+    read_capped_output as _read_capped_output,
+)
+from ._sandbox_common import (
     split_dir_mapping as _split_dir_mapping_impl,
 )
+from ._sandbox_common import (
+    start_epoch_timer as _start_epoch_timer,
+)
+from ._sandbox_common import (
+    start_interrupt_watch as _start_interrupt_watch,
+)
+from ._sandbox_common import (
+    under_canonical_exception as _under_canonical_exception,
+)
+from ._sandbox_common import (
+    validate_allow_dirs as _validate_allow_dirs_impl,
+)
 from .wasi_runtime import (
-    STDIN_MAX_BYTES,
     ExecutionResult,
     ExecutionStatus,
     WASIConfig,
-    WASISandbox,
-    _is_memory_fault_trap,
-    _read_capped_output,
-    _under_canonical_exception,
 )
 
 __all__ = ["ComponentSandbox", "is_component_binary"]
@@ -116,9 +155,20 @@ class ComponentSandbox:
             )
         self._config = config or WASIConfig()
         self._host_dir: str | None = None
-        # Reuse the Preview1 canonical allowlist validation.
-        WASISandbox._validate_allow_dirs(self._config.allow_dirs)
-        WASISandbox._check_dangerous_dirs(self._config.allow_dirs)
+        # Same canonical allowlist validation as the Preview1 sandbox —
+        # the ONE shared policy in _sandbox_common.
+        _validate_allow_dirs_impl(
+            self._config.allow_dirs,
+            split_dir_mapping=_split_dir_mapping_impl,
+            canonicalize=self._canonicalize,
+            forbidden_canonical_match=self._forbidden_canonical_match,
+        )
+        _check_dangerous_dirs_impl(
+            self._config.allow_dirs,
+            dangerous_dirs=self._DANGEROUS_DIRS,
+            split_dir_mapping=_split_dir_mapping_impl,
+            under_canonical_exception=_under_canonical_exception,
+        )
 
     def run(
         self,
@@ -178,28 +228,14 @@ class ComponentSandbox:
         timeout_event: threading.Event | None = None
 
         try:
-            engine_config = wasmtime.Config()
-            if self._config.max_fuel is not None:
-                engine_config.consume_fuel = True
-            engine_config.epoch_interruption = True
-            engine_config.wasm_threads = False
-            engine_config.wasm_memory64 = self._config.memory64
-            engine_config.wasm_multi_memory = False
-            # GHSA-m63x-6p34-q65x: call_ref/try_table can discard callee fuel;
-            # deterministic fuel accounting requires these proposals off. GC and
-            # tail-calls are not needed by any Cell workload; enforced like
-            # threads. (Component linking verified against these knobs.)
-            engine_config.wasm_function_references = False
-            engine_config.wasm_exceptions = False
-            engine_config.wasm_gc = False
-            engine_config.wasm_tail_call = False
-            # WASI 0.3 gate-off (native async rides on stack-switching; the
-            # shipped wasip2 surface does not need it — see wasi_runtime).
-            engine_config.wasm_stack_switching = False
-            # NOTE: no explicit memory_guard_size — an explicit 4 GiB guard
-            # broke run_isolated in constrained Linux VMs (mmap ENOMEM); the
-            # pooling allocator (CVE-2026-34988 class) is unreachable via the
-            # Python binding and the residue test guards the behavior instead.
+            # Hardened proposal-policy engine — ONE shared builder
+            # (ephemora_cell._engine_config) serves the component path, the
+            # engine pool and the inline preview1 path (component linking
+            # verified against these knobs).
+            engine_config = build_engine_config(
+                max_fuel=self._config.max_fuel,
+                memory64=self._config.memory64,
+            )
             engine = Engine(engine_config)
 
             component_bytes = resolved.read_bytes()
@@ -227,9 +263,9 @@ class ComponentSandbox:
 
             wasi_cfg = WasmtimeWasiConfig()
             wasi_cfg.argv = ["wasm-module"] + (args or [])
-            budget: list[int] = [10_000]
-            wasi_cfg.stdout_custom = WASISandbox._make_output_sink(stdout_path, budget)
-            wasi_cfg.stderr_custom = WASISandbox._make_output_sink(stderr_path, budget)
+            budget: list[int] = [_MAX_OUTPUT_BYTES]
+            wasi_cfg.stdout_custom = _make_output_sink(stdout_path, budget)
+            wasi_cfg.stderr_custom = _make_output_sink(stderr_path, budget)
 
             if stdin_data:
                 if len(stdin_data.encode("utf-8")) > STDIN_MAX_BYTES:
@@ -252,7 +288,14 @@ class ComponentSandbox:
             safe_dirs = self._filter_dangerous_dirs(self._config.allow_dirs)
             # Component ABI: no /sandbox mount — the component gets no
             # sandbox dir at all (host_dir is host-owned, never preopened).
-            effective_preopens = WASISandbox._grant_preopens(wasi_cfg, safe_dirs, None)
+            effective_preopens = _grant_preopens_impl(
+                wasi_cfg,
+                safe_dirs,
+                None,
+                split_dir_mapping=_split_dir_mapping_impl,
+                canonicalize=self._canonicalize,
+                forbidden_canonical_match=self._forbidden_canonical_match,
+            )
 
             if self._config.allow_env:
                 wasi_cfg.env = list(self._config.allow_env)
@@ -284,26 +327,12 @@ class ComponentSandbox:
                 )
 
             timeout_event = threading.Event()
-
-            def _epoch_timer() -> None:
-                if not timeout_event.wait(self._config.timeout_seconds):
-                    engine.increment_epoch()
-
-            timer = threading.Thread(target=_epoch_timer, daemon=True)
-            timer.start()
+            _start_epoch_timer(engine, timeout_event, self._config.timeout_seconds)
 
             if interrupt_event is not None:
-
-                def _interrupt_watch() -> None:
-                    # ADR-002: external CPU watchdog — one increment fires
-                    # the deadline=1 engine immediately.
-                    while not timeout_event.is_set():
-                        if interrupt_event.is_set():
-                            engine.increment_epoch()
-                            return
-                        timeout_event.wait(0.02)
-
-                threading.Thread(target=_interrupt_watch, daemon=True).start()
+                # ADR-002: external CPU watchdog — one increment fires
+                # the deadline=1 engine immediately.
+                _start_interrupt_watch(engine, interrupt_event, timeout_event)
 
             try:
                 result = run_func(store)
@@ -421,21 +450,17 @@ class ComponentSandbox:
             )
 
     def _fuel_consumed(self, store: Store | None) -> int | None:
-        """Report fuel consumed for the component path (mirrors the preview1
-        sandbox at wasi_runtime.py): max_fuel - store.get_fuel().
+        """Report fuel consumed for the component path (single shared
+        implementation in ``_sandbox_common.fuel_consumed``).
 
         Returns None when fuel metering is disabled, the store was never
         constructed (trap during component parse), or the remaining fuel
         cannot be read (trap state). Resolves the missing fuel accounting
         (benchmarks/pocs/README.md).
         """
-        if store is None or self._config.max_fuel is None:
+        if store is None:
             return None
-        try:
-            remaining = store.get_fuel()
-            return self._config.max_fuel - remaining
-        except Exception:
-            return None
+        return _fuel_consumed_impl(self._config.max_fuel, store)
 
     @staticmethod
     def _find_run_func(instance, store: Store, component):
@@ -463,17 +488,17 @@ class ComponentSandbox:
             return instance.get_func(store, direct)
         return None
 
-    # --- Security helpers (mirror WASISandbox) ---
+    # --- Security helpers (the shared policy lives in _sandbox_common) ---
 
-    _DANGEROUS_DIRS = WASISandbox._DANGEROUS_DIRS
+    _DANGEROUS_DIRS = _DANGEROUS_DIRS_POLICY
 
     @classmethod
     def _forbidden_canonical_match(cls, canon: str) -> str | None:
-        """Delegate to the Preview1 canonical allowlist check."""
-        return WASISandbox._forbidden_canonical_match(canon)
+        """Delegate to the shared canonical allowlist check."""
+        return _forbidden_canonical_match_impl(canon)
 
     def _canonicalize(self, dir_path: str) -> str:
-        return os.path.realpath(os.path.expanduser(dir_path))
+        return _canonicalize_dir(dir_path)
 
     def _filter_dangerous_dirs(self, allow_dirs: tuple[str, ...]) -> tuple[str, ...]:
         """Filter allow_dirs down to entries that pass the canonical allowlist.
@@ -491,7 +516,7 @@ class ComponentSandbox:
             allow_dirs,
             split_dir_mapping=_split_dir_mapping_impl,
             canonicalize=self._canonicalize,
-            forbidden_canonical_match=WASISandbox._forbidden_canonical_match,
+            forbidden_canonical_match=self._forbidden_canonical_match,
             dangerous_dirs=self._DANGEROUS_DIRS,
             under_canonical_exception=_under_canonical_exception,
         )

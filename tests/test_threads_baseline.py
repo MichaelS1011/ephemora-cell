@@ -216,14 +216,19 @@ class TestEngineConfigFreeze:
         self._assert_site(spy_config, WASIConfig(memory64=True))
 
     def test_engine_pool_engine_frozen(self, monkeypatch):
-        """EnginePool._new_entry freezes threads + mirrors memory64."""
-        spy_config = _patch_config(monkeypatch, "ephemora_cell.engine_pool")
+        """EnginePool._new_entry freezes threads + mirrors memory64.
+
+        The Config construction itself now lives in the shared builder
+        (ephemora_cell._engine_config) — patch THERE (the wasmtime package
+        object is a singleton, so the interception is identical).
+        """
+        spy_config = _patch_config(monkeypatch, "ephemora_cell._engine_config")
         pool = EnginePool()
         pool.engine_for(WASIConfig())
         self._assert_site(spy_config, WASIConfig())
 
     def test_engine_pool_engine_memory64_optin(self, monkeypatch):
-        spy_config = _patch_config(monkeypatch, "ephemora_cell.engine_pool")
+        spy_config = _patch_config(monkeypatch, "ephemora_cell._engine_config")
         pool = EnginePool()
         pool.engine_for(WASIConfig(memory64=True))
         self._assert_site(spy_config, WASIConfig(memory64=True))
