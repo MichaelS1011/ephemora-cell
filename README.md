@@ -122,6 +122,10 @@ Wasmtime:            Ephemora Cell:
                          + integrate with agents and MCP
 ```
 
+### Why Cell for agent execution?
+
+Ephemora Cell is not trying to replace general-purpose containers or full development VMs. It targets a narrower execution path: high-frequency, untrusted agent and MCP workloads that benefit from a small capability surface, explicit resource accounting, and sub-millisecond warm sandbox execution. For agent infrastructure, this means Cell can act as a lightweight execution backend beneath an existing harness rather than requiring a new agent framework. The intended trade-off is explicit: less generality than a full Linux sandbox, in exchange for a smaller execution surface, tighter capability control, and lower per-call overhead.
+
 **The problem this answers:** AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe: *how do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?* Raw runtimes leave that boundary to you. Cell **is** that boundary.
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
@@ -344,6 +348,8 @@ ephemora-cell build src/main.rs # inside a cargo project → tool.wasm → run i
 | AssemblyScript | `asc --runtime stub` | ✅ Compiled + executed (CI) |
 | Zig | `zig build-exe -target wasm32-wasi` | ✅ Compiled + executed (CI) |
 | Python | — | Guidance: run on a wasi-python interpreter (no AOT exists) |
+
+**What does *not* run:** native Python, Node.js/npm packages, or Linux/ELF binaries — Cell executes WASM modules and WASI 0.2 components, nothing else. Scripting languages run only as interpreter binaries *you* compile to WASM (or componentize, e.g. `componentize-py`, jco/StarlingMonkey) and bring yourself — Cell ships no interpreters, and GC/threads-based ports (Kotlin, Dart, …) stay locked until the GC-heap gate in [SECURITY.md](SECURITY.md) opens. Support matrix and recipes: [docs/languages.md](docs/languages.md), [docs/recipes.md](docs/recipes.md).
 
 All five compiled-language gates verify on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). **Platforms:** macOS (Apple M5) ✅ · Ubuntu 24.04 ✅ · DGX Spark GB10 ✅
 
