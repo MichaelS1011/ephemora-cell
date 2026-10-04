@@ -164,6 +164,9 @@ def test_a_malformed_grant_file_refuses_startup(tmp_path, capsys):
 
 
 def _write_ed25519_pem(path):
+    # The signing extra is optional: a bare clone skips the tests that need a
+    # real key instead of erroring, and CI (which installs the extra) runs them.
+    pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 

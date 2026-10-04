@@ -41,7 +41,13 @@ PACKAGE_TOOLS = os.path.join(
 @pytest.fixture(scope="module")
 def keypair(tmp_path_factory):
     """A real Ed25519 keypair on disk; signer+verifier built through the shipped
-    helpers, so the test exercises the exact operator path."""
+    helpers, so the test exercises the exact operator path.
+
+    Signing needs the optional ``tools-signing`` extra: a consumer running bare
+    ``pytest`` from a clone skips instead of erroring, while CI installs the
+    extra and every test here runs for real (not green-by-skip).
+    """
+    pytest.importorskip("cryptography")
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
