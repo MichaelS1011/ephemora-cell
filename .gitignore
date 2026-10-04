@@ -7,6 +7,11 @@ dist/
 .pytest_cache/
 .coverage
 coverage.xml
+# WASM artifacts are build outputs and are not committed by default; the
+# exceptions below are the shipped fixtures. The WASI 0.2 component probes under
+# benchmarks/component_probes/ deliberately have NO exception — the dated
+# evidence cites them by the sha256 pinned in
+# benchmarks/component_probes/fixtures.json, not by a path in a clone.
 *.wasm
 *.wasmtest
 *.wat

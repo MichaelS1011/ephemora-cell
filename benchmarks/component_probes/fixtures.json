@@ -1,0 +1,59 @@
+{
+  "manifest_version": "component-probe-fixtures.v1",
+  "purpose": "Identity pin for the WASI 0.2 component probe binaries that the dated security evidence cites.",
+  "policy": [
+    "The four .wasm files listed here are BUILD ARTIFACTS and are not committed: .gitignore excludes *.wasm and does not carry an exception for this directory.",
+    "Any document that cites one of them as the fixture of a measurement therefore cites a byte sequence identified by the sha256 below, not a file that a clone contains.",
+    "Rebuild with ./rebuild.sh (needs cargo with the wasm32-wasip2 target plus wasm-tools). The script compares each rebuilt artifact against this manifest and fails on drift.",
+    "A hash mismatch after a rebuild is not permission to record a new hash. The measurements below were taken with THESE bytes; a different binary is a different experiment and the measurement has to be re-run and re-dated."
+  ],
+  "not_a_reproducibility_promise": "These hashes pin WHICH bytes a cited measurement ran on. They do not claim that any toolchain reproduces them: rustc/WASI-binding revisions change codegen, and the toolchain revision used for each historical build was not recorded in the artifact. Reproducible-in-principle is stated per fixture as source + build command; byte-identical-in-practice is not claimed.",
+  "build_command": "cargo build --release --target wasm32-wasip2 && wasm-tools strip -a <target>/wasm32-wasip2/release/<probe>.wasm <probe>.wasm",
+  "fixtures": {
+    "fs_probe.wasm": {
+      "source": "src/fs_probe",
+      "sha256": "3c78e11426e884e9883dc4e27d5243ccce380250d87efb0d0d5a440443930cbd",
+      "size_bytes": 102503,
+      "built_on_machine": "2026-09-18 (macOS arm64 dev machine), via rebuild.sh",
+      "cited_by": [
+        "SECURITY.md (CVE-2025-53109/53110 escape-route replay)",
+        "benchmarks/mcp_cve_replay.py"
+      ]
+    },
+    "net_probe.wasm": {
+      "source": "src/net_probe",
+      "sha256": "d6d03b5c34ce74a173b2e81426cf04fd67fbaf7862cdf56020fbbfb62c1f922a",
+      "size_bytes": 129613,
+      "built_on_machine": "2026-09-18 (macOS arm64 dev machine), via rebuild.sh",
+      "cited_by": [
+        "SECURITY.md (network intent fail-closed check)"
+      ]
+    },
+    "times_probe.wasm": {
+      "source": "src/times_probe",
+      "sha256": "13ef53da561ea5841d74d6b9494f55f796909b4b4527b9a3077c13b0c577393c",
+      "size_bytes": 80357,
+      "built_on_machine": "2026-09-29 (macOS arm64 dev machine), via rebuild.sh",
+      "pinned_dependencies_at_build": {
+        "wasi": "0.14.7+wasi-0.2.4",
+        "wasip2": "1.0.4+wasi-0.2.12",
+        "wit-bindgen": "0.57.1"
+      },
+      "cited_by": [
+        "SECURITY.md (GHSA-j2g9-4prp-pf6h datetime overflow)",
+        "benchmarks/datetime_overflow_probe.py"
+      ]
+    },
+    "sync_probe.wasm": {
+      "source": "src/sync_probe",
+      "sha256": "dcbd5675bf650041a647ebd13dcd21b310883b1bd8bac7b4616f961bd8743ee3",
+      "size_bytes": 95248,
+      "built_on_machine": "2026-10-03 (macOS arm64 dev machine), via rebuild.sh",
+      "cited_by": [
+        "CHANGELOG.md (WASI 0.2 sync surface measurement)",
+        "benchmarks/component_sync_probe.py"
+      ]
+    }
+  },
+  "verification": "tests/test_component_probe_fixtures.py — checks this manifest against the scripts and the documentation, and against the real bytes whenever they are present on disk."
+}
