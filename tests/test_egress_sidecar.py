@@ -1251,9 +1251,24 @@ class TestEgressGrantForm:
 
 
 class TestGrantLoader:
-    """CLI reachability (ADR-013): a grant file is read back through
-    ``from_document`` and a directory loads fail-closed — no silent half-config.
-    Signature verification is deliberately NOT done here (the open item)."""
+    """Directory-scan semantics of the grant loader: every file is read, every
+    refusal is named, and nothing half-loads.
+
+    Authentication itself (signatures, trust root, rotation, audience) is
+    ``tests/test_grant_trust.py`` with real Ed25519 keys; here the root is a stub
+    so this file stays free of the optional ``cryptography`` extra and tests only
+    the scan/duplicate/directory behaviour.
+    """
+
+    class _StubRoot:
+        """A trust root stand-in that accepts whatever the schema accepts."""
+
+        audience = "https://ephemora.dev/egress-grant.v1"
+
+        def verify_envelope(self, envelope, *, now=None):
+            from ephemora_cell.egress_sidecar import EgressGrant
+
+            return EgressGrant.from_document(envelope)
 
     def _write(self, dir_path, name, doc):
         (dir_path / name).write_text(json.dumps(doc), encoding="utf-8")
@@ -1289,7 +1304,7 @@ class TestGrantLoader:
 
         g = EgressGrant(grant_id="g1", tool="echo", allowed_endpoints=())
         self._write(tmp_path, "echo.egress.grant.json", g.to_dict())
-        grants, errors = load_egress_grants(tmp_path)
+        grants, errors = load_egress_grants(tmp_path, self._StubRoot())
         assert errors == []
         assert set(grants) == {"echo"}
         assert grants["echo"] == g
@@ -1301,7 +1316,7 @@ class TestGrantLoader:
         self._write(tmp_path, "good.egress.grant.json", g.to_dict())
         self._write(tmp_path, "dupe.egress.grant.json", g.to_dict())  # same tool
         (tmp_path / "broken.egress.grant.json").write_text("{nope", encoding="utf-8")
-        _, errors = load_egress_grants(tmp_path)
+        _, errors = load_egress_grants(tmp_path, self._StubRoot())
         # every bad file is named — the caller can refuse to start
         assert len(errors) == 2
         assert any("broken" in e for e in errors)
@@ -1313,4 +1328,4 @@ class TestGrantLoader:
         from ephemora_cell.egress_sidecar import load_egress_grants
 
         with pytest.raises(NotADirectoryError):
-            load_egress_grants(tmp_path / "nope")
+            load_egress_grants(tmp_path / "nope", self._StubRoot())

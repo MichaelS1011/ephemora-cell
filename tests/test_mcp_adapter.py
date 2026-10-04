@@ -39,9 +39,11 @@ ECHO_WASM = PACKAGE_TOOLS / "echo.wasm"
 def server_with(tmp_path):
     """Build a Server over a MemoryTransport seeded with requests."""
 
-    def _build(tools_dir=PACKAGE_TOOLS, inbox=None, engine=None):
+    def _build(tools_dir=PACKAGE_TOOLS, inbox=None, engine=None, **server_kwargs):
         transport = MemoryTransport(inbox or [])
-        server = Server(tools_dir=tools_dir, transport=transport, engine=engine)
+        server = Server(
+            tools_dir=tools_dir, transport=transport, engine=engine, **server_kwargs
+        )
         return server, transport
 
     return _build
@@ -544,14 +546,14 @@ class TestMcpHardening:
 # --- native meta tool: get-policy -------------------------------------
 
 
-def _call_get_policy(server_with, arguments, engine=None):
+def _call_get_policy(server_with, arguments, engine=None, **server_kwargs):
     request = {
         "jsonrpc": "2.0",
         "id": 7,
         "method": "tools/call",
         "params": {"name": "get-policy", "arguments": arguments},
     }
-    server, transport = server_with(inbox=[request], engine=engine)
+    server, transport = server_with(inbox=[request], engine=engine, **server_kwargs)
     responses = _reply(server, transport)
     assert len(responses) == 1
     return responses[0]
@@ -664,9 +666,56 @@ def test_get_policy_attests_grant_enforcement_as_ledger_backed(server_with, tmp_
             "not_before": None,
             "not_after": "2099-01-01T00:00:00Z",
             "max_calls": 5,
+            "key_id": None,
             "revoked": False,
         }
     ]
+    # Enforcement and authentication are separate claims. A server built without
+    # a trust root says so, instead of letting "ledger-backed" imply the
+    # signatures were checked.
+    assert egress["grant_authentication"] == {
+        "verified": False,
+        "reason": "no trust root was given to this server, so grant signatures "
+        "were not checked on this path",
+    }
+
+
+def test_get_policy_names_the_root_that_authenticated_the_grants(server_with, tmp_path):
+    """With a trust root wired, get-policy shows the keys and their rotation
+    state, and never the key material."""
+    from ephemora_cell.egress_sidecar import EgressGrant
+    from ephemora_cell.grant_ledger import GrantLedger
+
+    summary = {
+        "source": "/etc/ephemora/egress-trust.json",
+        "audience": "https://ephemora.dev/egress-grant.v1",
+        "keys": [
+            {
+                "key_id": "ops-1",
+                "alg": "EdDSA",
+                "status": "transition",
+                "not_before": None,
+                "not_after": "2027-01-01T00:00:00+00:00",
+                "replaced_by": "ops-2",
+            }
+        ],
+    }
+    engine = CellToolEngine(
+        egress_grants={
+            "echo": EgressGrant(
+                grant_id="g-8",
+                tool="echo",
+                allowed_endpoints=("https://api.example.com/v1",),
+                key_id="ops-1",
+            )
+        },
+        grant_ledger=GrantLedger(tmp_path / "grants.jsonl"),
+    )
+    response = _call_get_policy(server_with, None, engine=engine, grant_trust=summary)
+    egress = json.loads(response["result"]["content"][0]["text"])["egress"]
+    assert egress["grant_authentication"] == summary
+    assert egress["grants"][0]["key_id"] == "ops-1"
+    assert "PUBLIC KEY" not in json.dumps(egress)
 
 
 def test_get_policy_unknown_tool_is_invalid_params(server_with):

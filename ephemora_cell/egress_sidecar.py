@@ -656,8 +656,13 @@ class EgressGrant:
 
     ``canonical_bytes()`` is RFC 8785 (JCS) over the grant's fields — the exact
     bytes an issuer signs and a verifier recomputes with the same recipe as
-    every other Cell record. Signature verification on the execution path is
-    still the open piece (the loader, not the enforcement, is unsigend).
+    every other Cell record. The startup path DOES verify them:
+    :class:`~ephemora_cell.grant_trust.GrantTrustRoot` authenticates the envelope
+    against keys anchored outside the grants directory, so a file an attacker
+    dropped into that directory is not an authority (ADR-013). What that does
+    not claim: the ``enforced`` tag below describes the allowlist the document
+    itself carries, and the window/cap/revocation only bite while a
+    :class:`GrantLedger` reads them.
     """
 
     grant_id: str
@@ -741,16 +746,29 @@ class EgressGrant:
         )
 
 
-def load_egress_grants(grants_dir) -> tuple[dict[str, EgressGrant], list[str]]:
-    """Read ``*.egress.grant.json`` files into tool-name -> grant, fail closed.
+def load_egress_grants(
+    grants_dir, trust_root
+) -> tuple[dict[str, EgressGrant], list[str]]:
+    """Read signed ``*.egress.grant.json`` envelopes into tool-name -> grant.
 
     Returns ``(grants, errors)`` — the loader is deliberately not silent: every
     file it could not accept is reported, so a caller can refuse to start rather
-    than run with a cap or expiry the operator believed was in force. NO
-    SIGNATURE VERIFICATION happens here (ADR-013): a file the host reads is
-    trusted as operator intent; authenticating the grant's Ed25519 envelope on a
-    startup path is the one open item, not yet implemented.
+    than run with a cap or expiry the operator believed was in force.
+
+    A grant is authority, so nothing here trusts the file it reads (ADR-013):
+    every document must be a DSSE envelope over the grant's canonical bytes,
+    signed by a key the out-of-band ``trust_root`` names, for the grant audience,
+    inside both the key's and the grant's own window. Anything else — an unsigned
+    legacy document, a re-signed edit, an unknown or retired key, an expired
+    grant — is an error entry, and an error entry means the server does not start.
     """
+    from .grant_trust import GrantTrustError
+
+    if trust_root is None:
+        raise ValueError(
+            "load_egress_grants requires a GrantTrustRoot — grants without a "
+            "verified signer are not an authority the loader may install"
+        )
     directory = Path(grants_dir)
     if not directory.is_dir():
         raise NotADirectoryError(f"grants directory does not exist: {directory}")
@@ -758,9 +776,9 @@ def load_egress_grants(grants_dir) -> tuple[dict[str, EgressGrant], list[str]]:
     errors: list[str] = []
     for file in sorted(directory.glob("*.egress.grant.json")):
         try:
-            doc = json.loads(file.read_text(encoding="utf-8"))
-            grant = EgressGrant.from_document(doc)
-        except (OSError, ValueError) as e:
+            envelope = json.loads(file.read_text(encoding="utf-8"))
+            grant = trust_root.verify_envelope(envelope)
+        except (OSError, ValueError, GrantTrustError) as e:
             errors.append(f"{file.name}: {e}")
             continue
         if grant.tool in grants:

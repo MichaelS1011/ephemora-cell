@@ -118,6 +118,7 @@ class Server:
         egress_policy: EgressPolicy | None = None,
         egress_grants: dict[str, EgressGrant] | None = None,
         grant_ledger: GrantLedger | None = None,
+        grant_trust: dict[str, Any] | None = None,
         receipt_signer: Callable[[bytes], bytes] | None = None,
         receipt_key_id: str | None = None,
         receipt_alg: str = "EdDSA",
@@ -166,6 +167,10 @@ class Server:
             grant_ledger: The append-only book behind grant enforcement
                 (ADR-013, Prio 1). Revocation is effective at the next mediated
                 call, never an in-flight one.
+            grant_trust: Summary of the trust root (ADR-013) the grants were
+                authenticated against — key ids, rotation status, windows, never
+                key material. ``None`` means this process did not verify any
+                grant signature, and ``get-policy`` reports exactly that.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
@@ -197,6 +202,11 @@ class Server:
         self.receipt_signer = receipt_signer
         self.receipt_key_id = receipt_key_id
         self.receipt_alg = receipt_alg
+        # ADR-013: the trust root the grants were authenticated against, as a
+        # summary (key ids, status, windows — never key material). None means
+        # this process cannot claim it verified any grant's signature, and
+        # get-policy says so instead of implying it.
+        self.grant_trust = grant_trust
 
     # --- public API -------------------------------------------------
 
@@ -638,6 +648,19 @@ class Server:
         if grants and ledger is not None:
             attestation["grant_enforcement"] = "ledger-backed"
             attestation["enforced"] = "allowlist+window+cap+revocation"
+            # Authentication is a SEPARATE claim from enforcement, and the
+            # difference matters: a ledger-backed grant whose signature nobody
+            # checked is a file the host happened to read. A server built without
+            # a trust root says so plainly instead of leaving it ambiguous.
+            attestation["grant_authentication"] = (
+                self.grant_trust
+                if self.grant_trust is not None
+                else {
+                    "verified": False,
+                    "reason": "no trust root was given to this server, so grant "
+                    "signatures were not checked on this path",
+                }
+            )
             attestation["grants"] = [
                 {
                     "tool": grant.tool,
@@ -646,6 +669,7 @@ class Server:
                     "not_before": grant.not_before,
                     "not_after": grant.not_after,
                     "max_calls": grant.max_calls,
+                    "key_id": grant.key_id,
                     "revoked": ledger.usage(grant.grant_id).revoked_at is not None,
                 }
                 for grant in grants.values()

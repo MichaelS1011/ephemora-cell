@@ -91,13 +91,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--egress-grants-dir",
-        metavar="PATH",
+        metavar="DIR",
         help=(
-            "directory of *.egress.grant.json files (ADR-013): each tool's "
-            "signed grant whose expiry/usage cap/revocation are ENFORCED via "
-            "--grant-ledger. Grants are trusted as operator intent — their "
-            "signature is NOT verified on this path (still open). Requires "
-            "--grant-ledger."
+            "directory of *.egress.grant.json DSSE envelopes (ADR-013): each tool's "
+            "grant whose expiry/usage cap/revocation are ENFORCED via "
+            "--grant-ledger and whose SIGNATURE is verified against "
+            "--egress-trust. Requires both: an unverified grant is not an "
+            "authority this loader will install."
+        ),
+    )
+    parser.add_argument(
+        "--egress-trust",
+        metavar="FILE",
+        help=(
+            "trust root for --egress-grants-dir (ADR-013): a JSON file OUTSIDE the "
+            "grants directory listing the operator's trusted Ed25519 keys, their "
+            "status (active/transition/retired), their validity windows and "
+            "replaced_by for rotation. Every grant must be signed by a key named "
+            "here — a key delivered with the artefact proves nothing. Needs the "
+            "optional 'cryptography' package (tools-signing extra). Issue grants "
+            "with: python -m ephemora_cell.grant_trust"
         ),
     )
     parser.add_argument(
@@ -157,11 +170,13 @@ def main(argv: list[str] | None = None) -> int:
 
     egress_grants = None
     grant_ledger = None
+    grant_trust_summary = None
     if args.egress_grants_dir:
-        # Grants are only meaningful behind a ledger (ADR-013) — a grant whose
-        # cap/expiry/revocation nobody reads is just an allowlist, so requiring
-        # the ledger here mirrors the engine's own fail-closed guard, as a clean
-        # startup error rather than a traceback.
+        # Grants are only meaningful behind BOTH a ledger (ADR-013 enforcement)
+        # and a trust root (authentication): a grant whose cap nobody reads is an
+        # allowlist, and a grant nobody signed is a file someone dropped in a
+        # directory. Both are refused at startup as a clean error, mirroring the
+        # engine's own fail-closed guard.
         if not args.grant_ledger:
             print(
                 "error: --egress-grants-dir requires --grant-ledger "
@@ -169,17 +184,34 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        if not args.egress_trust:
+            print(
+                "error: --egress-grants-dir requires --egress-trust "
+                "(a grant is authority and must be signed by a key the operator "
+                "anchored outside the grants directory)",
+                file=sys.stderr,
+            )
+            return 2
         from ephemora_cell.egress_sidecar import load_egress_grants
         from ephemora_cell.grant_ledger import GrantLedger
+        from ephemora_cell.grant_trust import GrantTrustError, GrantTrustRoot
 
         try:
-            grants, grant_errors = load_egress_grants(args.egress_grants_dir)
-        except (OSError, ValueError) as e:
+            trust_root = GrantTrustRoot.load(args.egress_trust)
+        except (OSError, ValueError, GrantTrustError) as e:
+            print(f"error: --egress-trust: {e}", file=sys.stderr)
+            return 2
+        try:
+            grants, grant_errors = load_egress_grants(
+                args.egress_grants_dir, trust_root
+            )
+        except (OSError, ValueError, GrantTrustError) as e:
             print(f"error: --egress-grants-dir: {e}", file=sys.stderr)
             return 2
         if grant_errors:
             # Fail closed: a half-loaded grant set would enforce some caps and
-            # silently not others. Refuse to start until every file is good.
+            # silently not others — and an unverified grant among them would be
+            # exactly the authority the trust root exists to prevent.
             print("error: egress grant load failed (none enforced):", file=sys.stderr)
             for err in grant_errors:
                 print(f"  - {err}", file=sys.stderr)
@@ -190,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: --grant-ledger: {e}", file=sys.stderr)
             return 2
         egress_grants = grants
+        grant_trust_summary = trust_root.summary()
 
     receipt_signer = None
     if args.receipt_signing_key:
@@ -211,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         egress_policy=egress_policy,
         egress_grants=egress_grants,
         grant_ledger=grant_ledger,
+        grant_trust=grant_trust_summary,
         receipt_signer=receipt_signer,
         receipt_key_id=args.receipt_key_id,
     ).serve()
