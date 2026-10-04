@@ -282,9 +282,21 @@ weaker.
   unsigned legacy document is refused with a message that names the issuing
   command — no silent downgrade path. `python -m ephemora_cell.grant_trust
   --grant … --key … --key-id … --out …` issues an envelope and refuses to sign a
-  document that names a different key. `get-policy` discloses the root SUMMARY
+  document that names a different key. Verification runs signature FIRST, then
+  payload parsing, so no unauthenticated byte drives grant construction and parse
+  errors are not an oracle for whoever can write into the directory; a key entry
+  with an unknown field is refused, because `notAfter` where `not_after` was meant
+  would load a key that never expires; and a grant whose `max_calls` or window
+  bound the ledger could not read is refused at startup instead of surfacing as an
+  internal error on the first mediated call. `load_egress_grants` also refuses a
+  root whose resolved path sits INSIDE the grants directory — the design said the
+  anchor lives outside what it anchors, and a claim that is not checked is not a
+  control. `get-policy` discloses the root SUMMARY
   (key ids, statuses, windows — no key material) under
-  `egress.grant_authentication`, and each grant under its `key_id`. Without
+  `egress.grant_authentication`, and each grant under its `key_id`. The disclosure
+  carries its own provenance — `verified: true` plus a `verified_by` naming the
+  loader that did the work — so `get-policy` cannot imply authentication that some
+  other path skipped. Without
   `cryptography` (extra `tools-signing`) the error is actionable at startup, never
   a grant that loads unverified.
 - **Component-probe evidence is now hash-identified, not asserted.** The dated
@@ -344,7 +356,7 @@ weaker.
   signed two hours earlier, fail-closed behaviour with no evidence block or a
   naive stamp, the 60 s future-skew allowance, and that an unsigned report
   receives no `evidence` key at all.
-- `tests/test_grant_trust.py` (31) — the grant authentication gate: happy path,
+- `tests/test_grant_trust.py` (38) — the grant authentication gate: happy path,
   payload equals canonical bytes, an edited payload and a non-canonical payload, a
   flipped signature, an unsigned legacy document, a signature from a key outside the
   root, a signature re-labelled under a stranger's `keyid`, retired and `transition`
@@ -403,7 +415,7 @@ weaker.
   `_meta` is unchanged with no egress and carries the decision under
   `_meta.egress` when present. `TestEgressGrantForm` fixes the grant envelope's
   canonical bytes and pins that only the allowlist is the enforced part.
-- `tests/test_mcp_main.py` (14 tests) — the `python -m ephemora_cell_mcp`
+- `tests/test_mcp_main.py` (16 tests) — the `python -m ephemora_cell_mcp`
   entrypoint, previously at 0% coverage: no flag builds no policy, `--egress-allow`
   builds the exact `EgressPolicy` the engine enforces, an unusable endpoint
   is a fail-closed startup error (exit 2) rather than a half-wired server,

@@ -55,7 +55,7 @@ AI Agent / Application
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/tests-850_passing-brightgreen" alt="Tests (850 pass, 4 skipped — see CI)">
+    <img src="https://img.shields.io/badge/tests-858_passing-brightgreen" alt="Tests (858 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/badge/coverage-89%25-brightgreen" alt="Coverage">
@@ -92,7 +92,7 @@ AI Agent / Application
   <a href="#documentation">Docs</a>
 </p>
 
-> **Status (2026-10-04):** published on PyPI: **1.0.5** (2026-09-29, licensing & security-readiness release — [changelog](CHANGELOG.md)) · **1.1.0 cut on this branch, not yet published**: bring-your-own-interpreter release — the module cap is a knob, the P1 #12 sync blockade moved to the call layer, egress grants are enforced AND authenticated against a trust root kept outside the grants directory, and per-call receipts are bound to one execution ([changelog](CHANGELOG.md)) · license now **BUSL-1.1** (source-available; ≤ 1.0.4.3 stays Apache-2.0 — [ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)) · 2026-09-24 wasmtime advisory wave triaged with measured evidence (see [SECURITY.md](SECURITY.md)) · latest reproducible evidence: 2026-10-02 (interpreter-guest measurement, [`benchmarks/results/`](benchmarks/results/)) · 850 tests passing, 89% coverage (see CI badge — refreshed per release)
+> **Status (2026-10-04):** published on PyPI: **1.0.5** (2026-09-29, licensing & security-readiness release — [changelog](CHANGELOG.md)) · **1.1.0 cut on this branch, not yet published**: bring-your-own-interpreter release — the module cap is a knob, the P1 #12 sync blockade moved to the call layer, egress grants are enforced AND authenticated against a trust root kept outside the grants directory, and per-call receipts are bound to one execution ([changelog](CHANGELOG.md)) · license now **BUSL-1.1** (source-available; ≤ 1.0.4.3 stays Apache-2.0 — [ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)) · 2026-09-24 wasmtime advisory wave triaged with measured evidence (see [SECURITY.md](SECURITY.md)) · latest reproducible evidence: 2026-10-02 (interpreter-guest measurement, [`benchmarks/results/`](benchmarks/results/)) · 858 tests passing, 89% coverage (see CI badge — refreshed per release)
 
 <p align="center">
   <picture>
@@ -583,9 +583,9 @@ Real, gated items — no dates promised:
 
 ## Testing & Verification
 
-850 tests passing (4 skipped) · 89% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+858 tests passing (4 skipped) · 89% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
-**What "the suite" means here — one canonical number.** 850/4 is what `pytest` reports on the environment CI uses on both legs: `requirements.txt` (the pinned `wasmtime`), the test deps, and the optional `tools-signing` extra (`cryptography>=42`) that every Ed25519 path needs. The 4 skips are toolchain gates in `tests/test_builder.py` (no `WASI_SDK_PATH`, no `asc`, no `go`, and the `.zig` build that needs a real zig). A minimal install — the same suite without `cryptography` — measures **766 passed / 58 skipped / 81% coverage**: 54 tests skip because they `importorskip("cryptography")` (signed tool manifests, governed loading, signed receipts, grant authentication — `tests/test_grant_trust.py` as a module, which is why 30 of its tests leave the collection entirely), and the same 4 toolchain gates apply. Neither number is the suite weakening: signing paths are unverified-by-absence, not passing. The count is machine-checked against `pytest --collect-only` by `scripts/check_test_count.py`, so these sentences cannot drift from the code.
+**What "the suite" means here — one canonical number.** 858/4 (862 collected) is what `pytest` reports on the environment CI uses on both legs: `requirements.txt` (the pinned `wasmtime`), the test deps, and the optional `tools-signing` extra (`cryptography>=42`) that every Ed25519 path needs. The 4 skips are toolchain gates in `tests/test_builder.py` (no `WASI_SDK_PATH`, no `asc`, no `go`, and the `.zig` build that needs a real zig). A minimal install — the same suite without `cryptography` — measures **766 passed / 59 skipped / 80% coverage** (824 collected): 55 of those skips are Ed25519 paths that `importorskip("cryptography")` (signed tool manifests, governed loading, signed receipts, grant authentication), and 54 of them are `tests/test_grant_trust.py`, which skips as a whole module and therefore leaves the collection; the same 4 toolchain gates apply. Neither number is the suite weakening: signing paths are unverified-by-absence, not passing. The count is machine-checked against `pytest --collect-only` by `scripts/check_test_count.py`, so these sentences cannot drift from the code.
 
 ## Documentation
 

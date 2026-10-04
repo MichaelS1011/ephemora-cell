@@ -127,15 +127,35 @@
   `get-policy` discloses the root that authenticated the grants (`_meta.egress.grant_authentication`)
   and, per grant, the `key_id` that signed it.
 - **Trusted keys live outside the artefact.** `grant_trust.GrantTrustRoot` is loaded
-  from an explicit operator path and refuses to be built from anything inside the
-  grants directory: a key delivered with the artefact proves nothing about the
+  from an explicit operator path, and `load_egress_grants` refuses a root whose
+  resolved path sits INSIDE the grants directory (a root an authority-granting write
+  can reach is overwritable, and every grant would then verify against the
+  attacker's key): a key delivered with the artefact proves nothing about the
   artefact. The root document is `egress-trust-root.v1` — audience, pinned
   algorithm set (`EdDSA` only), and keys with `active` / `transition` / `retired`
-  status plus `replaced_by`, so rotation (old → transition → new) is auditable on
+  status plus `replaced_by`; a key entry with an unknown field is refused, because
+  `notAfter` where `not_after` was meant would load a key that never expires.
+  Rotation (old → transition → new) is therefore auditable on
   disk. Unknown version, empty key list, duplicate key id, unknown status/alg, a
   `replaced_by` that names no key or itself, and an unparseable PEM are all refused
   at load. `python -m ephemora_cell.grant_trust --grant … --key … --key-id … --out …`
   issues an envelope; issuing refuses to sign a document that names a different key.
+- **Authentication is a STARTUP property, and it belongs to the CLI loader.** Key
+  status and key windows are checked when the root loads; a key retired mid-run
+  keeps the grants already installed in that process until restart (the ledger's
+  window/cap/revocation still apply per call). An embedder that builds
+  `Server(egress_grants=…, grant_ledger=…)` in-process installs the grant objects
+  it is handed — that path has no file to authenticate and is explicitly the
+  library's, not the operator's, surface.
+- **Grants are per tool; the server-wide allowlist is the fallback.** The loader
+  keys grants by the `tool` field INSIDE the signed payload (never by filename),
+  and the engine mediates a tool through its grant only when one exists. A tool
+  with no grant file — deleted, renamed, or never issued — is still mediated by
+  `--egress-allow` alone: allowlist, no window, no cap, no ledger. That is the
+  documented two-surface design, but it means the grants directory is not itself
+  the boundary: whoever can rename one file downgrades one tool, which is why the
+  root may not live in that directory and why the read is glob-scoped
+  (`*.egress.grant.json`, non-recursive).
 - **Revocation is per mediated call, not in-flight.** The correct wording is
   "effective at the next mediated call; already-delivered response artifacts
   are not recalled" — never "instantly revocable".
@@ -236,13 +256,18 @@ startup path is now real too.
   `egress_sidecar.load_egress_grants(grants_dir, trust_root)` — the root is now a
   required argument, there is no unverified loading path — and the CLI wiring in
   `ephemora_cell_mcp/__main__.py` (`--egress-trust`; a grants dir without a trust
-  root exits 2 before a server is constructed). Tests: `tests/test_grant_trust.py`
-  (31 — happy path, canonical-bytes equality, edited and non-canonical payloads,
-  flipped signature, unsigned legacy document, unknown/retired/transition keys,
-  key window, algorithm mismatch, cross-audience replay of a receipt envelope onto
-  a grant, expired grant, divergent and absent `key_id`, every root-validation
-  refusal, `summary()` leaks no key material, loader integration, issuance
-  round-trip); `tests/test_mcp_main.py` (the CLI refuses startup for an unsigned,
+  root exits 2 before a server is constructed, and so does a trust root whose own
+  path sits inside the grants directory). Tests: `tests/test_grant_trust.py`
+  (38 — happy path, canonical-bytes equality for the exact document an issuer
+  signs, edited and non-canonical payloads, flipped signature, unsigned legacy
+  document, unknown/retired/transition keys, key window, algorithm mismatch,
+  cross-audience replay of a receipt envelope onto a grant, expired grant, divergent
+  and absent `key_id`, every root-validation refusal including an unknown field in a
+  key entry, a `max_calls` or window bound the ledger could not read, `summary()`
+  leaking no key material, loader integration including the root-inside-grants-dir
+  refusal and its positive control, signature-verified-before-payload ordering, and
+  the issuance round-trip); `tests/test_mcp_main.py` (the CLI refuses startup for an
+  unsigned,
   tampered or foreign-signed grant and for a broken trust root, and passes the root
   SUMMARY — never key material — into `Server.grant_trust`);
   `tests/test_mcp_adapter.py` (`get-policy` names the root that authenticated the

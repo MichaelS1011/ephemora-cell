@@ -421,7 +421,13 @@ range. Triage per advisory:
   already-expired grant refuses startup — the same all-or-nothing rule as a
   malformed grant set, because a half-loaded authority set would enforce some caps
   and silently ignore others. An unsigned legacy document is refused too: there is
-  no downgrade path. What this does NOT do is distribute the root: where that file
+  no downgrade path. Two honest edges: authentication is a STARTUP property, so a
+  key that is retired or falls out of its window mid-run keeps the grants already
+  loaded in that process (the ledger's cap/window/revocation still bite per call;
+  the key state is re-checked on restart), and it is the CLI loader that
+  authenticates — an embedder constructing `Server(egress_grants=…)` in-process
+  installs what it is handed, by design. What this does NOT do is distribute the
+  root: where that file
   comes from, and which issuer keys a caller trusts for receipts, stay the
   operator's trust channel (ADR-013 Roadmap). The no-socket
   boundary stays the enforced guarantee. Pinned in `tests/test_surface_audit.py`,
