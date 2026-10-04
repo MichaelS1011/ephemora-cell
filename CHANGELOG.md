@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [1.1.0] - 2026-10-04
+## [1.1.0] - 2026-10-05
 
 Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
 runs under the same boundary — but two hard refusals made that unreachable in
@@ -442,14 +442,6 @@ stdin turns exactly those gates red — they are gates, not documentation.
   default: an unaccounted call's `_meta` is byte-for-byte unchanged. The private
   key never leaves the operator (needs the optional `cryptography` package).
 
-### Changed
-
-- `run_isolated(..., max_wasm_bytes=None)` now means "use the config's cap"
-  instead of silently collapsing to 32 MiB, so a raised cap in a config is no
-  longer overridden by the API layer.
-
-### Added
-
 - `benchmarks/statelessness_probe.py` + dated evidence
   `benchmarks/results/2026-10-05/statelessness_invariants.json` — the product
   promise measured rather than asserted: 1000 consecutive run-pairs where A writes
@@ -463,6 +455,12 @@ stdin turns exactly those gates red — they are gates, not documentation.
   ~90× the per-pair wall time of the in-process path at this guest size. A
   positive control asserts the reader DOES detect a legitimately present marker —
   without it, "0 leaks" could just mean the detector is blind.
+
+### Changed
+
+- `run_isolated(..., max_wasm_bytes=None)` now means "use the config's cap"
+  instead of silently collapsing to 32 MiB, so a raised cap in a config is no
+  longer overridden by the API layer.
 
 ### Tests
 

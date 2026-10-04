@@ -137,7 +137,9 @@ For production and regulated deployments, the Ephemora enterprise edition builds
 ## Security Design
 
 Threat model (adversary model, trust boundaries, residual risks):
-[docs/threat-model.md](docs/threat-model.md).
+[docs/threat-model.md](docs/threat-model.md). Red-team pass behind this release (what was
+found, what was closed with a test that bites, and what is deliberately left open):
+[docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md).
 
 Ephemora Cell relies on:
 - **WASM Memory Safety:** Bounds-checked memory access (no buffer overflows)
