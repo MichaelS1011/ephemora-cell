@@ -99,6 +99,34 @@ weaker.
 
 Sensitivity: reverting the no-follow read, the wall-clock deadline or the byte
 stdin turns exactly those gates red — they are gates, not documentation.
+- **The artefact's own claims now bind verification.** Three pins, all
+  fail-closed: a DSSE signature entry that DECLARES an `alg` is checked against
+  the expected algorithm (Ed25519 bytes labelled `ES256` used to verify happily as
+  long as the caller supplied the right key, which is how an algorithm claim on an
+  artefact stops meaning anything; the receipt path pins `EdDSA`),
+  `verify_execution_attestation` accepts only Cell's own receipt audiences
+  (`execution-report.v1`, `pre-execution-record.v1`) so a caller cannot be talked
+  into confirming a **grant** envelope — signed by the same operator key for a
+  different purpose — as evidence about an execution, and the shipped receipt call
+  sites stop inheriting `to_dsse`'s legacy `ES256` default: the signer is Ed25519
+  and the envelope says so. A grant payload that cannot be reconstructed (lone
+  surrogate, integer beyond float range) raises `GrantTrustError` instead of an
+  untyped `ValueError` escaping a caller that catches only the grant error.
+- **The control plane stays up, and stops being spoofable from inside a run.**
+  `get-policy` read grant state straight from the ledger, so one torn line took
+  down the surface an operator uses to inspect the damage; it now reports
+  `revoked: null` plus `ledger_state: "unreadable-for-some-grants"` and logs the
+  reason. The error document merged guest stdout over the host's own fields, so a
+  guest printing `{"status":"success-fake"}` overwrote the host status inside the
+  document the caller parses — host facts are merged last now. And governed
+  tool-request evaluation logs instead of `except Exception: pass`, so a broken
+  proposal directory no longer looks like an empty inbox.
+- **Measured rather than assumed:** the reviewer's case-trick question
+  (`/ETC` slipping past a textual denylist on a case-insensitive filesystem) is
+  already closed, because the filter compares canonical paths and
+  `realpath("/ETC")` returns the stored case on APFS. Pinned by a test that also
+  proves the comparison is not a naive lowercase match (`/TMP` stays allowed for
+  the documented exception reason).
 
 - **An ambient `http_proxy` silently moved the SSRF guard off its target.** With
   a proxy in the operator's environment, urllib resolves and connects to the
@@ -420,6 +448,22 @@ stdin turns exactly those gates red — they are gates, not documentation.
   instead of silently collapsing to 32 MiB, so a raised cap in a config is no
   longer overridden by the API layer.
 
+### Added
+
+- `benchmarks/statelessness_probe.py` + dated evidence
+  `benchmarks/results/2026-10-05/statelessness_invariants.json` — the product
+  promise measured rather than asserted: 1000 consecutive run-pairs where A writes
+  a marker into its scratch, onto stdout, and into a generated identifier and B
+  tries to see it, on all three execution paths, plus 40 SIGKILLs landing at
+  random points inside an audit-book append. Result: **0 leaks across 1000 pairs on
+  the pooled path (2000 distinct sandbox directories, 1.16 ms/pair), 0 on the
+  per-run-engine path (1.995 ms/pair), 0 across 40 isolated-subprocess pairs
+  (107 ms/pair), and 40/40 books self-consistent after a killed writer with 0
+  silently wrong.** Cost is part of the finding: isolation by subprocess costs
+  ~90× the per-pair wall time of the in-process path at this guest size. A
+  positive control asserts the reader DOES detect a legitimately present marker —
+  without it, "0 leaks" could just mean the detector is blind.
+
 ### Tests
 
 - `tests/test_execution_invariants.py` (4) — the product promise as four named
@@ -451,7 +495,7 @@ stdin turns exactly those gates red — they are gates, not documentation.
   reading, the transport never emits a NaN, and a non-finite request id is a
   structural error. `tests/test_mcp_adapter.py` adds the same byte test against the
   real subprocess (it used to die: rc=1, buffered responses lost) and a gate that a
-  host traceback never reaches the client. `tests/test_grant_trust.py` (43) and
+  host traceback never reaches the client. `tests/test_grant_trust.py` (44) and
   `tests/test_grant_ledger.py` (20) cover the new file-boundary rules: symlinked
   grant file, symlinked trust root, unreadable grants directory, empty grants
   directory (also at CLI level in `tests/test_mcp_main.py`), a symlinked ledger, and

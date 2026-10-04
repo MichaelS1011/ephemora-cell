@@ -1,0 +1,62 @@
+{
+  "control": {
+    "detects_a_real_marker": true,
+    "path_count": 2,
+    "reader_exit_code": 0
+  },
+  "crash_during_append": {
+    "note": "silently_wrong must be 0: a book whose replay disagrees with its own lines is an enforcement that has stopped meaning anything",
+    "rounds": 40,
+    "self_consistent": 40,
+    "silently_wrong": 0,
+    "torn_tail_detected_loudly": 0
+  },
+  "date": "2026-10-05T00:33:23+0200",
+  "measured": true,
+  "promise": "no execution state survives into the next execution",
+  "python": "3.12.13",
+  "silently_wrong_books": 0,
+  "sweeps": [
+    {
+      "cleanup_residues": 0,
+      "host_rusage_maxrss": 42270720,
+      "host_rusage_unit": "bytes",
+      "iterations": 1000,
+      "leak_details": [],
+      "leaks": 0,
+      "ms_per_pair": 1.156,
+      "pairs": 1000,
+      "path": "engine-pool",
+      "seconds_total": 1.156,
+      "unique_sandbox_dirs": 2000
+    },
+    {
+      "cleanup_residues": 0,
+      "host_rusage_maxrss": 43827200,
+      "host_rusage_unit": "bytes",
+      "iterations": 300,
+      "leak_details": [],
+      "leaks": 0,
+      "ms_per_pair": 2.123,
+      "pairs": 300,
+      "path": "in-process-per-run-engine",
+      "seconds_total": 0.637,
+      "unique_sandbox_dirs": 600
+    },
+    {
+      "cleanup_residues": 0,
+      "host_rusage_maxrss": 43827200,
+      "host_rusage_unit": "bytes",
+      "iterations": 40,
+      "leak_details": [],
+      "leaks": 0,
+      "ms_per_pair": 107.484,
+      "pairs": 40,
+      "path": "isolated-subprocess",
+      "seconds_total": 4.299,
+      "unique_sandbox_dirs": 80
+    }
+  ],
+  "total_leaks": 0,
+  "verdict": "PASS"
+}

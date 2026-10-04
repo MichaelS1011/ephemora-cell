@@ -177,6 +177,33 @@ runtime does not strip that right); what changed is that no host code path follo
 them. The request artifact is also bounded at 1 MiB **at the read**, so a host
 parser cannot be made to allocate whatever a guest wrote.
 
+### Signature semantics — what is signed, who may sign, what that proves
+
+A signature is a claim about bytes, so the three questions get three answers:
+
+- **What is signed:** `canonical_bytes(record)` — RFC 8785 (JCS) over the record's
+  own fields, wrapped in a DSSE v1 PAE with the artifact's audience as the payload
+  type. Not "the JSON next to it": `verify_execution_attestation` re-derives the
+  canonical bytes from the execution object the caller is reading and requires
+  payload type, payload bytes and signature to agree, so a signer cannot sign one
+  object and present another. Grant envelopes are pinned the same way
+  (`payload == canonical_bytes(grant)`), and a payload that is valid JSON but not
+  canonical is refused rather than normalized.
+- **Who may sign:** an operator-anchored key. Receipts use the deployment's signing
+  key (`--receipt-signing-key`); grants use `GrantTrustRoot`, a key set loaded from
+  a path **outside** the grants directory, with `active`/`transition`/`retired`
+  status and per-key windows. An algorithm label on a signature is checked, and a
+  key that travels with the artefact is never trusted for the artefact.
+- **What a valid signature proves:** that a trusted signer attests these exact
+  bytes at a stated time (`evidence.issued_at`, freshness optional). It does not
+  prove the execution was safe, it does not prove the sandbox enforced more than the
+  record itself states (`enforced` is inside the payload for that reason), and it is
+  not authority when the audience is wrong — the receipt verifier accepts only Cell's
+  own receipt audiences, so a grant envelope signed by the same operator key cannot
+  pass as evidence about an execution, or the other way round. Replay detection stays
+  with the verifier: **Cell proves uniqueness; the verifier decides whether it has
+  been seen before** — the evidence persists, the execution state does not.
+
 ### Proposal policy — set, not inherited (2026-09-25)
 
 wasmtime 47 ships several proposals **enabled by engine default** (Wasm GC,
@@ -219,6 +246,66 @@ zeroed memory and remains the standing guard. Also unreachable:
 always on), and **Pulley/Winch backends** (`Config.strategy` accepts only
 auto/cranelift; "never Winch" by policy; `Engine.is_pulley()` asserted
 `False` in `tests/test_surface_audit.py`).
+
+### Egress mediation: transport walls and the file boundary (2026-10-05)
+
+Two classes a red-team pass found on the release candidate, both closed with
+gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
+`tests/test_host_file_boundaries.py`, `tests/test_transport.py`,
+`tests/test_mcp_adapter.py`):
+
+- **A mediated fetch must end in a decision.** `http.client`'s own failures
+  (`InvalidURL` from a tab inside an authority the allowlist still matched, a
+  response with more than 100 headers, a junk status line) subclass neither
+  `OSError` nor `ValueError`, so they escaped the mediator entirely: no audit
+  line, no `_meta.egress`. They are audited denials now (`limit: "transport"`).
+  `timeout_seconds` bounded **one socket operation**, so a peer dribbling one
+  byte every 20 ms pinned a host thread — per hop, up to ten — and the body read
+  blocked until `n` bytes arrived; the fetch now reads in chunks against one
+  wall-clock deadline (`read1`) and returns nothing when it expires
+  (`limit: "timeout"`; measured: 8 s of trickle refused against a 1 s budget).
+  Empty userinfo (`http://:@host`) was accepted because an empty username is
+  falsy and the `:@` still reached the wire; any `@` in the netloc is refused.
+- **The audit trail cannot claim a hop it never opened.** The stdlib calls
+  `redirect_request()` *before* applying its own loop limit, so the last hop of a
+  long chain was recorded as followed while the entry read `allowed, fetch
+  failed`. The limit is mirrored before recording; reaching it is a denial naming
+  the refused hop, and the recorded set is asserted against what the test origin
+  actually served.
+- **The host does not follow names the guest can create.** WASI refuses an
+  absolute `path_symlink` target and accepts a relative one, so
+  `sidecar.response.json -> ../../../../…` made the mediator overwrite a file
+  outside the sandbox with host-written JSON as the server's own user. Artifact
+  reads/writes now go through `O_NOFOLLOW` + a regular-file check on the
+  descriptor actually obtained + atomic publication; refusals are audited and
+  carry no absolute host path; the request document is bounded (1 MiB) at the
+  read. The same rule covers grant files, the trust root, and the append-only
+  books — a swappable ledger silently resets caps, windows and revocations — and
+  an unreadable ledger now refuses the **call with an audit line** instead of
+  raising past the mediator (`limit: "ledger"`).
+- **The grants directory is not allowed to be empty or unreadable.** `Path.glob`
+  swallows `OSError`, so an unreadable directory used to yield zero grants with
+  zero errors while `get-policy` attested every grant file as verified.
+  Enumeration is `os.scandir` now, and zero grant files behind
+  `--egress-grants-dir` refuses startup.
+- **The stdio transport is not crashable by one byte, and cannot lie.** A text
+  stdin under a utf-8 locale raised `UnicodeDecodeError` inside `readline()`
+  where nothing could catch it (traceback, exit 1, buffered responses lost);
+  bytes are read and decoded with replacement, so malformed input is a `-32700`
+  and the next message is still answered. The oversized-line cap applies while
+  reading rather than after buffering, leftover bytes after a line boundary are
+  carried (one read holding two messages used to answer only the first), and
+  non-finite request ids are refused because `json.loads` accepts `NaN` and the
+  echoed id produced a frame strict parsers reject.
+- **The artefact cannot out-argue its own claims.** A declared `alg` on a
+  signature is checked against the expected algorithm, and the receipt verifier
+  accepts only Cell's own receipt audiences — so a grant envelope signed by the
+  same operator key cannot be confirmed as evidence about an execution, or the
+  reverse (see "Signature semantics" below). `get-policy` no longer dies on a
+  corrupt ledger (it reports `ledger_state: "unreadable-for-some-grants"`), the
+  error document merges host facts LAST so a guest printing
+  `{"status":"success-fake"}` cannot overwrite them, and a host traceback lives in
+  `ExecutionResult.host_traceback` instead of the `stderr` the client is served.
 
 ### Threading
 

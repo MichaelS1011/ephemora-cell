@@ -305,7 +305,7 @@ startup path is now real too.
   `ephemora_cell_mcp/__main__.py` (`--egress-trust`; a grants dir without a trust
   root exits 2 before a server is constructed, and so does a trust root whose own
   path sits inside the grants directory). Tests: `tests/test_grant_trust.py`
-  (39 — happy path, canonical-bytes equality for the exact document an issuer
+  (44 — happy path, canonical-bytes equality for the exact document an issuer
   signs, edited and non-canonical payloads, flipped signature, unsigned legacy
   document, unknown/retired/transition keys, key window, algorithm mismatch,
   cross-audience replay of a receipt envelope onto a grant, expired grant, divergent
