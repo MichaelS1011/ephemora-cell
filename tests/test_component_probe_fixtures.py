@@ -117,9 +117,8 @@ def test_no_document_or_script_claims_the_binaries_are_committed():
             start = text.count("\n", 0, match.start())
             end = text.count("\n", 0, match.end())
             clause = "\n".join(lines[start : end + 1])
-            assert negation.search(clause), (
-                f"{name} asserts that a probe binary is committed: {clause.strip()!r}"
-            )
+            msg = f"{name} asserts a probe binary is committed: {clause.strip()!r}"
+            assert negation.search(clause), msg
 
 
 def test_gitignore_policy_is_what_the_manifest_states():
