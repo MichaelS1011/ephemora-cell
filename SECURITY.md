@@ -73,6 +73,19 @@ Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platf
 - **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path.
 - **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
+- **Grants are per tool; the server-wide allowlist is the fallback.** A tool
+  without a signed grant file is still mediated by `--egress-allow` alone —
+  allowlist, no window, no cap, no ledger. Renaming or deleting one grant file
+  therefore downgrades one tool, and `get-policy` shows the per-tool grant list
+  without a dedicated "these tools are uncapped" key. The strict alternative (a
+  tool with no grant is denied) is an operator posture decision, not taken here.
+  Related: a grant **replaces** `--egress-allow` for its tool rather than
+  intersecting it, so a signed grant can be broader than the server-wide list.
+- **The engine pool is only reached when the byte wall is lifted.**
+  `io_budget_bytes` is set by default and a set budget forces a per-run engine, so
+  pooled-path claims (module cache, engine reuse) are exercised in the suite by
+  explicitly lifting the budget (`tests/test_execution_invariants.py`), not by the
+  default configuration.
 - **Grant-time preopen revalidation closes TOCTOU at grant time:** entries are re-realpath'd immediately before `preopen_dir`; a swap in the milliseconds between config validation and grant is skipped with a warning, but a swap DURING a run (while the guest holds the fd) is outside the sandbox's control
 
 ### Execution paths — which control runs where
@@ -131,6 +144,38 @@ Ephemora Cell relies on:
 - **WASI Preview1 / WASI 0.2:** Capability-based filesystem access (only preopened directories; the effective per-ABI grant is attested in the execution report's `security_baseline.preopens`)
 - **Resource Limits:** Fuel metering (CPU), memory caps (128MB default), wall-clock timeout (30s default)
 - **Sync refusal (P1 #12):** `fd_sync`, `fd_datasync` and `fd_psync` are shadowed with a trapping shim at the link layer, so a guest that CALLS one fails closed instead of driving a host `fsync(2)`. Importing them stays legal — every wasm32-wasi Zig binary imports `fd_sync` and every CPython-WASI guest imports `fd_datasync`, in both cases without calling it (measured: `benchmarks/interpreter_guest/probe_datasync.py`, cold and warm stdlib tree). The earlier design rejected these at the IMPORT layer, which refused interpreters and toolchains while `fd_sync` — the name its matcher never saw — still reached the host under the default configuration. `allow_fsync=True` is the opt-out for a caller that needs real durability; it is attested in the report's `security_baseline` and it is **not** bounded by `io_cpu_seconds`, because a sync storm is kernel and device work that keeps the guest under its own CPU budget while host I/O throughput collapses ([arXiv 2509.11242](https://arxiv.org/html/2509.11242v1), USENIX Security '25). `fd_psync` stays trapped either way — Preview1 has no implementation to serve it. **Scope: this covers the WASI Preview1 path. The WASI 0.2 component path carries no sync blockade today, and that is measured rather than inferred** — `benchmarks/component_sync_probe.py` runs a wasip2 guest that calls `wasi:filesystem/types` `sync` and `sync-data`: with an operator-granted directory both calls complete into the host (`SYNC-ALL:OK`, `SYNC-DATA:OK`, artifact written), and in the default posture the component route grants no preopen at all (`ephemora_cell/wasi_02.py:293-294`), so the surface needs an explicit `allow_dirs` before a guest can reach it. Closing it is OODA-4 work, not this release's (see the attack-vector table's path note and `docs/threat-model.md`).
+
+### Host-side file boundaries — the host never follows what the guest can write (2026-10-05)
+
+Capability-based filesystem access protects the **guest**: wasmtime refuses to
+resolve a path out of a preopen, and Cell re-validates each preopen at grant time.
+That does not protect the **host**, which also opens names inside the guest's own
+sandbox — the sidecar request and response artifacts, the grant files, the audit
+books. And WASI's symlink rule is asymmetric: `path_symlink` with an **absolute**
+target is refused (ENOTCAPABLE), while a **relative** target is created, and
+`../../../../…` resolves wherever the opening process resolves it. Measured on the
+release candidate: a guest-created `sidecar.response.json` pointing outside the
+sandbox made the mediator overwrite that file with host-written JSON as the MCP
+server's own user — arbitrary file write, content partly steered by the guest.
+
+The rule now enforced in code: every host-side read or write of a name that a
+guest or a directory-writer can create goes through `ephemora_cell/_fsutil.py`
+— `O_NOFOLLOW`, the descriptor it actually obtained must be a **regular file**,
+reads come from that descriptor (so a rename race cannot move the bytes under the
+check), and publications are atomic (`temp + os.replace`), which replaces the name
+instead of writing through it. Applies to: the request artifact (refusal is an
+**audited denial**, not silence, and the reason carries no absolute host path), the
+response artifact, grant files and the trust root in `load_egress_grants` /
+`GrantTrustRoot.load`, and the append-only books (`_appendlog.py`), because the
+ledger **is** the enforcement — a swappable book silently resets caps, windows and
+revocations. `Path.glob` swallows `OSError`, so the grants directory is enumerated
+with `scandir`, and an **empty** grants directory refuses startup: behind
+`--egress-grants-dir`, zero authorities is a misconfiguration, not a posture.
+
+Residual, stated: the guest may still create symlinks inside its own sandbox (the
+runtime does not strip that right); what changed is that no host code path follows
+them. The request artifact is also bounded at 1 MiB **at the read**, so a host
+parser cannot be made to allocate whatever a guest wrote.
 
 ### Proposal policy — set, not inherited (2026-09-25)
 
@@ -430,8 +475,18 @@ range. Triage per advisory:
   root: where that file
   comes from, and which issuer keys a caller trusts for receipts, stay the
   operator's trust channel (ADR-013 Roadmap). The no-socket
-  boundary stays the enforced guarantee. Pinned in `tests/test_surface_audit.py`,
+  boundary stays the enforced guarantee. Three further walls were added
+  2026-10-05 after a red-team pass: a mediated fetch is bounded by **one
+  wall-clock deadline** (per-op `timeout_seconds` let a peer trickling a byte every
+  20 ms pin a host thread, once per hop), `http.client`'s own failures
+  (`InvalidURL` from a tab inside an allowlisted authority, >100 headers, a junk
+  status line) are **audited denials** with `limit: "transport"` instead of
+  escaping the mediator, and the redirect audit records only hops that were
+  **actually opened** — reaching the stdlib's loop limit is a denial naming the
+  refused hop. `http://:@host` is refused (an empty username is falsy, and the
+  wire carried `:@…`). Pinned in `tests/test_surface_audit.py`,
   `tests/test_grant_ledger.py`, `tests/test_grant_trust.py`,
+  `TestTransportWalls`, `tests/test_host_file_boundaries.py`,
   `TestEngineGrantEnforcement`, `TestSSRFGuard`,
   `TestSSRFAdversarialFamilies`, `TestResolvePinningTOCTOU` and
   `TestGrantConcurrency`

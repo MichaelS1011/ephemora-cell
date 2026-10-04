@@ -195,6 +195,40 @@
   vetted is tested against a real 302 into an allowlisted name answering with
   the metadata address. Multi-A: private siblings are dropped in order, an
   all-private answer fails closed.
+- **A mediated fetch has ONE wall-clock deadline and every transport failure is a
+  decision (2026-10-05).** `timeout_seconds` bounded a single socket operation, so a
+  peer dribbling one byte every 20 ms pinned a host thread indefinitely — once per
+  hop, up to ten hops. The body is now read in chunks against one deadline
+  (non-blocking `read1`), and an expired budget is an audited `denied`
+  (`limit: "timeout"`) that delivers no bytes. `http.client`'s own exceptions
+  (`InvalidURL` from a tab inside an authority the allowlist still matched, a
+  response with >100 headers, a junk status line) subclass neither `OSError` nor
+  `ValueError` and used to escape `mediate()` entirely — no audit line at all; they
+  are denials with `limit: "transport"` now. Empty userinfo (`http://:@host`) is
+  refused because an empty username is falsy and the `:@` still reaches the wire.
+- **The redirect audit records only hops that opened.** The stdlib calls
+  `redirect_request()` before applying its own loop limits, so the last hop of a
+  long chain was recorded as *followed* while the entry claimed `allowed, fetch
+  failed`. The limit is mirrored before recording; reaching it is a denial naming
+  the refused hop. Asserted against the test server's own request log.
+- **The loader refuses a directory that yields nothing.** `Path.glob` swallows
+  `OSError`, so an unreadable grants directory used to produce zero grants with zero
+  errors while `get-policy` attested that every grant file had been verified.
+  Enumeration is `os.scandir` now (the failure surfaces), a grant file that is a
+  symlink or not a regular file is refused, and an EMPTY grants directory refuses
+  startup: behind `--egress-grants-dir`, zero authorities is a misconfiguration.
+- **Host code never follows a guest-writable name.** `path_symlink` with a relative
+  target is accepted by WASI (absolute ones are refused), so a guest could plant
+  `sidecar.response.json -> ../../../../…` and the mediator's `write_text()` would
+  overwrite that file as the server's own user. Request reads go through
+  `O_NOFOLLOW` + regular-file checks + read-from-descriptor, the response is
+  published atomically (the name is replaced, not written through), a refusal is an
+  audited denial carrying no absolute host path, and the request artifact is bounded
+  at 1 MiB at the read. The same no-follow rule covers the trust root and the
+  append-only books, because a swappable ledger silently resets caps and
+  revocations; a ledger that cannot be read or written now refuses the CALL with an
+  audit line (`limit: "ledger"`) instead of raising past the mediator and losing it.
+  See SECURITY.md, "Host-side file boundaries".
 - **Pinning is asserted at the OS boundary, not inferred.**
   `TestResolvePinningTOCTOU` intercepts the socket the stdlib builds from the
   filtered addrinfo list, so the tests show which addresses `connect()` was
@@ -219,6 +253,14 @@ mechanical:
   signed at the next startup, which is the right blast radius for a compromised
   signing key but is not a per-grant revocation list. Per-grant revocation
   already exists in the ledger; per-KEY freshness does not.
+- **The strict grant posture is an open operator decision (2026-10-05).** Two
+  semantics are available and the release ships the permissive one: (a) a tool with
+  no grant file falls back to the server-wide `--egress-allow` instead of being
+  denied, and (b) a grant REPLACES that policy for its tool instead of intersecting
+  it, so a signed grant can be broader than the operator's allowlist. Making the
+  strict form available (`--egress-grants-required`, or intersect-on-both) is a
+  posture choice, not an oversight — it changes what a partially-configured
+  deployment does, so it is decided rather than assumed.
 - **Rotation is a documented sequence, not a ceremony.** The root records
   `active → transition → retired` and `replaced_by`; nothing schedules or
   enforces that a key actually moves, and an operator can leave a signing key in

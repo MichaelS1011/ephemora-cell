@@ -26,7 +26,14 @@ with `http_proxy` in the environment urllib resolves the PROXY host and never
 the URL host, which would vet an unrelated address and hand the real resolution
 to a third party — the opener is built with `ProxyHandler({})` and goes direct.
 An operator who wants proxied egress has to configure that deliberately; it must
-not arrive through the shell.
+not arrive through the shell. Since 2026-10-05 the mediated fetch also has **one
+wall-clock deadline** (a trickling peer is refused at the budget instead of pinning
+a host thread per hop), `http.client`'s own failures are **audited denials** rather
+than exceptions escaping the mediator, the redirect trail lists only hops that
+actually opened, and empty userinfo (`http://:@host`) is refused. Grant loading
+refuses an unreadable or empty grants directory, and no host code path follows a
+symlink a guest planted at an artifact name (`O_NOFOLLOW` + regular-file + atomic
+publication; see SECURITY.md "Host-side file boundaries").
 
 ## Why this catalog exists
 

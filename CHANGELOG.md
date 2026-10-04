@@ -18,6 +18,88 @@ weaker.
 
 ### Security
 
+- **The host followed a symlink the guest planted — arbitrary file write as the
+  server's own user.** WASI refuses an **absolute** `path_symlink` target
+  (ENOTCAPABLE) and accepts a **relative** one, so a guest could create
+  `sidecar.response.json -> ../../../../../../../../tmp/victim`. The egress
+  mediator then opened that name with ordinary `write_text()`, which resolves the
+  link: the host truncated and overwrote a file outside the sandbox with
+  host-written JSON whose content the guest partly steers (the denial reason
+  echoes the requested method/URL). The request artifact was readable the same
+  way. Measured before the fix: the victim file's bytes became the host's response
+  document. Now both names are opened through one helper that uses `O_NOFOLLOW`,
+  requires the descriptor it actually got to be a **regular file**, and reads from
+  that descriptor; the response is published atomically, so the name is replaced
+  instead of written through. A refused artifact is an **audited denial**, not
+  silence, and the client-facing reason carries no absolute host path. Gates:
+  `tests/test_host_file_boundaries.py`.
+- **The grants loader could install nothing and still attest "verified".**
+  `Path.glob` swallows `OSError`: on an unreadable grants directory it yields no
+  entries and no error, so the server started with zero grants while `get-policy`
+  said every grant file in that directory had been verified against the root.
+  `load_egress_grants` now enumerates with `os.scandir`, surfaces the failure,
+  refuses a **grant file that is a symlink or not a regular file**, and refuses an
+  **empty grants directory** — behind `--egress-grants-dir`, an authority set of
+  none is a misconfiguration, not a valid posture. Same rule for the trust root:
+  read with `O_NOFOLLOW` from a checked descriptor.
+- **The audit book was outside the boundary it enforces.** Caps, windows and
+  revocation live in the grant ledger, so a symlinked or swapped ledger silently
+  reset them; `AppendLog` now opens with `O_NOFOLLOW` for reading and writing and
+  replays through the same descriptor. A book that cannot be read or written
+  refuses the **call with an audit line** (`limit: "ledger"`) instead of raising
+  past the mediator — the fetch was already denied, but the exception lost the
+  audit entry and `_meta.egress`, and one corrupt record switched off every grant
+  in the process.
+- **A hostile or broken peer produces decisions, not crash paths.** (a)
+  `http.client`'s own failures — `InvalidURL` from a **tab inside the authority**
+  that the allowlist still matched, a response with **more than 100 headers**, a
+  junk status line — subclass neither `OSError` nor `ValueError`, so they escaped
+  `mediate()` and the caller got no audit at all; now audited denials with
+  `limit: "transport"`. (b) `timeout_seconds` bounds **one socket operation**, so
+  a peer trickling a byte every 20 ms outlived it indefinitely — once per hop, up
+  to ten — while pinning a host thread; the mediated fetch now reads in chunks
+  against **one wall-clock deadline** (`read1`) and delivers nothing when it
+  expires (`limit: "timeout"`, measured 8 s of trickle refused at 1 s). (c)
+  `http://:@host` passed the userinfo check because an empty username is falsy,
+  and the wire carried `:@…` in the `Host:` header; any `@` in the netloc is
+  refused now.
+- **The redirect audit no longer claims hops it never opened.** The stdlib calls
+  `redirect_request()` **before** applying its own loop limits, so an undispatched
+  hop was recorded as followed while the entry still read `allowed, fetch failed`.
+  The limit is mirrored before recording: reaching it is a **denial naming the
+  refused hop**, and `followed` contains only hops the peer actually served
+  (asserted against the server's own request log).
+- **One undecodable byte no longer kills the stdio server.** The transport read
+  text-mode `sys.stdin`; under a utf-8 locale `readline()` raises
+  `UnicodeDecodeError` inside the stdlib where nothing in the loop can catch it —
+  traceback on stderr, exit 1, buffered responses lost. It reads **bytes** and
+  decodes with replacement, so malformed input is a `-32700` and the next message
+  is still answered. Two further transport bugs from the same probe: the
+  oversized-line cap was applied **after** buffering the whole line (40 MB with no
+  newline → ~87 MB RSS), now while reading; and leftover bytes after a line
+  boundary were **dropped**, so one read carrying two messages answered only the
+  first.
+- **The wire format stopped leaking and stopped lying.** A module that fails to
+  instantiate used to return `traceback.format_exc()` as `stderr`, which the MCP
+  error response embeds verbatim — absolute paths, interpreter layout, the
+  site-packages tree of the machine running the sandbox; it now lives in
+  `ExecutionResult.host_traceback`. And because `json.loads` accepts
+  `NaN`/`Infinity` while the request `id` is echoed back, the server could emit a
+  frame strict parsers reject: non-finite ids are refused at the edge (`-32600`)
+  and the transport serialises with `allow_nan=False`.
+- **"Ephemeral" became a checked property.** `cleanup()` used
+  `shutil.rmtree(..., ignore_errors=True)` and reported success while an
+  undeletable sandbox survived (demonstrated with a directory the user may not
+  write to); it now removes without swallowing and **returns the residue**. An
+  unreadable output capture was reported as empty output — a lost result
+  presented as a result — and now says so in the string the caller reads.
+- **The request artifact is bounded at the read** (1 MiB), so a host parser is
+  never handed an arbitrarily large document the guest decided to write; the
+  denial happens before the allocation, not after.
+
+Sensitivity: reverting the no-follow read, the wall-clock deadline or the byte
+stdin turns exactly those gates red — they are gates, not documentation.
+
 - **An ambient `http_proxy` silently moved the SSRF guard off its target.** With
   a proxy in the operator's environment, urllib resolves and connects to the
   PROXY host and never asks for the URL hostname — measured: the resolve-time
@@ -340,6 +422,40 @@ weaker.
 
 ### Tests
 
+- `tests/test_execution_invariants.py` (4) — the product promise as four named
+  gates: `test_ephemeral_invariant`, `test_stateless_invariant`,
+  `test_capability_invariant`, `test_verifiable_execution_invariant`. Written
+  against real guests and the real engine pool — the statelessness gate lifts
+  `io_budget_bytes` on purpose, because the default byte wall forces a per-run
+  engine and a test that never reaches the pool proves nothing about reuse — and
+  each carries its own positive control (a granted directory must be reachable, a
+  planted marker must be detectable) so they cannot pass by testing a harness that
+  detects nothing.
+- `tests/test_host_file_boundaries.py` (9) — the host-side symlink class: request
+  artifact as a link, response artifact as a link (the arbitrary-file-write case,
+  asserted on the victim's bytes), a directory at the artifact name, an oversized
+  request, an absent artifact staying silent, the `read_regular_nofollow` helper
+  itself, cleanup residue being reported instead of hidden, an unreadable capture
+  not reported as empty output, and a host-side instantiation failure keeping its
+  traceback out of the client's error content.
+- `tests/test_egress_sidecar.py` gains `TestTransportWalls` (7): junk status line,
+  >100 headers and a tab inside an allowlisted authority each return an audited
+  denial instead of escaping the mediator; a peer trickling one byte every 20 ms is
+  refused at the wall-clock deadline (measured: 8 s of dribble against a 1 s
+  budget); a redirect chain records only the hops the server actually served, and
+  reaching the loop limit names the hop it refused to dispatch; `http://:@host` is
+  denied by policy.
+- `tests/test_transport.py` gains 6 byte-level transport gates: an undecodable byte
+  is a `-32700` and the NEXT message is still answered, several messages in one read
+  are each answered (leftovers are carried), the oversized-line cap holds while
+  reading, the transport never emits a NaN, and a non-finite request id is a
+  structural error. `tests/test_mcp_adapter.py` adds the same byte test against the
+  real subprocess (it used to die: rc=1, buffered responses lost) and a gate that a
+  host traceback never reaches the client. `tests/test_grant_trust.py` (43) and
+  `tests/test_grant_ledger.py` (20) cover the new file-boundary rules: symlinked
+  grant file, symlinked trust root, unreadable grants directory, empty grants
+  directory (also at CLI level in `tests/test_mcp_main.py`), a symlinked ledger, and
+  an unwritable ledger refusing the call WITH an audit line.
 - `tests/test_egress_sidecar.py` gains 12 adversarial egress tests: the address
   families a rebinding name can answer with (`TestSSRFAdversarialFamilies` —
   scoped IPv6, both metadata addresses, CGNAT edges, IPv4-mapped IPv6, 6to4 and
