@@ -65,6 +65,21 @@ KEY_STATUS_TRANSITION = "transition"
 KEY_STATUS_RETIRED = "retired"
 KEY_STATUSES = frozenset({KEY_STATUS_ACTIVE, KEY_STATUS_TRANSITION, KEY_STATUS_RETIRED})
 
+#: The fields a root key entry may carry. An unknown one is a refusal, not an
+#: ignore: ``notAfter`` where ``not_after`` was meant would load a key that never
+#: expires.
+_KEY_FIELDS = frozenset(
+    {
+        "key_id",
+        "alg",
+        "public_key_pem",
+        "status",
+        "not_before",
+        "not_after",
+        "replaced_by",
+    }
+)
+
 
 class GrantTrustError(ValueError):
     """A grant or a trust root the loader must refuse. Fail closed."""
@@ -197,12 +212,17 @@ class GrantTrustRoot:
 
         1. the envelope is DSSE-shaped and its ``payloadType`` is exactly this
            root's audience (a receipt signed by the same key is not a grant);
-        2. the payload is the canonical bytes of a complete, valid grant
-           document — an edited or dropped field changes the bytes, and an
-           unknown key in the document is refused rather than ignored;
-        3. every listed signature carries a ``keyid`` this root trusts, that key
+        2. every listed signature carries a ``keyid`` this root trusts, that key
            is not retired, is inside its own validity window, uses the root's
-           algorithm, and the signature verifies over the DSSE PAE;
+           algorithm, and the signature verifies over the DSSE PAE — verified
+           BEFORE the payload is parsed, so no unauthenticated byte ever drives
+           grant construction or produces a parse error an attacker can read as
+           an oracle;
+        3. the payload is the canonical bytes of a complete, valid grant
+           document — an edited or dropped field changes the bytes, an unknown
+           key in the document is refused rather than ignored, and a bound or cap
+           the enforcement layer could not read is refused here rather than
+           surfacing as an internal error on the first call;
         4. the grant's own ``key_id`` equals the signing key id, and the named
            key is the one that produced each signature (otherwise a valid
            signature could be re-labelled under a different key id);
@@ -236,8 +256,6 @@ class GrantTrustRoot:
             payload = base64.b64decode(payload_b64, validate=True)
         except ValueError as e:
             raise GrantTrustError(f"envelope payload is not valid base64: {e}") from e
-
-        grant = _grant_from_payload(payload)
 
         signatures = envelope.get("signatures")
         if not isinstance(signatures, list) or not signatures:
@@ -289,6 +307,9 @@ class GrantTrustRoot:
                 )
             used.append(key_id)
 
+        # Only now — over bytes a trusted key has signed — is the payload read.
+        grant = _grant_from_payload(payload)
+
         if grant.key_id is None:
             raise GrantTrustError(
                 "grant document must name its key_id — an envelope whose payload "
@@ -312,6 +333,14 @@ class GrantTrustRoot:
 def _parse_key(entry: Any, index: int) -> TrustedKey:
     if not isinstance(entry, dict):
         raise GrantTrustError(f"keys[{index}] must be an object")
+    unknown = sorted(set(entry) - _KEY_FIELDS)
+    if unknown:
+        # A key document with a misspelled field ("notAfter") would otherwise
+        # load as a key with NO expiry — a silent authority extension.
+        raise GrantTrustError(
+            f"keys[{index}] carries unknown field(s) {unknown}; a typo here would "
+            f"silently drop a limit, so the root refuses them"
+        )
     for field in ("key_id", "alg", "public_key_pem"):
         value = entry.get(field)
         if not isinstance(value, str) or not value:
@@ -363,6 +392,21 @@ def _grant_from_payload(payload: bytes) -> EgressGrant:
         raise GrantTrustError(
             "grant payload is not the canonical bytes of the grant it decodes to "
             "(an edited or non-canonical document)"
+        )
+    # The enforcement consumer reads these three, so they are validated here and
+    # not at the first mediated call: a grant the ledger cannot interpret is an
+    # incomplete authority, and ADR-013 refuses incomplete authority at startup.
+    try:
+        _parse_bound(grant.not_before, "not_before")
+        _parse_bound(grant.not_after, "not_after")
+    except ValueError as e:
+        raise GrantTrustError(f"grant window is unusable: {e}") from e
+    cap = grant.max_calls
+    if cap is not None and (
+        isinstance(cap, bool) or not isinstance(cap, int) or cap < 0
+    ):
+        raise GrantTrustError(
+            f"grant max_calls must be a non-negative integer or null, got {cap!r}"
         )
     return grant
 

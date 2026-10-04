@@ -772,6 +772,19 @@ def load_egress_grants(
     directory = Path(grants_dir)
     if not directory.is_dir():
         raise NotADirectoryError(f"grants directory does not exist: {directory}")
+    # The design says the root lives OUTSIDE the directory an authority-granting
+    # write can reach. That is only a claim if it is checked: a root parked in the
+    # grants dir is overwritable by whoever can write grants, and every grant would
+    # then verify against the attacker's key.
+    root_source = getattr(trust_root, "source", None)
+    if root_source and root_source != "<in-memory>":
+        root_path = Path(root_source).resolve()
+        if root_path.is_relative_to(directory.resolve()):
+            raise ValueError(
+                f"trust root {root_path} sits inside the grants directory {directory} — "
+                "a key that travels with the artefact proves nothing about it; keep "
+                "the root outside the directory grants are read from"
+            )
     grants: dict[str, EgressGrant] = {}
     errors: list[str] = []
     for file in sorted(directory.glob("*.egress.grant.json")):

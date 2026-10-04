@@ -689,6 +689,9 @@ def test_get_policy_names_the_root_that_authenticated_the_grants(server_with, tm
     summary = {
         "source": "/etc/ephemora/egress-trust.json",
         "audience": "https://ephemora.dev/egress-grant.v1",
+        "verified": True,
+        "verified_by": "load_egress_grants at startup: every grant file in "
+        "/etc/ephemora/grants verified against this root",
         "keys": [
             {
                 "key_id": "ops-1",

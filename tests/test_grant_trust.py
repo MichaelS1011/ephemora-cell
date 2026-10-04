@@ -83,10 +83,15 @@ class _Key:
 
 
 def _grant(**overrides) -> EgressGrant:
+    """A grant with a STABLE canonical form: the default bounds are fixed strings,
+    not computed from now(). Several tests sign this document, edit it, re-canonicalise
+    it and compare bytes — a value that drifts between those steps would make the test
+    depend on wall-clock luck instead of on the guard."""
     base = dict(
         grant_id="g-1",
         tool="weather",
         allowed_endpoints=("https://api.example.com/v1",),
+        not_before="2000-01-01T00:00:00+00:00",
         not_after="2099-01-01T00:00:00+00:00",
         max_calls=5,
         key_id="ops-1",
@@ -130,6 +135,15 @@ def _envelope(grant, key, key_id="ops-1"):
 # --- the happy path: an authenticated grant is the grant that was signed -----
 
 
+def test_default_document_is_exactly_what_issuers_sign(root, ops):
+    """The guard that makes the edit tests real: the helper's own grant already
+    carries the fixed bounds, so a re-canonicalisation cannot change it."""
+    grant = _grant(not_after=_future())
+    assert canonical_bytes(grant.to_dict()) == canonical_bytes(
+        json.loads(base64.b64decode(_envelope(grant, ops)["payload"]))
+    )
+
+
 def test_signed_grant_verifies_and_keeps_every_field(root, ops):
     grant = _grant(max_calls=5, not_after=_future())
     verified = root.verify_envelope(_envelope(grant, ops))
@@ -159,7 +173,9 @@ def test_edited_max_calls_is_refused(root, ops):
     envelope["payload"] = base64.b64encode(
         json.dumps(edited, sort_keys=True).encode()
     ).decode()
-    with pytest.raises(GrantTrustError, match="canonical bytes"):
+    # Bytes a trusted key never signed are refused as a bad signature, which is
+    # checked before the payload is parsed at all.
+    with pytest.raises(GrantTrustError, match="does not verify"):
         root.verify_envelope(envelope)
 
 
@@ -686,3 +702,102 @@ def test_issue_cli_refuses_a_broken_document(tmp_path, ops, capsys):
         == 2
     )
     assert "grant_version" in capsys.readouterr().err
+
+
+# --- the anchor must be out of reach of what it anchors ---------------------
+
+
+def _root_doc(public_pem: str) -> dict:
+    return {
+        "trust_root_version": TRUST_ROOT_SCHEMA,
+        "keys": [
+            {
+                "key_id": "ops-1",
+                "alg": "EdDSA",
+                "public_key_pem": public_pem,
+                "status": "active",
+            }
+        ],
+    }
+
+
+def test_root_inside_the_grants_directory_is_refused(tmp_path, ops):
+    """ "The root lives outside the grants directory" is the whole design. A root
+    an authority-granting write can reach is overwritable, and then every grant
+    verifies against the attacker's key — so it is checked, not just documented."""
+    grants = tmp_path / "grants"
+    grants.mkdir()
+    inside = grants / "root.json"
+    inside.write_text(json.dumps(_root_doc(ops.public_pem)), encoding="utf-8")
+    root = GrantTrustRoot.load(inside)
+    with pytest.raises(ValueError, match="inside the grants directory"):
+        load_egress_grants(grants, root)
+
+
+def test_a_root_outside_the_grants_directory_is_accepted(tmp_path, ops):
+    """The positive control: this is the documented layout and it must load."""
+    grants = tmp_path / "grants"
+    grants.mkdir()
+    outside = tmp_path / "etc"
+    outside.mkdir()
+    (outside / "root.json").write_text(json.dumps(_root_doc(ops.public_pem)))
+    root = GrantTrustRoot.load(outside / "root.json")
+    grant = _grant(not_after=_future())
+    (grants / "weather.egress.grant.json").write_text(
+        json.dumps(_envelope(grant, ops)), encoding="utf-8"
+    )
+    loaded, errors = load_egress_grants(grants, root)
+    assert errors == [] and loaded == {"weather": grant}
+
+
+# --- an incomplete document is refused, not guessed -------------------------
+
+
+def test_root_refuses_unknown_fields_in_a_key_entry(tmp_path, ops):
+    """``notAfter`` instead of ``not_after`` would load a key that never expires.
+    A limit that silently disappears is worse than a startup error."""
+    entry = dict(_root_doc(ops.public_pem)["keys"][0], notAfter="2099-01-01T00:00:00Z")
+    file = tmp_path / "root.json"
+    file.write_text(
+        json.dumps({"trust_root_version": TRUST_ROOT_SCHEMA, "keys": [entry]})
+    )
+    with pytest.raises(GrantTrustError, match="unknown field"):
+        GrantTrustRoot.load(file)
+
+
+def test_unusable_cap_is_refused_at_load(root, ops):
+    """A cap the ledger cannot read is incomplete authority. It must refuse the
+    startup, not surface as an internal error on the first mediated call."""
+    for bad in ("5", -1, True, 1.5):
+        grant = _grant(max_calls=bad)
+        with pytest.raises(GrantTrustError, match="max_calls"):
+            root.verify_envelope(_envelope(grant, ops))
+
+
+def test_naive_window_bound_is_refused_at_load(root, ops):
+    grant = _grant(not_before="2026-01-01T00:00:00")
+    with pytest.raises(GrantTrustError, match="window is unusable"):
+        root.verify_envelope(_envelope(grant, ops))
+
+
+def test_signature_is_verified_before_the_payload_is_parsed(root, ops):
+    """Unauthenticated bytes must not drive grant construction — otherwise the
+    parse errors are an oracle for anyone who can write into the directory."""
+    from ephemora_cell.execution_report import dsse_pae
+
+    payload = canonical_bytes({"not": "a grant"})
+    bogus = base64.b64encode(b"\x00" * 64).decode()
+    envelope = {
+        "payloadType": GRANT_AUDIENCE,
+        "payload": base64.b64encode(payload).decode(),
+        "signatures": [{"keyid": "ops-1", "alg": "EdDSA", "sig": bogus}],
+    }
+    with pytest.raises(GrantTrustError, match="does not verify"):
+        root.verify_envelope(envelope)
+    # and the same payload with a REAL signature is then refused for its shape
+    signature = base64.b64encode(
+        ops.signer()(dsse_pae(payload, GRANT_AUDIENCE))
+    ).decode()
+    envelope["signatures"][0]["sig"] = signature
+    with pytest.raises(GrantTrustError, match=r"grant document is invalid"):
+        root.verify_envelope(envelope)

@@ -222,7 +222,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: --grant-ledger: {e}", file=sys.stderr)
             return 2
         egress_grants = grants
-        grant_trust_summary = trust_root.summary()
+        # The disclosure names its own provenance: `verified: true` here means
+        # exactly one thing happened — load_egress_grants authenticated every
+        # file in that directory against this root before the server started.
+        grant_trust_summary = {
+            **trust_root.summary(),
+            "verified": True,
+            "verified_by": "load_egress_grants at startup: every grant file in "
+            f"{args.egress_grants_dir} verified against this root",
+        }
 
     receipt_signer = None
     if args.receipt_signing_key:

@@ -196,6 +196,37 @@ def test_grants_dir_and_ledger_wire_the_enforcement_into_the_server(tmp_path):
     # enforcement without authentication is a different claim.
     assert kwargs["grant_trust"]["keys"][0]["key_id"] == "ops-1"
     assert "public_key_pem" not in json.dumps(kwargs["grant_trust"])
+    # The disclosure carries its own provenance: `verified` is set by the loader
+    # that actually verified, not by whoever happened to hold a root object.
+    assert kwargs["grant_trust"]["verified"] is True
+    assert "load_egress_grants" in kwargs["grant_trust"]["verified_by"]
+
+
+def test_trust_root_inside_the_grants_directory_refuses_startup(tmp_path, capsys):
+    """The anchor must be out of reach of what it anchors. An operator who
+    follows the docs and puts the root next to the grants gets a refusal, not a
+    server that verifies every grant against a key the grants dir can overwrite."""
+    from ephemora_cell.grant_trust import TRUST_ROOT_SCHEMA
+
+    grants_dir, trust_file, _grant = _grant_setup(tmp_path)
+    moved = grants_dir / "root.json"
+    moved.write_text(trust_file.read_text(encoding="utf-8"), encoding="utf-8")
+    assert TRUST_ROOT_SCHEMA in moved.read_text(encoding="utf-8")
+    code = main(
+        [
+            "--tools-dir",
+            str(tmp_path),
+            "--egress-grants-dir",
+            str(grants_dir),
+            "--egress-trust",
+            str(moved),
+            "--grant-ledger",
+            str(tmp_path / "gr.jsonl"),
+        ]
+    )
+    assert code == 2
+    assert "inside the grants directory" in capsys.readouterr().err
+    assert _RecordingServer.instances == []
 
 
 def test_grants_dir_without_a_ledger_is_a_clean_error(tmp_path, capsys):
@@ -298,7 +329,9 @@ def test_tampered_grant_refuses_startup(tmp_path, capsys):
     )
     assert code == 2
     err = capsys.readouterr().err
-    assert "canonical bytes" in err
+    # The edit breaks the signature, and the signature is checked before the
+    # payload is parsed — an edited authority never reaches grant construction.
+    assert "does not verify" in err
     assert _RecordingServer.instances == []
 
 
