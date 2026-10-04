@@ -61,6 +61,70 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--egress-allow",
+        action="append",
+        default=None,
+        metavar="URL_PREFIX",
+        help=(
+            "ADR-002 host-sidecar egress: allow this tool-generation to reach "
+            "URLs under URL_PREFIX (scheme://host[/path-prefix]); repeatable. "
+            "When given, a guest that writes sidecar.request.json into its "
+            "sandbox is mediated by the HOST after the run and the decision is "
+            "attached to that call's _meta.egress. Without it the mediator is "
+            "never invoked. This executes the allowlist — it is not yet a "
+            "revocable, usage-capped grant (see ADR-013)."
+        ),
+    )
+    parser.add_argument(
+        "--egress-timeout",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="per-request wall for mediated egress (default 10s)",
+    )
+    parser.add_argument(
+        "--egress-max-response-bytes",
+        type=int,
+        default=65536,
+        metavar="BYTES",
+        help="response body cap for mediated egress (default 64 KiB)",
+    )
+    parser.add_argument(
+        "--egress-grants-dir",
+        metavar="PATH",
+        help=(
+            "directory of *.egress.grant.json files (ADR-013): each tool's "
+            "signed grant whose expiry/usage cap/revocation are ENFORCED via "
+            "--grant-ledger. Grants are trusted as operator intent — their "
+            "signature is NOT verified on this path (still open). Requires "
+            "--grant-ledger."
+        ),
+    )
+    parser.add_argument(
+        "--grant-ledger",
+        metavar="PATH",
+        help=(
+            "append-only book backing --egress-grants-dir (host-side state; "
+            "its parent directory must exist). Refuses a grant whose cap is "
+            "spent, window closed or id revoked, before the fetch."
+        ),
+    )
+    parser.add_argument(
+        "--receipt-signing-key",
+        metavar="PEM",
+        help=(
+            "Ed25519 private key (PEM) that signs each call's receipt into a "
+            "DSSE envelope under _meta.attestation (ADR-008); callers verify "
+            "with the matching public key. Needs the optional 'cryptography' "
+            "package. Off by default — receipts stay self-reported."
+        ),
+    )
+    parser.add_argument(
+        "--receipt-key-id",
+        metavar="ID",
+        help="key id recorded in the receipt attestation (default none)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
@@ -77,6 +141,66 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {e}", file=sys.stderr)
             return 2
 
+    egress_policy = None
+    if args.egress_allow:
+        from ephemora_cell.egress_sidecar import EgressPolicy
+
+        try:
+            egress_policy = EgressPolicy(
+                allowed_endpoints=tuple(args.egress_allow),
+                max_response_bytes=args.egress_max_response_bytes,
+                timeout_seconds=args.egress_timeout,
+            )
+        except ValueError as e:
+            print(f"error: --egress-allow: {e}", file=sys.stderr)
+            return 2
+
+    egress_grants = None
+    grant_ledger = None
+    if args.egress_grants_dir:
+        # Grants are only meaningful behind a ledger (ADR-013) — a grant whose
+        # cap/expiry/revocation nobody reads is just an allowlist, so requiring
+        # the ledger here mirrors the engine's own fail-closed guard, as a clean
+        # startup error rather than a traceback.
+        if not args.grant_ledger:
+            print(
+                "error: --egress-grants-dir requires --grant-ledger "
+                "(grants are enforced only through the ledger)",
+                file=sys.stderr,
+            )
+            return 2
+        from ephemora_cell.egress_sidecar import load_egress_grants
+        from ephemora_cell.grant_ledger import GrantLedger
+
+        try:
+            grants, grant_errors = load_egress_grants(args.egress_grants_dir)
+        except (OSError, ValueError) as e:
+            print(f"error: --egress-grants-dir: {e}", file=sys.stderr)
+            return 2
+        if grant_errors:
+            # Fail closed: a half-loaded grant set would enforce some caps and
+            # silently not others. Refuse to start until every file is good.
+            print("error: egress grant load failed (none enforced):", file=sys.stderr)
+            for err in grant_errors:
+                print(f"  - {err}", file=sys.stderr)
+            return 2
+        try:
+            grant_ledger = GrantLedger(args.grant_ledger)
+        except (OSError, ValueError, RuntimeError) as e:
+            print(f"error: --grant-ledger: {e}", file=sys.stderr)
+            return 2
+        egress_grants = grants
+
+    receipt_signer = None
+    if args.receipt_signing_key:
+        from .tool_registry import ed25519_signer_from_pem
+
+        try:
+            receipt_signer = ed25519_signer_from_pem(args.receipt_signing_key)
+        except (OSError, ValueError, RuntimeError) as e:
+            print(f"error: --receipt-signing-key: {e}", file=sys.stderr)
+            return 2
+
     from .server import Server
 
     Server(
@@ -84,6 +208,11 @@ def main(argv: list[str] | None = None) -> int:
         pooled=args.pooled,
         manifest_verifier=verifier,
         tool_requests_dir=args.tool_requests_dir,
+        egress_policy=egress_policy,
+        egress_grants=egress_grants,
+        grant_ledger=grant_ledger,
+        receipt_signer=receipt_signer,
+        receipt_key_id=args.receipt_key_id,
     ).serve()
     return 0
 

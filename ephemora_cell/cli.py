@@ -92,6 +92,11 @@ def _resolve_config(args) -> WASIConfig:
         overrides["memory64"] = True
     if no_memory64:
         overrides["memory64"] = False
+    max_wasm_bytes = getattr(args, "max_wasm_bytes", None)
+    if max_wasm_bytes is not None:
+        overrides["max_wasm_bytes"] = max_wasm_bytes
+    if getattr(args, "allow_fsync", False):
+        overrides["allow_fsync"] = True
     if not overrides:
         return base
     return dataclasses.replace(base, **overrides)
@@ -128,13 +133,32 @@ def _write_stderr(text: str) -> None:
 def cmd_run(args):
     from ephemora_cell import (
         STDIN_MAX_BYTES,
+        CumulativeBudget,
         ExecutionReport,
         ExecutionStatus,
+        TenantStore,
         WASISandbox,
     )
 
     config = _resolve_config(args)
     stdin_data = _capture_cli_stdin(args)
+
+    tenant_store = None
+    tenant_budget = None
+    if args.tenant:
+        if not args.tenant_book:
+            print(
+                "error: --tenant needs --tenant-book PATH (the cumulative book "
+                "this run is billed to)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        tenant_store = TenantStore(args.tenant_book)
+        if args.tenant_max_runs or args.tenant_max_fuel:
+            tenant_budget = CumulativeBudget(
+                max_runs=args.tenant_max_runs,
+                max_total_fuel=args.tenant_max_fuel,
+            )
 
     sandbox = None
     try:
@@ -145,6 +169,9 @@ def cmd_run(args):
             use_subprocess=args.isolated,
             abi=args.abi,
             stdin_data=stdin_data,
+            tenant=args.tenant,
+            tenant_budget=tenant_budget,
+            tenant_store=tenant_store,
         )
     except ValueError as exc:
         # Clean rejection without Python traceback
@@ -171,7 +198,12 @@ def cmd_run(args):
             fuel_budget=config.max_fuel,
             stdout_bytes=len(result.stdout.encode("utf-8")),
             stderr_bytes=len(result.stderr.encode("utf-8")),
-        ).apply_config(config, effective_preopens=result.effective_preopens)
+        ).apply_config(
+            config,
+            effective_preopens=result.effective_preopens,
+            tenant=result.tenant,
+            tenant_budget_ref=result.tenant_budget_ref,
+        )
         payload = report.to_dict()
         payload["stdin_capped"] = (
             len(stdin_data) > STDIN_MAX_BYTES if stdin_data else False
@@ -326,6 +358,60 @@ def cmd_build(args) -> None:
     sys.exit(1)
 
 
+def cmd_ledger(args):
+    """Report a ledger chain's integrity — and say what integrity it can prove.
+
+    The CLI holds no key, so this verifies LINKAGE (sequence plus prev_hash),
+    not authorship. That distinction is printed rather than glossed: a chain can
+    be intact and still have been written by someone else.
+    """
+    from ephemora_cell.ledger import Ledger, chain_break
+
+    ledger = Ledger(args.path)
+    try:
+        entries = ledger.entries()
+    except (OSError, ValueError) as exc:
+        print(f"error: cannot read ledger: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    reason = chain_break(entries)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "path": str(args.path),
+                    "entries": len(entries),
+                    "head_sequence": entries[-1]["sequence"] if entries else None,
+                    "signed": bool(entries) and "signature" in entries[-1],
+                    "intact": reason is None,
+                    "break_reason": reason,
+                    "proves": "linkage and order, not authorship (no key here)",
+                    "cannot_see": (
+                        "a chain truncated at the end — that needs an external "
+                        "head anchor"
+                    ),
+                },
+                indent=2,
+            )
+        )
+    else:
+        if reason is None:
+            head = entries[-1]
+            signed = "signed" if "signature" in head else "unsigned"
+            print(
+                f"ledger intact: {len(entries)} entries, head sequence "
+                f"{head['sequence']} ({signed}, appended {head['appended_at']})"
+            )
+            print("  proved: order and linkage — no entry removed, moved or edited")
+            print(
+                "  not proved: authorship (this command holds no key), and a "
+                "chain truncated at the end"
+            )
+        else:
+            print(f"ledger BROKEN: {reason}", file=sys.stderr)
+    sys.exit(0 if reason is None else 1)
+
+
 def main():
     from ephemora_cell import __version__
     from ephemora_cell.profiles import list_profiles
@@ -391,10 +477,52 @@ def main():
         help="run in a disposable worker subprocess with OS-level limits",
     )
     p_run.add_argument(
+        "--max-wasm-bytes",
+        type=int,
+        default=None,
+        help="module size cap in bytes (overrides --profile; default "
+        "33554432 = 32 MiB, 0 = no cap — what a BYO interpreter guest "
+        "needs)",
+    )
+    p_run.add_argument(
+        "--allow-fsync",
+        action="store_true",
+        help="permit WASI fd_fsync/fd_datasync imports (the P1 #12 blockade "
+        "otherwise refuses such modules) — interpreter guests like "
+        "CPython-WASI need this; --profile interpreter sets it",
+    )
+    p_run.add_argument(
         "--abi",
         choices=["auto", "preview1", "component"],
         default="auto",
         help="execution ABI (auto detects WASI 0.2 components by magic bytes)",
+    )
+    p_run.add_argument(
+        "--tenant",
+        metavar="ID",
+        default=None,
+        help="ADR-012 billing identity for this run (operator-chosen; the guest "
+        "never sees it). Attribution only — it isolates nothing.",
+    )
+    p_run.add_argument(
+        "--tenant-book",
+        metavar="PATH",
+        default=None,
+        help="append-only tenant book (JSONL) to admit this run against and "
+        "bill it in; required with --tenant",
+    )
+    p_run.add_argument(
+        "--tenant-max-runs",
+        type=int,
+        default=None,
+        help="cumulative run cap for --tenant (checked BEFORE the run starts)",
+    )
+    p_run.add_argument(
+        "--tenant-max-fuel",
+        type=int,
+        default=None,
+        help="cumulative fuel cap for --tenant, compared against settled plus "
+        "reserved units",
     )
     p_run.add_argument(
         "--json",
@@ -441,6 +569,21 @@ def main():
         help="build timeout in seconds (default 600)",
     )
     p_build.set_defaults(func=cmd_build)
+
+    p_ledger = sub.add_parser(
+        "ledger",
+        help=(
+            "Verify an execution ledger chain (order and linkage; holds no key, "
+            "so authorship is not checked)"
+        ),
+    )
+    p_ledger.add_argument("path", help="ledger JSONL file written by Ledger.append")
+    p_ledger.add_argument(
+        "--json",
+        action="store_true",
+        help="machine-readable verdict on stdout",
+    )
+    p_ledger.set_defaults(func=cmd_ledger)
 
     args = parser.parse_args()
     if not args.command:

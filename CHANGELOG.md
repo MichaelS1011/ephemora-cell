@@ -6,7 +6,379 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-Nothing staged.
+Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
+runs under the same boundary — but two hard refusals made that unreachable in
+practice, and both turned out to be implementation problems rather than
+policy: the 32 MiB module cap could not be raised through a profile, the
+library API or the CLI (it was enforced only in the subprocess worker), and
+the P1 #12 sync blockade rejected CPython-WASI at the **import** layer for a
+symbol the guest never calls. The cap is a knob now; the blockade moved to the
+call layer, where the interpreter needs no exception at all. No default got
+weaker.
+
+### Security
+
+- **An ambient `http_proxy` silently moved the SSRF guard off its target.** With
+  a proxy in the operator's environment, urllib resolves and connects to the
+  PROXY host and never asks for the URL hostname — measured: the resolve-time
+  shim was called with `('proxy.internal', 8080)` for a request aimed at
+  `api.example.com`. So the filter vetted an address that had nothing to do with
+  where the bytes went, and the actual name resolution happened on a third
+  party's box; both the "private addresses are dropped" claim and the "checked IP
+  == connected IP" claim were void on that path. `execute_request` now builds its
+  opener with `ProxyHandler({})` — a mediated egress goes direct to the
+  allowlisted origin, and a deployment that needs a proxy has to say so
+  explicitly instead of inheriting it from the shell.
+- **The FS escape matrix is a strict CI gate now.** The five
+  GHSA-vqjp-4c8c-hfgg vectors in `tests/test_fs_escape_matrix.py`
+  (trailing-slash `path_open`, mixed dot-dot + trailing slash, hardlink and
+  rename across the preopen boundary, TRUNCATE without the set-size right)
+  ran `xfail(condition=engine < 47.0.4, strict=False)`. On the pinned 47.0.1
+  they measure **blocked**, so the marker's only remaining effect was to hide
+  a future regression: a vector that re-opened would report `xfailed` and CI
+  would stay green. The markers are gone and the vectors are plain asserts.
+  Both CI legs were measured before the switch (macOS arm64 and linux/amd64
+  via `python:3.12-slim` + wasmtime 47.0.1 — five denied, controls granted),
+  and the gate was proven to bite by injecting a successful vector: it FAILS.
+  The upstream advisory stays open and is still tracked by
+  `scripts/check_wasmtime_patch.py`; nothing about the exposure claim changed.
+- **`fd_sync` reached the host under the default config (gap closed).** The
+  P1 #12 blockade matched import names on the substrings
+  `fsync`/`psync`/`datasync`, which never matched `fd_sync` — WASI Preview1's
+  own sync entry point, the one a guest calls through `os.fsync`, and the one
+  `define_wasi` wires to a real `fsync(2)`. Measured before the change: a
+  module that created a file and called `fd_sync` on it exited `success` with
+  the host sync performed, while SECURITY.md and `docs/threat-model.md` both
+  stated it was rejected at instantiate.
+- **The sync blockade refuses calls, not imports.** `fd_sync`, `fd_datasync`
+  and `fd_psync` are now all shadowed with a trapping shim at the link layer.
+  Refusing the import was the wrong instrument twice over: every
+  `wasm32-wasi` binary Zig emits imports `fd_sync` and every CPython-WASI
+  guest imports `fd_datasync`, in both cases without ever calling it — so the
+  import rule rejected Tier 1 toolchains and interpreters while the harm it
+  meant to stop passed beside it. Measured:
+  `benchmarks/interpreter_guest/probe_datasync.py` boots the pinned guest
+  behind the full trap set on a cold and a warm stdlib tree (the cold tree is
+  where `.pyc` writing happens), and the default profile now stops that guest
+  on `fuel_exhausted` instead of on an import. This is also where the
+  published attack lives: a sync storm offloads work into the host kernel and
+  its flushers, staying under 5 % guest CPU while host I/O throughput drops by
+  more than 99 % ([arXiv 2509.11242](https://arxiv.org/html/2509.11242v1),
+  USENIX Security '25) — it cannot be metered, only refused.
+  `verify_8_vectors.py` vector 4 covers the call path (it previously covered
+  `fd_psync` only — an import no real guest emits).
+- **Scope stated, and now measured.** The blockade is a WASI Preview1 control.
+  The WASI 0.2 component path carries no sync blockade today, and
+  `benchmarks/component_sync_probe.py` establishes that against a real wasip2
+  guest instead of leaving it as a code-reading sentence: with a granted
+  directory both `wasi:filesystem/types` sync calls complete into the host
+  (`SYNC-ALL:OK`, `SYNC-DATA:OK`), and with the default config the component
+  route grants no preopen at all, so no guest reaches the surface without an
+  explicit `allow_dirs`. SECURITY.md and the attack-vector summary now say so
+  with the probe behind them instead of implying both paths are equal.
+- **Two attestation holes that made the signature weaker than it looked.**
+  `policy_fingerprint()` enumerated twelve policy keys and neither new knob was
+  among them, while its own docstring promised "every wall the guest
+  experiences" — so `WASIConfig(allow_fsync=True)` produced the SAME
+  fingerprint as the closed default. And `PreExecutionRecord.build()` took its
+  baseline from the hardcoded default instead of the config it was handed, so a
+  signed pre-execution record certified `allow_fsync: false` for a run whose
+  config had it on: the two attestations of one run could disagree, and the one
+  a verifier reads first was the wrong one. Both knobs are now in the
+  fingerprint, and `security_baseline_for(config)` is the single source both
+  records derive from. `max_wasm_bytes: 0` means *no cap*, which a bare number
+  reads as the strictest possible limit, so the baseline carries
+  `max_wasm_bytes_unlimited` alongside it.
+- **The M2 gate would have opened one patch too early, and it never failed.**
+  `scripts/watch_upstream.py` and `scripts/check_wasmtime_patch.py` watched
+  48.0.3/49.0.1 as the "fully patched" targets — true for the advisories known
+  on 2026-09-24, false after the 2026-10-02 wave, which is patched only from
+  48.0.4/49.0.2. Both target lists now name 48.0.4/49.0.2 first and keep 47.0.4
+  as informational, with `tests/test_watch_upstream.py` pinning the order so a
+  future edit cannot demote the gate again. Separately, the patch watcher fell
+  off the end of `main()` in the waiting branch, so it exited **0** while
+  reporting "still waiting" — its documented contract (0 = open, 1 = waiting)
+  and any CI that trusted it were both inverted. It returns 1 now.
+
+### Added
+
+- **Signed receipts are bound to one execution, not to a shape.** The signing
+  path now writes an `evidence` block INSIDE the canonical bytes
+  (`ephemora-execution-evidence.v1`): a fresh `report_id` per receipt, an aware
+  UTC `issued_at`, and the `tool` the receipt answers for. Without it, two
+  identical calls canonicalize identically, so a captured receipt was evidence
+  for "some call that looked like this" — replayable against a different call,
+  including a different tool. `verify_execution_attestation` gained
+  `max_age_seconds` (fail-closed: no evidence block, naive stamp, older than the
+  window, or more than 60 s in the future all refuse), and `get-policy` discloses
+  the schema under `receipt_signing.evidence`. Reports without a signer never
+  receive the block, so their `_meta` is byte-for-byte what it was. Deduping a
+  `report_id` that shows up twice stays the caller's job — this path remains
+  stateless ([ADR-008](docs/decisions/ADR-008-record-split-and-standard-envelopes.md)).
+- **`max_wasm_bytes` is a `WASIConfig` field** (default `32 MiB`, `0` = no
+  cap, negative refused at construction) and is enforced on all three paths
+  that load a module: in-process, component and isolation. The cap travels to
+  the worker in the stdin payload, so parent and worker enforce one value.
+  Reachable from `run_wasm(max_wasm_bytes=…)`,
+  `run_isolated(max_wasm_bytes=…)`, `WASISandbox.run(use_subprocess=True)`
+  via config, and `--max-wasm-bytes` on the CLI. Not an engine knob — the
+  pooled-engine fingerprint is unchanged, so raising a cap cannot shard the
+  engine pool.
+- **`allow_fsync` opt-in** (`False` by default, CLI `--allow-fsync`). Restores
+  the real `fd_sync`/`fd_datasync` implementations `define_wasi` wires to host
+  syncs; `fd_psync` stays trapped either way because Preview1 has no such call
+  to serve. Documented as a capability grant rather than a tuning dial:
+  `io_cpu_seconds` does not bound host sync work, because that work is not
+  guest CPU. Default posture unchanged, and the setting is attested.
+- **`interpreter` profile** — five values raised for an interpreter-scale
+  guest (512 MiB module, 1 GiB memory, 1 G fuel, 120 s, 30 s `io_cpu_seconds`),
+  each set from the measured wasi-python 3.10 guest; the last one because an
+  isolated worker spends 5.40 s of host CPU just compiling a 22 MB binary,
+  which the 2.0 s default wall kills before the guest starts. No sync
+  exception, no filesystem or env grant, no interpreter binary, no language
+  claim (ADR-009 posture unchanged).
+- **Both knobs are attested** in the signed `security_baseline`
+  (`max_wasm_bytes`, `max_wasm_bytes_unlimited`, `allow_fsync`), so a run that
+  lifted them cannot read like a run that had them on — from one shared
+  builder used by the receipt and the pre-execution record alike.
+- `benchmarks/interpreter_guest/measure.py` +
+  `benchmarks/results/2026-10-02/interpreter_guest.json`: pinned-guest
+  latency/fuel per workload on both paths, the memory boot breakpoint, the
+  stdlib-priming curve, and a live Docker baseline for the same Python
+  workload. `probe_datasync.py` is the import-versus-call measurement behind
+  the blockade change.
+- `benchmarks/component_sync_probe.py` + `benchmarks/component_probes/sync_probe.wasm`
+  (crate in `src/sync_probe/`, added to `rebuild.sh`): a WASI 0.2 component
+  that calls `descriptor/sync` and `descriptor/sync-data`, so the component
+  path's sync surface is measured rather than asserted. Self-checking like the
+  other probes — it exits non-zero if the documented posture stops holding.
+- `benchmarks/poll_oneoff_fuel_probe.py` + the **2026-10-02 advisory triage**
+  in SECURITY.md: GHSA-j366-h8gg-77pm (`poll_oneoff` host work charges no
+  fuel) is measured on our own pinned engine — 5 605 fuel at every
+  subscription count (n = 0 … 20 000) while wall time on the same run goes
+  ≈1.5 ms → ≈1.25 s — which is the qualifier "deterministic fuel accounting"
+  needs: guest instructions are accounted, host work inside a WASI call is not.
+  The probe is self-checking: it exits non-zero the day the flat fuel line
+  disappears, i.e. when an engine patch closes it. GHSA-gqmc-89g8-p25r does not
+  apply (our runs always install bounded stdout/stderr sinks);
+  GHSA-96f6-r43r-8c24 (`fd_readdir` leaks three uninitialized host padding
+  bytes per directory entry into the guest) does apply wherever a preopen
+  exists and has no upstream workaround short of the patch. The patched lines
+  are 48.0.4 / 49.0.2, and the Python binding has published no patch release
+  at all — 47.0.1, 48.0.0 and 49.0.0 are the only wheels on PyPI.
+- **Cross-run evidence chain (`ephemora_cell/ledger.py`, ADR-011).** A signed
+  `LedgerEntry` envelope hash-links one run's pre-execution record and receipt
+  to the run before it: `sequence` plus `prev_hash` over the previous entry's
+  signed digest, genesis at 64 zero bytes. Linkage verifies with no key at all;
+  authorship only when a verifier is supplied, through the same
+  `ExecutionReport.verify` implementation and `expected_alg` pin the records
+  use. The chain is default-off and host-side, positions are assigned by one
+  writer under `flock` with `O_APPEND` and `fsync`, and existing record bytes
+  are unchanged — pinned by test rather than argued. `ephemora-cell ledger
+  <path>` prints what it proves and, in the same breath, that authorship is not
+  proved and a chain truncated at its end is invisible from the file alone.
+- **Tenant attribution and cumulative budgets (`ephemora_cell/tenant.py`,
+  ADR-012).** `--tenant ID --tenant-book PATH [--tenant-max-runs N
+  --tenant-max-fuel N]`, or `WASISandbox.run(tenant=…, tenant_budget=…,
+  tenant_store=…)`. A tenant is a billing and aggregation identity, not an
+  isolation boundary, and nothing a guest can observe changes when one is
+  attached. Admission reserves the ceiling the sandbox itself will enforce
+  (`WASISandbox.reservation()` — a caller cannot pad it), settlement books what
+  the run actually consumed, and an exception hands the reservation back
+  instead of letting a crash bill the account. Caps are inclusive: a cap of N
+  admits exactly N runs, also under 20 contending threads. The check lives in
+  `run()`, which is the one place all three execution paths converge, so the
+  subprocess and component paths cannot bypass it — and the worker payload
+  carries no tenant at all. Receipt and pre-execution record attest
+  `tenant`/`tenant_budget_ref` inside `security_baseline` and fold both into
+  `policy_fingerprint`, with the keys present only when a tenant was attached,
+  so unaccounted records keep exactly their previous bytes.
+- **Egress mediator, closed where it leaked (`ephemora_cell/egress_sidecar.py`).**
+  Two defects, both proven against local servers before being fixed: redirects
+  were followed without re-checking the policy (an allowlisted URL answering
+  `302` to an off-policy host reached it once and was audited as `allowed`), and
+  the path allowlist matched by string prefix, so `/v1` admitted `/v1-admin/keys`
+  and `/v1/../v1-admin`. Matching is now per segment with dot-segments refused
+  raw and percent-decoded, ports are normalised, and every hop is revalidated
+  through a policy-bound redirect handler that refuses a scheme change. Entry
+  documents with a query, a dot segment or a stray `%` are rejected at policy
+  construction.
+- **Egress now has a real caller: the MCP engine, opt-in (`ephemora_cell_mcp/`,
+  ADR-013).** The mediator used to be a library surface nothing executed; now
+  `ephemora-cell-mcp --egress-allow URL_PREFIX` runs it. `execute()` mediates a
+  guest's `sidecar.request.json` AFTER the run but BEFORE `cleanup()` erases the
+  sandbox, and attaches the decision (allowlist match or refusal, reason, hops,
+  response document) to that call's `_meta.egress`. No policy, or no artifact,
+  produces exactly the old `_meta` — the key appears only when a decision
+  happened; a malformed artifact denies loudly rather than going quiet.
+  `EgressGrant` freezes the grant ENVELOPE (id, tool, endpoints, methods,
+  `not_before`/`not_after`/`max_calls`, key id, JCS bytes) with `"enforced":
+  "allowlist-only"` in its own payload — true of the grant read on its own, on
+  the `--egress-allow` path. The next bullet adds the consumer that enforces
+  expiry, usage cap and revocation; DNS-rebinding after an allowlist match
+  remains open (the check is on the URL, not the resolved IP).
+- **`get-policy` discloses the egress posture (ADR-013).** Both get-policy
+  shapes now carry a server-wide `egress` block: `{"mediation": "disabled"}`
+  by default, and with `--egress-allow` the enabled endpoints, response cap and
+  timeout alongside `enforced: "allowlist-only"`. An operator can read from the
+  control plane whether the mediator runs at all — and that its scope is the
+  allowlist, not a grant.
+- **Egress grants are now enforced, not just described (ADR-013, Prio 1).**
+  `ephemora_cell/grant_ledger.py` is the shipped consumer that reads an
+  `EgressGrant`'s `not_before`/`not_after`/`max_calls` and honours a revocation:
+  `egress_sidecar.mediate_with_grant` gates a request (allowlist first, so a
+  denied endpoint spends no slot; then one critical-section charge; then the
+  fetch), and `CellToolEngine`/`Server` route a tool's grant through it. The cap
+  is inclusive under 20 contending threads; window bounds parse fail-closed (a
+  naive timestamp is refused, not assumed local); each booked line carries
+  `calls_after` so an edited or dropped call is caught on replay (a truncated
+  tail is not — stated, tested). `get-policy` flips to
+  `grant_enforcement: ledger-backed` with the per-grant state. `CellToolEngine`
+  refuses `egress_grants` without a `grant_ledger` rather than silently
+  downgrading a cap to nothing. **Still open:** verifying a grant's Ed25519
+  signature on a startup path (a grant is trusted because the host passed it in,
+  not because its signature was checked).
+- **DNS-rebinding closed at resolve time (ADR-013, Prio 2).** Every mediated
+  connect — the request and each followed redirect — resolves its hostname
+  through a thread-local `socket.getaddrinfo` shim
+  (`egress_sidecar._guarded_getaddrinfo`) that drops loopback, RFC1918, CGNAT
+  (`100.64/10`), link-local, multicast, reserved and unspecified addresses and
+  refuses a name with no public answer. Validate and connect share the one
+  resolution, so there is no window for the answer to rebind between the URL
+  check and the socket — the residual the redirect revalidation left open. An
+  allowlist entry that is an IP **literal** is operator intent and stays
+  reachable. `EgressPolicy.resolver` makes the resolution injectable (an
+  internal resolver in production, a fake in tests); get-policy attests
+  `ip_resolution_guard: filter-names-block-private`.
+- **Grant enforcement is reachable from the shipped CLI (ADR-013).**
+  `ephemora-cell-mcp --egress-grants-dir DIR --grant-ledger PATH` loads
+  `*.egress.grant.json` (`egress_sidecar.load_egress_grants` +
+  `EgressGrant.from_document`, the schema-tag-checked inverse of `to_dict`) and
+  routes each tool's grant through the ledger, so window/cap/revocation are now
+  operator-usable, not only library-injectable. It fails closed twice: a grants
+  dir without `--grant-ledger` is a clean startup error (exit 2), and any
+  malformed or duplicate grant file refuses the whole startup rather than
+  enforcing some caps and silently skipping others. **This load path does not
+  verify a grant's signature** — a file the host reads is operator intent;
+  Ed25519 verification on load is the one remaining open item.
+- **Per-call receipts are now cryptographically verifiable (ADR-008).** The MCP
+  spec says `_meta` is "not verified by the protocol" and callers "SHOULD NOT
+  rely on them for security decisions". With `--receipt-signing-key PEM`
+  (+ `--receipt-key-id`) the host signs each call's receipt into a DSSE v1
+  envelope over the SAME canonical bytes as `_meta.execution`, emitted as
+  `_meta.attestation`. A caller holding the matching public key verifies it with
+  `execution_report.verify_execution_attestation`, which fails closed unless the
+  envelope's `payloadType`, its payload (exactly `canonical_bytes(execution)`)
+  and the signature all agree — so the receipt is bound to the fields shown, not
+  merely signed. `get-policy` reports the posture (`receipt_signing`). Off by
+  default: an unaccounted call's `_meta` is byte-for-byte unchanged. The private
+  key never leaves the operator (needs the optional `cryptography` package).
+
+### Changed
+
+- `run_isolated(..., max_wasm_bytes=None)` now means "use the config's cap"
+  instead of silently collapsing to 32 MiB, so a raised cap in a config is no
+  longer overridden by the API layer.
+
+### Tests
+
+- `tests/test_egress_sidecar.py` gains 12 adversarial egress tests: the address
+  families a rebinding name can answer with (`TestSSRFAdversarialFamilies` —
+  scoped IPv6, both metadata addresses, CGNAT edges, IPv4-mapped IPv6, 6to4 and
+  NAT64 forms, multicast, unspecified, documentation ranges, with a public
+  positive control that includes `::ffff:8.8.8.8`), the ambient-proxy case, a
+  real 302 into an allowlisted name resolving to the metadata address, and
+  multi-A ordering/all-private behaviour. `TestResolvePinningTOCTOU` (3) spies on
+  the socket the stdlib builds below the guard and asserts `connect()` only ever
+  sees the vetted address. `TestGrantConcurrency` (3) releases 20 mediated
+  engine calls through one barrier against a real local origin: exactly
+  `max_calls` fetches leave the process, a single slot cannot be taken twice, and
+  no call line can be booked after a revoke line. Sensitivity was checked by
+  degrading the filter — five of these turn red — and the concurrency run is
+  stable over five repeats.
+- `tests/test_signed_receipt.py` gains 7 replay-binding tests: per-receipt nonce
+  uniqueness, the tool binding, the nonce being inside the signed bytes (rewriting
+  it invalidates), the freshness window accepting a new receipt and refusing one
+  signed two hours earlier, fail-closed behaviour with no evidence block or a
+  naive stamp, the 60 s future-skew allowance, and that an unsigned report
+  receives no `evidence` key at all.
+
+- `tests/test_module_size_cap.py` (40 tests) covers cap configurability,
+  enforcement on all three paths, config→worker marshalling, the public API
+  and CLI surface, the profile's five raises and its non-grants (including
+  that `allow_fsync` stays off), that all three sync entry points trap on the
+  call while their imports stay legal, and the attestation of both knobs.
+- `tests/test_ledger_chain.py` (28 tests) — the ADR-011 chain: a gapless
+  sequence under 8 concurrent writers, keyless linkage, an edited or reordered
+  entry reported with its position, the entry digest computed by the same
+  recipe `verify_chain` uses, and that existing record bytes do not change when
+  no ledger is in use. Also that a truncated tail is NOT detectable from the
+  file alone (the limit is tested, not just documented), and the CLI verdict's
+  `proves`/`cannot_see` split.
+- `tests/test_tenant_budgets.py` (49 tests) — the ADR-012 book and its
+  enforcement: reservation equals the config's own wall, caps are inclusive
+  under 20 contending threads, refusal happens before anything is started,
+  every dispatch (preview1, subprocess, component, auto-unpooled) is billed
+  exactly once, a raising run returns its reservation, a crashed worker is
+  flagged rather than free, the worker payload carries no tenant, edited or
+  reordered totals do not silently pass, and a budget below one run's wall
+  refuses everything.
+- `tests/test_records_envelope.py` gains `TestTenantAttestation` (4 tests):
+  records of an unaccounted run keep their exact signing bytes, the account
+  moves both the fingerprint and the baseline, and two tenants under one config
+  cannot share an agreement.
+- `tests/test_cli_inprocess.py` gains `TestTenantFlags` (3 tests) — two
+  invocations against one book accumulate and the third is refused, and
+  `--tenant` without `--tenant-book` is a clean error.
+- `tests/test_egress_sidecar.py` (29) now includes `TestAllowlistPrefixSemantics`
+  and `TestRedirectRevalidation`, which fail against the pre-fix code: the
+  off-policy redirect target is never fetched, a scheme change is refused, and
+  sibling paths (`/v1-admin`) no longer match a `/v1` entry. `TestEngineEgressTrace`
+  proves the mediator has a real caller — `execute()` mediates before
+  `cleanup()` (asserted via the response artifact present at cleanup time),
+  on-policy is fetched, off-policy and malformed artifacts deny rather than go
+  silent, and no policy means no read at all. `TestServerMetaEgress` pins that
+  `_meta` is unchanged with no egress and carries the decision under
+  `_meta.egress` when present. `TestEgressGrantForm` fixes the grant envelope's
+  canonical bytes and pins that only the allowlist is the enforced part.
+- `tests/test_mcp_main.py` (9 tests) — the `python -m ephemora_cell_mcp`
+  entrypoint, previously at 0% coverage: no flag builds no policy, `--egress-allow`
+  builds the exact `EgressPolicy` the engine enforces, an unusable endpoint
+  is a fail-closed startup error (exit 2) rather than a half-wired server,
+  `--egress-grants-dir` + `--grant-ledger` wire real grants into the server
+  while a grants dir without a ledger and a malformed grant file are both clean
+  exit-2 refusals, and `--receipt-signing-key` wires a signer (unreadable key =
+  exit 2, default = no signer).
+- `tests/test_signed_receipt.py` (7 tests) — the ADR-008 signed receipt with a
+  real Ed25519 keypair through the shipped signer/verifier helpers: the
+  attestation verifies and is bound to the shown execution dict, a foreign key
+  or an edited field fails, the envelope payload is exactly
+  `canonical_bytes(execution)`, no signer leaves `_meta` unchanged, get-policy
+  reports the posture, and the verify helper fails closed on malformed input.
+- `tests/test_mcp_adapter.py` gains `test_get_policy_reports_egress_disabled`
+  and `..._enabled_as_allowlist_only` — both get-policy shapes attest the
+  mediation state, and an enabled policy discloses endpoints and the
+  allowlist-only scope. `..._attests_grant_enforcement_as_ledger_backed` pins
+  the ledger-backed shape with per-grant state.
+- `tests/test_grant_ledger.py` (18 tests) — the ADR-013 enforcement core: an
+  inclusive cap under 20 contending threads, a refusal spending no slot,
+  `not_before`/`not_after` boundaries (expiry exclusive), `Z` accepted and a
+  naive timestamp refused, revocation biting inside an open window, an edited or
+  dropped call line caught by replay, and a truncated tail NOT detectable from
+  the file alone (the limit tested, not claimed).
+- `tests/test_egress_sidecar.py` gains `TestEngineGrantEnforcement` (5 tests) —
+  the engine charges each fetched call and stops at the cap, revocation refuses,
+  an off-allowlist request spends nothing, grants are keyed by tool name, and
+  `egress_grants` without a `grant_ledger` fails closed at construction.
+- `tests/test_egress_sidecar.py` gains `TestSSRFGuard` (5 tests) — the
+  blocked-address matrix incl. CGNAT, the shim dropping forbidden IPs and
+  raising when none are safe, an IP-literal host passing unfiltered, and
+  `mediate` refusing a name that rebinds to `169.254.169.254` (opens no socket).
+- `tests/test_egress_sidecar.py` gains `TestGrantLoader` (5 tests) —
+  `EgressGrant.from_document` round-trips `to_dict` and refuses an unknown
+  schema tag or a missing field, and `load_egress_grants` reads a directory,
+  names every malformed/duplicate file (never silent), and refuses a missing
+  directory.
 
 ## [1.0.5] - 2026-09-29
 

@@ -59,6 +59,9 @@ from ephemora_cell._fsutil import (
     atomic_write_json,
     read_stable_bytes,
 )
+from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+from ephemora_cell.execution_report import new_execution_evidence
+from ephemora_cell.grant_ledger import GrantLedger
 from ephemora_cell.profiles import get as get_profile
 
 from . import protocol
@@ -112,6 +115,12 @@ class Server:
         pooled: bool = False,
         manifest_verifier: Callable[[bytes, bytes], bool] | None = None,
         tool_requests_dir: str | Path | None = None,
+        egress_policy: EgressPolicy | None = None,
+        egress_grants: dict[str, EgressGrant] | None = None,
+        grant_ledger: GrantLedger | None = None,
+        receipt_signer: Callable[[bytes], bytes] | None = None,
+        receipt_key_id: str | None = None,
+        receipt_alg: str = "EdDSA",
     ) -> None:
         """Create the server.
 
@@ -139,6 +148,24 @@ class Server:
                 (verify-before-register), install accepted tools and emit
                 ``notifications/tools/list_changed``. When set,
                 ``initialize`` advertises ``listChanged: True``.
+            egress_policy: ADR-002 host-sidecar egress. When given, a tool
+                that wrote ``sidecar.request.json`` into its sandbox is
+                mediated by the HOST after the run, and the decision
+                (allowlist match or refusal, with reason and hops) is attached
+                to that call's ``_meta.egress``. ``None`` (default) never
+                invokes the mediator, so ``_meta`` of an unaccounted
+                deployment is byte-for-byte unchanged. This path is
+                allowlist-only; grant enforcement lives in ``egress_grants``
+                (see ADR-013).
+            egress_grants: ADR-013 grant enforcement — tool name -> a signed
+                :class:`EgressGrant`. A run whose tool has a grant is mediated
+                grant-gated: the grant's own allowlist, and its ``not_before`` /
+                ``not_after`` / ``max_calls`` and any revocation ENFORCED by
+                ``grant_ledger`` (usage charged only for a call that clears the
+                allowlist). Requires ``grant_ledger``.
+            grant_ledger: The append-only book behind grant enforcement
+                (ADR-013, Prio 1). Revocation is effective at the next mediated
+                call, never an in-flight one.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
@@ -149,10 +176,27 @@ class Server:
             Path(tool_requests_dir).resolve() if tool_requests_dir else None
         )
         self.transport = transport if transport is not None else StdioTransport()
-        self.engine = engine if engine is not None else CellToolEngine(pooled=pooled)
+        self.engine = (
+            engine
+            if engine is not None
+            else CellToolEngine(
+                pooled=pooled,
+                egress_policy=egress_policy,
+                egress_grants=egress_grants,
+                grant_ledger=grant_ledger,
+            )
+        )
         self.registry = ToolRegistry(
             self.tools_dir, manifest_verifier=manifest_verifier
         )
+        # ADR-008 signed per-call receipt. When a signer is given, every
+        # tools/call carries a DSSE attestation over the SAME canonical bytes as
+        # _meta.execution, so a caller holding the matching public key can turn
+        # the self-reported receipt into a verified one. None (default): no
+        # attestation key, _meta is exactly the pre-1.1 shape.
+        self.receipt_signer = receipt_signer
+        self.receipt_key_id = receipt_key_id
+        self.receipt_alg = receipt_alg
 
     # --- public API -------------------------------------------------
 
@@ -475,7 +519,7 @@ class Server:
                 ],
                 "isError": True,
             }
-        return self._build_call_result(outcome)
+        return self._build_call_result(outcome, tool=name)
 
     def _handle_native_call(self, name: str, arguments: Any) -> dict[str, Any]:
         """Dispatch a native meta tool (no WASM execution involved)."""
@@ -488,6 +532,9 @@ class Server:
 
         Read-only by design: capability changes are host decisions, never
         chat decisions (see docs/decisions/ADR-006-governed-tool-loading).
+        Both shapes also carry a server-wide ``egress`` attestation
+        (ADR-013) so an operator can tell from get-policy whether the
+        mediator runs and that it enforces the allowlist only.
         """
         if arguments is None:
             arguments = {}
@@ -515,6 +562,8 @@ class Server:
                 ],
                 "native_tools": [dict(t) for t in _NATIVE_TOOLS],
             }
+        payload["egress"] = self._egress_attestation()
+        payload["receipt_signing"] = self._receipt_attestation()
         return {
             "content": [
                 {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
@@ -529,6 +578,86 @@ class Server:
             "network": _NETWORK_POLICY,
             "security_baseline": self.engine.policy_for(spec),
         }
+
+    def _receipt_attestation(self) -> dict[str, Any]:
+        """Whether per-call receipts are signed and under what key (ADR-008).
+
+        Tells a caller whether `_meta.attestation` will be present and which
+        public key to verify it against — the receipt stays self-reported until
+        the caller checks the signature out-of-band, so this is the pointer, not
+        the proof.
+        """
+        if self.receipt_signer is None:
+            return {"enabled": False}
+        from ephemora_cell.execution_report import (
+            DSSE_TYPE_EXECUTION_REPORT,
+            EVIDENCE_SCHEMA,
+        )
+
+        return {
+            "enabled": True,
+            "format": "dsse-v1",
+            "payload_type": DSSE_TYPE_EXECUTION_REPORT,
+            "alg": self.receipt_alg,
+            "key_id": self.receipt_key_id,
+            # Each receipt carries this schema's one-of-one block (report_id,
+            # issued_at, tool) INSIDE the signed bytes, so a caller can check
+            # freshness and refuse a receipt it has already seen.
+            "evidence": EVIDENCE_SCHEMA,
+        }
+
+    def _egress_attestation(self) -> dict[str, Any]:
+        """Server-wide egress posture (ADR-013), read-only.
+
+        Egress is an engine/server setting, not a per-tool one, so it is
+        reported alongside the per-tool entries rather than inside them. Three
+        states, and the wording never over-claims:
+
+        * no surface — ``mediation: disabled``, the mediator never runs;
+        * a server-wide policy only — ``mediation: enabled`` and
+          ``enforced: allowlist-only`` (mirrors :meth:`EgressGrant.to_dict`);
+        * grants plus a ledger — each tool's window/cap/revocation are read by
+          :class:`GrantLedger`, so ``enforced`` names the gates that are real
+          today and ``grant_enforcement`` is ``ledger-backed``.
+
+        ``ip_resolution_guard`` reports the SSRF posture (Prio 2): every mediated
+        connect resolves hostnames through a filter that drops private, loopback,
+        link-local, multicast, reserved and CGNAT addresses — validate and
+        connect are the same step, so rebinding has no window; IP-literal entries
+        are operator intent and stay reachable.
+
+        The one limit stated, not hidden: revocation and caps are effective at
+        the NEXT mediated call and cannot recall an already-delivered response.
+        """
+        policy = getattr(self.engine, "egress_policy", None)
+        grants = getattr(self.engine, "egress_grants", {}) or {}
+        ledger = getattr(self.engine, "grant_ledger", None)
+        if not grants and policy is None:
+            return {"mediation": "disabled"}
+        attestation: dict[str, Any] = {"mediation": "enabled"}
+        if grants and ledger is not None:
+            attestation["grant_enforcement"] = "ledger-backed"
+            attestation["enforced"] = "allowlist+window+cap+revocation"
+            attestation["grants"] = [
+                {
+                    "tool": grant.tool,
+                    "grant_id": grant.grant_id,
+                    "allowed_endpoints": list(grant.allowed_endpoints),
+                    "not_before": grant.not_before,
+                    "not_after": grant.not_after,
+                    "max_calls": grant.max_calls,
+                    "revoked": ledger.usage(grant.grant_id).revoked_at is not None,
+                }
+                for grant in grants.values()
+            ]
+        else:
+            attestation["enforced"] = "allowlist-only"
+        attestation["ip_resolution_guard"] = "filter-names-block-private"
+        if policy is not None:
+            attestation["policy_endpoints"] = list(policy.allowed_endpoints)
+            attestation["max_response_bytes"] = policy.max_response_bytes
+            attestation["timeout_seconds"] = policy.timeout_seconds
+        return attestation
 
     # --- governed loading (ADR-006) ----------------------------------
 
@@ -669,7 +798,9 @@ class Server:
         atomic_write_bytes(self.tools_dir / f"{stem}.wasm", wasm_bytes)
         return True, stem
 
-    def _build_call_result(self, outcome: CellOutcome) -> dict[str, Any]:
+    def _build_call_result(
+        self, outcome: CellOutcome, *, tool: str | None = None
+    ) -> dict[str, Any]:
         result = outcome.result
         payload, tool_error = parse_tool_stdout(result.stdout)
         if isinstance(payload, str):
@@ -677,7 +808,32 @@ class Server:
         else:
             text = json.dumps(payload, ensure_ascii=False)
 
-        meta = {"execution": outcome.report.to_dict()}
+        if self.receipt_signer is not None:
+            # ADR-008 replay binding. It has to be on the report BEFORE the
+            # execution dict is taken, because the signature covers
+            # canonical_bytes(report.to_dict()) — the nonce and issue time are
+            # inside what is signed, not beside it. Unsigned servers never get
+            # here, so their `_meta` stays exactly as it was.
+            outcome.report.evidence = new_execution_evidence(tool=tool)
+        meta: dict[str, Any] = {"execution": outcome.report.to_dict()}
+        # ADR-002: mediated egress decisions, present only when the operator
+        # enabled a policy AND the guest actually wrote a request artifact. An
+        # unaccounted call's _meta stays exactly the two keys it had before.
+        # Read defensively so a duck-typed outcome without the field (older
+        # engines, test stubs) is simply treated as "no egress".
+        egress = getattr(outcome, "egress", ())
+        if egress:
+            meta["egress"] = list(egress)
+        # ADR-008: sign the receipt when the operator wired a signer. The DSSE
+        # envelope covers canonical_bytes(report.to_dict()) — the same bytes as
+        # meta["execution"] — so a caller verifies the two are bound together
+        # (verify_execution_attestation). Absent signer -> no key, unchanged meta.
+        if self.receipt_signer is not None:
+            meta["attestation"] = outcome.report.to_dsse(
+                self.receipt_signer,
+                key_id=self.receipt_key_id,
+                alg=self.receipt_alg,
+            )
         failed = (
             result.exit_code != 0 or tool_error
         ) or outcome.report.status != "success"

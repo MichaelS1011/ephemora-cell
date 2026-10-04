@@ -78,6 +78,7 @@ from ephemora_cell._sandbox_common import (
     validate_allow_dirs as _validate_allow_dirs_impl,
 )
 from ephemora_cell.state import StateStore
+from ephemora_cell.tenant import Charge, CumulativeBudget, TenantId, TenantStore
 
 try:
     import wasmtime
@@ -133,6 +134,58 @@ def _get_engine_pool():
 
         _ENGINE_POOL = EnginePool()
     return _ENGINE_POOL
+
+
+# --- Module size cap (single source: this module) -------------------------
+# Cap on the .wasm file a run may load. Enforced on EVERY execution path
+# (in-process preview1, in-process component, and both sides of the
+# subprocess path) before the bytes are handed to the compiler, so the
+# configured value never silently applies to only one path. The MCP tool
+# registry uses the same default as its load guard.
+DEFAULT_MAX_WASM_BYTES = 32 * 1024 * 1024
+# Sentinel: 0 disables the cap. Interpreter guests are BYO binaries an order
+# of magnitude larger than application modules (a CPython-WASI build is
+# ~150 MB — docs/languages.md), so the caller who opts into one says so
+# explicitly instead of passing a large number and hoping it is enough.
+UNLIMITED_WASM_BYTES = 0
+
+
+def module_size_cap_error(path: Path, max_wasm_bytes: int) -> str | None:
+    """Return the rejection message when a module exceeds the cap.
+
+    ``UNLIMITED_WASM_BYTES`` (0) disables the check. Negative caps are
+    rejected by WASISandbox rather than interpreted here.
+    """
+    if max_wasm_bytes == UNLIMITED_WASM_BYTES:
+        return None
+    size = path.stat().st_size
+    if size > max_wasm_bytes:
+        return (
+            f"WASM module exceeds size limit of {max_wasm_bytes} bytes: "
+            f"{size} (set max_wasm_bytes higher, or "
+            f"{UNLIMITED_WASM_BYTES} to disable the cap)"
+        )
+    return None
+
+
+#: Sync entry points the P1 #12 blockade traps at the LINK layer. All three
+#: carry ``(i32) -> (i32)`` and all three reach real host work: ``fd_sync`` is
+#: Preview1's own sync call — the one a guest reaches through ``os.fsync``,
+#: which ``define_wasi`` wires to a real ``fsync(2)`` — ``fd_datasync`` is its
+#: sibling, and ``fd_psync`` does not exist in Preview1, so the Cell defines a
+#: shim for it.
+#:
+#: Refusing these at the MODULE layer was the original design and it is wrong:
+#: every wasm32-wasi Zig binary imports ``fd_sync`` and every CPython-WASI
+#: guest imports ``fd_datasync``, in both cases without ever calling it
+#: (measured: ``benchmarks/interpreter_guest/probe_datasync.py`` boots the
+#: guest on a cold and a warm stdlib tree behind a full trap). An import
+#: refusal therefore rejects toolchains instead of the harm. Interposing on
+#: the call is what the published attack needs: a sync storm offloads work
+#: into the host kernel and its own flushers, keeping the guest under 5 % CPU
+#: while host I/O throughput collapses, so it cannot be metered — only
+#: refused. (arXiv 2509.11242, USENIX Security '25.)
+SYNC_CALL_TRAPS = ("fd_sync", "fd_datasync", "fd_psync")
 
 
 def _limit_output(text: str, max_bytes: int = _MAX_OUTPUT_BYTES) -> str:
@@ -211,6 +264,32 @@ class WASIConfig:
             sandbox dir is the guest's scratch space — preopen trees are
             covered by io_cpu_seconds (their write() cost is CPU); a
             du-delta over preopens is the documented v2 option (ADR-002).
+        max_wasm_bytes: Size cap for the module a run may load, in bytes
+            (default: DEFAULT_MAX_WASM_BYTES = 32 MiB, 0 = no cap). Checked
+            on every execution path before compilation, and in the
+            isolation path by parent AND worker. The cap exists to bound
+            compiler input per run; interpreter guests are BYO binaries an
+            order of magnitude larger (~150 MB for CPython-WASI), so a run
+            that wants one raises this value or sets it to 0 — see the
+            interpreter profile.
+        allow_fsync: Permit WASI sync calls instead of trapping them
+            (default: False). Off keeps the P1 #12 disk-DoS posture on:
+            ``fd_sync``, ``fd_datasync`` and ``fd_psync`` are shadowed with a
+            trap at the link layer, so a guest that calls one is refused. On
+            restores ``define_wasi``'s real implementation for callers that
+            genuinely need durability — note that this is host work the guest
+            does not pay for in fuel, so it is a posture change, not a free
+            knob, and it is attested in the signed baseline. Interpreter
+            guests do NOT need it: CPython imports ``fd_datasync`` but never
+            calls it (measured).
+            ``fd_psync`` stays trapped either way — Preview1 has no such call,
+            so the Cell cannot serve it. One warning that matters: turning this
+            on is NOT covered by ``io_cpu_seconds``. A sync storm is kernel
+            and device work that the guest does not spend CPU on (arXiv
+            2509.11242 measures it under 5 % guest CPU while host throughput
+            collapses), so the rusage watchdog does not bound it — and an
+            in-process run has no watchdog at all. Treat the knob as a
+            capability grant, not a tuning dial.
     """
 
     max_memory_mb: int = 128
@@ -225,6 +304,8 @@ class WASIConfig:
     disk_quota_bytes: int | None = 256 * 1024 * 1024
     io_cpu_seconds: float | None = 2.0
     io_budget_bytes: int | None = 64 * 1024 * 1024
+    max_wasm_bytes: int = DEFAULT_MAX_WASM_BYTES
+    allow_fsync: bool = False
 
     @property
     def memory_capacity_bytes(self) -> int:
@@ -269,6 +350,12 @@ class ExecutionResult:
     io_budget_exceeded: bool = False
     # ADR-004: footprint of the StateStore at run end (None = no state).
     state_bytes: int | None = None
+    # ADR-012: attribution the HOST decided, never the guest. Set by
+    # WASISandbox.run when a tenant was attached — including on a refused
+    # admission, whose receipt is evidence that the account was denied.
+    # Subprocess workers never see either value.
+    tenant: str | None = None
+    tenant_budget_ref: str | None = None
 
 
 class WASISandbox:
@@ -343,6 +430,11 @@ class WASISandbox:
             raise ValueError(
                 "io_budget_bytes must be a positive int (or None for unlimited)"
             )
+        if self._config.max_wasm_bytes < 0:
+            raise ValueError(
+                "max_wasm_bytes must be a non-negative int "
+                f"(0 = {UNLIMITED_WASM_BYTES} disables the cap)"
+            )
 
     def run(
         self,
@@ -356,6 +448,9 @@ class WASISandbox:
         interrupt_event: threading.Event | None = None,
         state_store: StateStore | None = None,
         expected_sha256: str | None = None,
+        tenant: TenantId | str | None = None,
+        tenant_budget: CumulativeBudget | None = None,
+        tenant_store: TenantStore | None = None,
     ) -> ExecutionResult:
         """Execute a WASM module in the sandbox.
 
@@ -365,7 +460,7 @@ class WASISandbox:
             stdin_data: Data to provide on stdin
             use_subprocess: Run the sandbox in a disposable worker subprocess
                 (process-level isolation: RLIMIT_NOFILE, address-space
-                limits, 32 MiB module size cap, hard process timeout).
+                limits, module size cap, hard process timeout).
             use_engine_pool: Reuse pooled wasmtime engines and compiled
                 module caches across runs instead of building a per-run
                 engine. Ignored when use_subprocess is True.
@@ -376,7 +471,7 @@ class WASISandbox:
                 the subprocess worker watches its own rusage CPU and
                 signals here). When set, the run ends with an ERROR
                 carrying the I/O-budget message.
-                state_store: Optional :class:`ephemora_cell.state.StateStore`
+            state_store: Optional :class:`ephemora_cell.state.StateStore`
                 (ADR-004). Passing it IS the capability grant: the guest
                 may import ``ephemora_state.get/set/del`` to carry named
                 state across consecutive runs. Session-scoped and bounded;
@@ -387,10 +482,137 @@ class WASISandbox:
                 (per-call module binding): executed bytes cannot drift
                 from the registered digest. Applies to all three paths
                 (preview1, component, subprocess worker).
+            tenant: ADR-012 billing/attribution identity (operator-chosen,
+                never guest-visible). None (default) = no accounting at all,
+                which is the byte-identical pre-1.1 code path. Setting it
+                requires ``tenant_store``.
+            tenant_budget: Optional cross-run caps checked BEFORE the run
+                starts. Needs ``tenant``; useless without one.
+            tenant_store: The append-only book this tenant's runs are billed
+                to. Admission and settlement happen here, around every
+                execution path — including ``use_subprocess`` and
+                ``abi="component"`` — because the choke point is this method.
 
         Returns:
-            ExecutionResult with status, stdout, stderr, and timing
+            ExecutionResult with status, stdout, stderr, and timing. A refused
+            admission is an ERROR whose stderr names the exhausted cap; nothing
+            is started, no subprocess is spawned and no module is compiled.
         """
+        if tenant is None:
+            if tenant_budget is not None or tenant_store is not None:
+                raise ValueError(
+                    "tenant_budget/tenant_store without a tenant would record "
+                    "nothing — pass tenant"
+                )
+            return self._execute(
+                wasm_path,
+                args=args,
+                stdin_data=stdin_data,
+                use_subprocess=use_subprocess,
+                use_engine_pool=use_engine_pool,
+                abi=abi,
+                interrupt_event=interrupt_event,
+                state_store=state_store,
+                expected_sha256=expected_sha256,
+            )
+        if tenant_store is None:
+            raise ValueError(
+                f"tenant {tenant!r} has no tenant_store: an id without a book "
+                "silently bills nothing"
+            )
+        admission = tenant_store.admit(
+            tenant,
+            reserve=self.reservation(),
+            budget=tenant_budget,
+        )
+        if not admission.allowed or admission.admit_id is None:
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                stderr=(
+                    f"tenant budget exhausted: {admission.limit} "
+                    f"(tenant {tenant}, {admission.reason})"
+                ),
+                tenant=str(tenant),
+                tenant_budget_ref=tenant_budget.ref() if tenant_budget else None,
+            )
+        started = time.monotonic()
+        try:
+            result = self._execute(
+                wasm_path,
+                args=args,
+                stdin_data=stdin_data,
+                use_subprocess=use_subprocess,
+                use_engine_pool=use_engine_pool,
+                abi=abi,
+                interrupt_event=interrupt_event,
+                state_store=state_store,
+                expected_sha256=expected_sha256,
+            )
+        except BaseException:
+            try:
+                # The run never produced anything: hand the reservation back.
+                # Leaving it open would let a crashing caller lock its own
+                # tenant out until the TTL expires. Swallowing book errors here
+                # is deliberate — they must not replace the run's own traceback.
+                tenant_store.expire(tenant, admission.admit_id)
+            except Exception:  # pragma: no cover - book unreadable mid-crash
+                pass
+            raise
+        breach = result.io_budget_exceeded or result.status in (
+            ExecutionStatus.TIMEOUT,
+            ExecutionStatus.FUEL_EXHAUSTED,
+            ExecutionStatus.MEMORY_EXCEEDED,
+        )
+        charge = Charge(
+            fuel=result.fuel_consumed or 0,
+            output_bytes=len(result.stdout.encode("utf-8"))
+            + len(result.stderr.encode("utf-8"))
+            + (result.io_bytes_written or 0),
+            wall_ms=round((time.monotonic() - started) * 1000),
+        )
+        tenant_store.settle(
+            tenant,
+            admission.admit_id,
+            charge=charge,
+            violation=breach,
+            # No fuel figure means the worker died before reporting one: the
+            # run is billed in wall time and flagged, never as free.
+            unknown=result.fuel_consumed is None,
+        )
+        result.tenant = str(tenant)
+        result.tenant_budget_ref = tenant_budget.ref() if tenant_budget else None
+        return result
+
+    def reservation(self) -> Charge:
+        """The most a run under THIS config could take, per dimension.
+
+        Deliberately derived from the config rather than passed in: the
+        reservation is the same ceiling the sandbox stops at, so a caller
+        cannot bill a rival tenant full budgets by reserving loudly. A knob
+        set to None (unbounded by design) contributes 0, which is exactly why
+        :class:`~ephemora_cell.tenant.CumulativeBudget` also compares what
+        previous runs ACTUALLY consumed — see ADR-012.
+        """
+        return Charge(
+            fuel=self._config.max_fuel or 0,
+            output_bytes=2 * _MAX_OUTPUT_BYTES + (self._config.io_budget_bytes or 0),
+            wall_ms=int(self._config.timeout_seconds * 1000),
+        )
+
+    def _execute(
+        self,
+        wasm_path: str,
+        *,
+        args: list[str] | None = None,
+        stdin_data: str | None = None,
+        use_subprocess: bool = False,
+        use_engine_pool: bool = True,
+        abi: str = "preview1",
+        interrupt_event: threading.Event | None = None,
+        state_store: StateStore | None = None,
+        expected_sha256: str | None = None,
+    ) -> ExecutionResult:
+        """The three execution paths, unbilled. Call through :meth:`run`."""
         if use_subprocess:
             from .process_executor import run_isolated
 
@@ -421,6 +643,12 @@ class WASISandbox:
                 status=ExecutionStatus.ERROR,
                 stderr=f"WASM module not found: {wasm_path}",
             )
+
+        cap_error = module_size_cap_error(
+            wasm_path_resolved, self._config.max_wasm_bytes
+        )
+        if cap_error is not None:
+            return ExecutionResult(status=ExecutionStatus.ERROR, stderr=cap_error)
 
         # Create ephemeral sandbox directory. A previous run() on the same
         # instance left its dirs behind (leak) — clean them now; the
@@ -575,20 +803,6 @@ class WASISandbox:
 
             store.set_wasi(wasi_cfg)
 
-            # P1 #12: Block fsync/psync/datasync imports before linking
-            for imp in module.imports:
-                imp_name = imp.name or ""
-                if "fsync" in imp_name or "psync" in imp_name or "datasync" in imp_name:
-                    return ExecutionResult(
-                        status=ExecutionStatus.ERROR,
-                        stderr=(
-                            f"Blocked WASI import: {imp.module}::{imp_name} — "
-                            "fsync/sync operations are not allowed in sandbox"
-                        ),
-                        sandbox_dir=sandbox_dir,
-                        effective_preopens=effective_preopens,
-                    )
-
             linker = Linker(engine)
             linker.define_wasi()
 
@@ -611,30 +825,42 @@ class WASISandbox:
                         ),
                     )
 
-            # P1 #12: Register fd_psync trap — prevents disk DoS via fd_psync.
-            # WASI Preview1 doesn't define fd_psync, but we register it
-            # proactively for Preview2 / future wasmtime compatibility.
+            # P1 #12, call layer: shadow the sync entry points with a trap, so
+            # a guest that actually syncs cannot hammer the host disk.
+            # Importing them stays legal for every guest — which is the whole
+            # point: the harm is the call, not the symbol. fd_psync is
+            # registered unconditionally, because Preview1 defines no such call
+            # and a shim is the only answer the Cell can give. fd_sync and
+            # fd_datasync ARE defined by define_wasi and wired to real host
+            # syncs, so they are shadowed here unless the run opted into sync.
             def _fsync_trap(ctx: wasmtime.Caller) -> None:
                 """Trap fsync/fdatasync calls — blocked by sandbox."""
                 raise wasmtime.Trap("fsync/fdatasync blocked by sandbox")
 
-            try:
-                linker.define(
-                    store,
-                    "wasi_snapshot_preview1",
-                    "fd_psync",
-                    wasmtime.Func(
+            sync_traps = [
+                name
+                for name in SYNC_CALL_TRAPS
+                if name == "fd_psync" or not self._config.allow_fsync
+            ]
+            linker.allow_shadowing = True
+            for sync_name in sync_traps:
+                try:
+                    linker.define(
                         store,
-                        wasmtime.FuncType(
-                            [wasmtime.ValType.i32()],
-                            [wasmtime.ValType.i32()],
+                        "wasi_snapshot_preview1",
+                        sync_name,
+                        wasmtime.Func(
+                            store,
+                            wasmtime.FuncType(
+                                [wasmtime.ValType.i32()],
+                                [wasmtime.ValType.i32()],
+                            ),
+                            _fsync_trap,
                         ),
-                        _fsync_trap,
-                    ),
-                )
-            except Exception:
-                # fd_psync not available in this wasmtime version — skip
-                pass
+                    )
+                except Exception:
+                    # Not definable in this wasmtime version — skip
+                    pass
 
             # Cached modules must only be instantiated under the pool's
             # per-engine lock — wasmtime Module instances are not thread-safe.
@@ -1121,6 +1347,7 @@ def run_wasm(
     use_subprocess: bool = False,
     abi: str = "auto",
     memory64: bool | None = None,
+    max_wasm_bytes: int | None = None,
 ) -> ExecutionResult:
     """Convenience wrapper for single-shot WASM execution.
 
@@ -1130,13 +1357,16 @@ def run_wasm(
             sandbox base dir, thread/memory64 baseline). Flat keyword
             arguments, when given, override the matching ``config``
             fields; with neither, WASIConfig defaults apply. For state
-            stores, engine-pool control and external interrupts use
-            :meth:`WASISandbox.run` directly.
+            stores, engine-pool control, external interrupts and tenant
+            accounting (ADR-012) use :meth:`WASISandbox.run` directly.
         stdin_data: Data to provide on stdin (subject to STDIN_MAX_BYTES).
         abi: "auto" (default — detects components by magic bytes),
             "preview1" or "component".
         memory64: Enable Wasm 3.0 memory64 (64-bit address space) for this
             run. Off by default.
+        max_wasm_bytes: Module size cap for this run, overriding the
+            config's value (0 = no cap — the opt-in for BYO interpreter
+            binaries). Unset keeps the config/profile cap.
     """
     if config is None:
         config = WASIConfig()
@@ -1152,6 +1382,8 @@ def run_wasm(
         config = replace(config, allow_env=allow_env)
     if memory64 is not None:
         config = replace(config, memory64=memory64)
+    if max_wasm_bytes is not None:
+        config = replace(config, max_wasm_bytes=max_wasm_bytes)
     sandbox = WASISandbox(config=config)
     result = sandbox.run(
         module_path,

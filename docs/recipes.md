@@ -138,6 +138,52 @@ baseline). WASI 0.3 support is deferred until the Component Model 1.0 spec
 is final (target late 2026/2027), the wasmtime patch line ships in the
 Python wheels, and the 0.3 surface gets its own budget qualification.
 
+## Interpreter guests (bring your own)
+
+ADR-009 Tier 2: Cell ships no interpreters, but it will run one as the guest —
+the interpreter is just a module, and the same boundary applies to it. The
+default budgets are calibrated for a compiled module, so an interpreter needs
+the `interpreter` profile (or the same four knobs by hand):
+
+| Knob | Default | Interpreter profile | Why the interpreter needs more |
+|---|---|---|---|
+| `max_wasm_bytes` | 32 MiB | 512 MiB | interpreter binaries are 10–150 MB |
+| `max_memory_mb` | 128 | 1024 | runtime heap + the guest's own module table |
+| `max_fuel` | 1 000 000 | 1 000 000 000 | boot alone burns ~10⁸ (measured, see below) |
+| `timeout_seconds` | 30 | 120 | startup is not instant |
+| `io_cpu_seconds` | 2.0 | 30.0 | the ISOLATED worker must first compile a 22 MB guest — measured 5.40 s of host CPU per run, which the 2.0 s default wall kills before CPython starts |
+
+That is the whole profile — five values, and no change to the security
+posture. In particular `allow_fsync` stays `False`: CPython imports
+`fd_datasync` at startup but never calls it, which is measured
+(`benchmarks/interpreter_guest/probe_datasync.py`), so the sync wall stays
+closed for interpreter guests exactly as it is for compiled ones.
+
+Pinned example — CPython-WASI 3.10 (`python3.10.wasm`, sha256
+`8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02`,
+22 363 477 bytes, from the `v3.10-alpha` release of
+`singlestore-labs/python-wasi`):
+
+```bash
+ephemora-cell run opt/wasi-python/bin/python3.10.wasm \
+  --profile interpreter --isolated \
+  --allow-dirs "$PWD/opt/wasi-python/lib/python3.10::/opt/wasi-python/lib/python3.10" \
+  -- -c "print('hello from CPython in the Cell')"
+```
+
+That build carries no embedded stdlib, hence the stdlib preopen on the guest
+path CPython was configured with. Two consequences worth knowing before you
+depend on this: the preopen is **writable**, so CPython creates
+`__pycache__/*.pyc` inside it and an unprimed tree costs up to 5× the fuel per
+boot (357 M → 71.5 M over six boots, measured) while wall time moves only by
+about 100 ms —
+so budget by fuel, not by latency; and the profile raises budgets only — it
+grants no filesystem or environment access and no language claim.
+Measured cost per call and the memory breakpoint:
+`benchmarks/interpreter_guest/measure.py` →
+`benchmarks/results/2026-10-02/interpreter_guest.json`. Full caveats and both
+API and CLI forms: [languages.md](languages.md).
+
 ## FastAPI Integration
 
 The engine is synchronous. Run in a thread pool for async environments:

@@ -12,27 +12,175 @@ mediator — dependency-free (urllib), policy-first, fail-closed.
 Security properties:
   * the request document is UNTRUSTED input (unknown top-level keys are
     rejected, not ignored);
-  * the URL must match an allowlist entry (scheme + host + path prefix);
-    userinfo, fragments and non-allowlisted schemes are rejected;
-  * credentials are added by the HOST, never taken from the artifact;
+  * the URL must match an allowlist entry (scheme + host + port + path),
+    where a path entry is a SEGMENT prefix: ``/v1`` admits ``/v1`` and
+    ``/v1/x`` but never ``/v1-admin/x``;
+  * userinfo, fragments, non-allowlisted schemes and dot-segment paths
+    (``..``, ``%2e%2e``) are rejected before any socket is opened;
+  * redirects are revalidated per hop against the same policy and must keep
+    the scheme — an off-policy ``Location:`` is refused, not fetched (the
+    stdlib default opener would otherwise follow it, including to link-local
+    metadata addresses, while the audit entry still said "allowed");
+  * the HOST sends no credentials: ``Authorization``/``Cookie``-style headers
+    from the artifact are refused (see _ALLOWED_HEADER_NAMES) — header
+    injection is not implemented, so nothing claims it;
   * response bodies are size-capped and clocked by a timeout;
-  * every decision (allowed or denied) yields an audit entry — callers
-    attach these to their execution reports (MCP ``_meta``).
+  * every decision (allowed or denied) yields an audit entry carrying the
+    hops actually attempted — callers attach these to their execution
+    reports (MCP ``_meta``).
 """
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ephemora_cell.grant_ledger import GrantLedger
 
 REQUEST_FILENAME = "sidecar.request.json"
 RESPONSE_FILENAME = "sidecar.response.json"
 _MAX_REQUEST_BYTES = 64 * 1024
 _ALLOWED_HEADER_NAMES = {"accept", "content-type", "user-agent"}
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+class _SSRFBlocked(Exception):
+    """A host resolved (via the guarded resolver) only to forbidden addresses.
+
+    Raised from inside the socket resolution the SAME connection then uses, so
+    the decision and the connect are one atomic step — there is no window for a
+    DNS answer to rebind to a private/link-local address between "checked" and
+    "connected". It deliberately does NOT subclass OSError: urllib's transport
+    wraps OSError into URLError, which would blur this policy denial into a
+    generic fetch failure. Keeping it a plain Exception lets it surface raw to
+    :func:`execute_request`, which reports it as a ``denied`` audit.
+    """
+
+    def __init__(self, host: str, reason: str) -> None:
+        super().__init__(f"egress host {host!r}: {reason}")
+        self.host = host
+        self.reason = reason
+
+
+#: Addresses an egress host may never resolve to. An allowlist entry that is an
+#: IP *literal* is operator intent and bypasses this; only hostnames — the
+#: surface a rebinding attack drives — are filtered.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _ip_blocked(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return True  # unparseable — fail closed
+    if (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    ):
+        return True
+    # RFC 6598 CGNAT is not flagged is_private on every Python release, but it
+    # routes to provider-side space no egress should reach.
+    return addr.version == 4 and addr in _CGNAT
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+_real_getaddrinfo = socket.getaddrinfo
+_egress_tls = threading.local()
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    """A ``socket.getaddrinfo`` shim active only inside a mediated fetch.
+
+    Outside :func:`_egress_context` the thread has no egress context and this is
+    a transparent pass-through to the real resolver. Inside it, a hostname is
+    resolved through the injected resolver and every forbidden address is
+    dropped; a name with no public answer raises :class:`_SSRFBlocked`. Because
+    the connection is then made from THIS returned list, the check and the use
+    are the same call — the rebinding TOCTOU the redirect fix left open is
+    closed here. IP-literal hosts are the operator's explicit choice and pass
+    unfiltered (so a deliberate localhost/metadata endpoint still works).
+    """
+    ctx = getattr(_egress_tls, "ctx", None)
+    if ctx is None:
+        return _real_getaddrinfo(host, *args, **kwargs)
+    infos = ctx["resolver"](host, *args, **kwargs)
+    if host is None or _is_ip_literal(str(host)):
+        return infos
+    safe = [entry for entry in infos if not _ip_blocked(entry[4][0])]
+    if not safe:
+        raise _SSRFBlocked(str(host), "resolves only to blocked/private addresses")
+    return safe
+
+
+def _install_getaddrinfo_guard() -> None:
+    """Swap the guard in once; idempotent, and transparent when no ctx is set."""
+    if socket.getaddrinfo is not _guarded_getaddrinfo:
+        socket.getaddrinfo = _guarded_getaddrinfo
+
+
+@contextmanager
+def _egress_context(resolver: Callable):
+    """Activate the resolver shim for this thread for one mediated fetch."""
+    previous = getattr(_egress_tls, "ctx", None)
+    _egress_tls.ctx = {"resolver": resolver}
+    try:
+        yield
+    finally:
+        _egress_tls.ctx = previous
+
+
+def _has_dot_segment(path: str) -> bool:
+    """True if any path segment is ``.``/``..`` — before or after decoding.
+
+    Checked on the raw path AND on the percent-decoded path: the writer of an
+    allowlist prefix cannot know which form a client or a redirect will use,
+    and ``%2e%2e`` reaches the same file as ``..`` once anything normalizes it.
+    """
+    for candidate in (path, urllib.parse.unquote(path)):
+        segments = candidate.split("/")
+        if any(segment in (".", "..") for segment in segments):
+            return True
+    return False
+
+
+def _path_allowed(request_path: str, entry_path: str) -> bool:
+    """Segment-boundary prefix match, not a string prefix match.
+
+    ``/v1`` as an entry admits ``/v1`` and ``/v1/anything``. It used to admit
+    ``/v1-admin/keys`` too, because ``"/v1-admin/keys".startswith("/v1")`` —
+    and on API gateways ``-admin`` is a routinely routable sibling prefix. An
+    entry with no path means the whole host, which is the operator's own
+    decision and is stated as such rather than reached by accident.
+    """
+    if not entry_path or entry_path == "/":
+        return True
+    if request_path == entry_path:
+        return True
+    boundary = entry_path if entry_path.endswith("/") else entry_path + "/"
+    return request_path.startswith(boundary)
 
 
 @dataclass(frozen=True)
@@ -43,6 +191,11 @@ class EgressPolicy:
     allowed_methods: tuple[str, ...] = ("GET", "POST")
     max_response_bytes: int = 64 * 1024
     timeout_seconds: float = 10.0
+    # Resolver used to resolve an egress hostname before connecting (SSRF guard).
+    # None -> the real socket.getaddrinfo. Injectable so a deployment can supply
+    # an internal resolver and tests can drive it deterministically; it never
+    # changes the allowlist decision, only the address a name resolves to.
+    resolver: Callable | None = None
 
     def __post_init__(self) -> None:
         for endpoint in self.allowed_endpoints:
@@ -56,6 +209,16 @@ class EgressPolicy:
                 raise ValueError(
                     f"allowed_endpoints entry {endpoint!r} must not carry "
                     "userinfo or a fragment"
+                )
+            if parsed.query:
+                raise ValueError(
+                    f"allowed_endpoints entry {endpoint!r} must not carry a "
+                    "query — a path prefix never matches on query parameters"
+                )
+            if _has_dot_segment(parsed.path) or "%" in parsed.path:
+                raise ValueError(
+                    f"allowed_endpoints entry {endpoint!r} must be a literal "
+                    "path prefix without dot segments or percent-encoding"
                 )
         for method in self.allowed_methods:
             if method.upper() not in ("GET", "POST", "PUT", "DELETE", "HEAD"):
@@ -79,6 +242,56 @@ class EgressAuditEntry:
     status: int | None = None
     bytes: int | None = None
     elapsed_ms: float | None = None
+    # Redirect targets actually followed (success) or attempted (refusal).
+    # Without this, an audit line that says "allowed, 200" cannot tell whether
+    # the bytes came from the allowlisted URL or two hops away from it.
+    hops: tuple[str, ...] = ()
+    # For a grant-enforced denial: which gate refused (``revoked`` /
+    # ``not_before`` / ``expired`` / ``max_calls``), so a transport layer can
+    # report it without parsing prose. None for allowlist/plain-policy denials.
+    limit: str | None = None
+
+
+class _RedirectTrail:
+    """What the redirect revalidator saw, for the audit entry."""
+
+    def __init__(self) -> None:
+        self.attempted: list[str] = []
+        self.followed: list[str] = []
+        self.denied_reason: str | None = None
+
+
+class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only when the target passes the SAME policy.
+
+    The stdlib default opener follows 301/302/303/307/308 by itself (up to 10
+    hops) and hands every scheme except ``http``/``https``/``ftp`` to the
+    error path — which means an allowlisted host answering
+    ``Location: http://169.254.169.254/latest/meta-data/`` used to reach the
+    link-local metadata interface while our audit entry still reported
+    "allowed". Refusing here is the minimal correct fix: return None and the
+    stdlib raises HTTPError instead of dispatching the new request.
+    """
+
+    def __init__(self, policy: EgressPolicy, trail: _RedirectTrail) -> None:
+        self._policy = policy
+        self._trail = trail
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self._trail.attempted.append(newurl)
+        if _url_matches_allowlist(self._policy, newurl) is None:
+            self._trail.denied_reason = (
+                f"redirect ({code}) to {newurl!r} is not on the egress allowlist"
+            )
+            return None
+        origin_scheme = urllib.parse.urlsplit(req.full_url).scheme
+        if urllib.parse.urlsplit(newurl).scheme != origin_scheme:
+            self._trail.denied_reason = (
+                f"redirect ({code}) changes scheme to {newurl!r}"
+            )
+            return None
+        self._trail.followed.append(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 @dataclass(frozen=True)
@@ -121,10 +334,15 @@ def parse_request_document(raw: bytes | str) -> EgressRequest:
 
 def _url_matches_allowlist(policy: EgressPolicy, url: str) -> str | None:
     """Return the matching endpoint entry, or None (fail closed)."""
-    parsed = urllib.parse.urlsplit(url)
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
     if parsed.scheme not in ("https", "http"):
         return None
     if parsed.username or parsed.password or parsed.fragment:
+        return None
+    if _has_dot_segment(parsed.path):
         return None
     path = parsed.path or "/"
     for endpoint in policy.allowed_endpoints:
@@ -132,9 +350,9 @@ def _url_matches_allowlist(policy: EgressPolicy, url: str) -> str | None:
         if (
             parsed.scheme == entry.scheme
             and parsed.hostname == entry.hostname
-            and (entry.port or {"https": 443, "http": 80}[entry.scheme])
-            == (parsed.port or {"https": 443, "http": 80}[parsed.scheme])
-            and path.startswith(entry.path or "/")
+            and (parsed.port or _DEFAULT_PORTS[parsed.scheme])
+            == (entry.port or _DEFAULT_PORTS[entry.scheme])
+            and _path_allowed(path, entry.path)
         ):
             return endpoint
     return None
@@ -151,11 +369,22 @@ def validate_request(policy: EgressPolicy, request: EgressRequest) -> EgressAudi
         )
     match = _url_matches_allowlist(policy, request.url)
     if match is None:
+        try:
+            path = urllib.parse.urlsplit(request.url).path
+        except ValueError:
+            path = ""
+        if _has_dot_segment(path):
+            reason = (
+                "path contains a dot segment (.. or %2e%2e) — refused before "
+                "any socket is opened"
+            )
+        else:
+            reason = "url not allowed by egress policy"
         return EgressAuditEntry(
             url=request.url,
             method=request.method,
             decision="denied",
-            reason="url not allowed by egress policy",
+            reason=reason,
         )
     bad_headers = [k for k in request.headers if k.lower() not in _ALLOWED_HEADER_NAMES]
     if bad_headers:
@@ -178,6 +407,28 @@ def execute_request(
 ) -> EgressResult:
     """Execute an already-validated request (host-side, trusted context)."""
     started = time.monotonic()
+    trail = _RedirectTrail()
+    # A custom opener, not urlopen: the default one follows redirects without
+    # asking the policy. Only http/https can be reached at all — the allowlist
+    # rejects every other scheme up front, and _RevalidatingRedirectHandler
+    # rejects a redirect that leaves the scheme or the allowlist.
+    #
+    # ProxyHandler({}) is load-bearing, not cosmetics: with an environment
+    # ``http_proxy`` set, urllib resolves and connects to the PROXY and never
+    # asks for the target hostname (measured 2026-10-04 — the shim was called
+    # with ``('proxy.internal', 8080)`` for a URL pointing at
+    # ``api.example.com``). The resolve-time IP guard would then vet the proxy
+    # address while the actual name resolution happened somewhere else, which
+    # voids both the SSRF filter and the "checked IP == connected IP" claim.
+    # A mediated egress goes direct to the allowlisted origin; if a deployment
+    # needs a proxy, that is an explicit operator decision, never one inherited
+    # from the ambient environment.
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _RevalidatingRedirectHandler(policy, trail),
+    )
+    _install_getaddrinfo_guard()
+    resolver = policy.resolver or _real_getaddrinfo
     try:
         req = urllib.request.Request(
             request.url,
@@ -185,23 +436,68 @@ def execute_request(
             method=request.method,
             headers=request.headers or {},
         )
-        # nosec B310 below — urlopen's file:/custom-scheme reach is closed
-        # upstream: audit_request() → _url_matches_allowlist() rejects every
-        # scheme except http/https before this executes; this function's
-        # contract is "already-validated request".
-        with urllib.request.urlopen(  # nosec B310 — allowlist enforces http/https only
-            req, timeout=policy.timeout_seconds
-        ) as resp:
+        # The SSRF guard is active only for this fetch (this thread): every
+        # connect — the request and each followed redirect — resolves through
+        # it, so a hostname that answers with a private/link-local address is
+        # dropped before the socket opens, and a name with no public answer is
+        # refused. validate-and-use are the same getaddrinfo call, so there is
+        # no rebinding window between checking the URL and connecting.
+        with (
+            _egress_context(resolver),
+            opener.open(  # nosec B310 — scheme is
+                # pinned to http/https by _url_matches_allowlist (request) and the
+                # redirect revalidator (every hop); no file:/ftp: path reaches here.
+                req,
+                timeout=policy.timeout_seconds,
+            ) as resp,
+        ):
             body = resp.read(policy.max_response_bytes + 1)
             status = int(resp.status)
+    except _SSRFBlocked as e:
+        elapsed = (time.monotonic() - started) * 1000
+        reason = f"egress host blocked (SSRF): {e.reason}"
+        return EgressResult(
+            response_doc={
+                "ok": False,
+                "error": reason,
+                "elapsed_ms": round(elapsed, 3),
+            },
+            audit=EgressAuditEntry(
+                url=request.url,
+                method=request.method,
+                decision="denied",
+                reason=reason,
+                elapsed_ms=elapsed,
+                hops=tuple(trail.attempted),
+                limit="ssrf",
+            ),
+        )
     except (urllib.error.URLError, OSError, ValueError) as e:
         elapsed = (time.monotonic() - started) * 1000
+        if trail.denied_reason:
+            # A policy refusal is not a transport failure.
+            return EgressResult(
+                response_doc={
+                    "ok": False,
+                    "error": trail.denied_reason,
+                    "elapsed_ms": round(elapsed, 3),
+                },
+                audit=EgressAuditEntry(
+                    url=request.url,
+                    method=request.method,
+                    decision="denied",
+                    reason=trail.denied_reason,
+                    elapsed_ms=elapsed,
+                    hops=tuple(trail.attempted),
+                ),
+            )
         entry = EgressAuditEntry(
             url=request.url,
             method=request.method,
             decision="allowed",
             reason="fetch failed (see response doc)",
             elapsed_ms=elapsed,
+            hops=tuple(trail.followed),
         )
         return EgressResult(
             response_doc={
@@ -223,6 +519,7 @@ def execute_request(
         status=status,
         bytes=len(body),
         elapsed_ms=elapsed,
+        hops=tuple(trail.followed),
     )
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -274,3 +571,203 @@ def run_sidecar_cycle(
     """Convenience: mediate and return (response_doc, audit_entry)."""
     result = mediate(policy, raw)
     return result.response_doc, result.audit
+
+
+def mediate_with_grant(
+    grant: EgressGrant, ledger: GrantLedger, raw: bytes | str, *, now=None
+) -> EgressResult:
+    """Mediate a request under a SIGNED grant whose window/cap/revocation are
+    enforced by ``ledger`` (ADR-013) — not the allowlist-only :func:`mediate`.
+
+    Order matters for honesty about what a grant slot costs:
+      1. parse the untrusted artifact and validate it against the grant's own
+         allowlist (:meth:`EgressGrant.policy`) — a request that fails here is
+         refused WITHOUT spending a grant call, so a caller probing endpoints
+         cannot drain a cap it will never reach;
+      2. charge one call via :meth:`GrantLedger.record_call` (revocation /
+         ``not_before`` / ``not_after`` / ``max_calls`` decided and written in
+         one critical section);
+      3. only on approval, execute the fetch.
+
+    The grant's ``not_*``/``max_calls`` fields stop being schema-only here:
+    this is the shipped consumer that reads them. Revocation is effective at
+    THIS call, not an in-flight one.
+    """
+    policy = grant.policy()
+    try:
+        request = parse_request_document(raw)
+    except ValueError as e:
+        entry = EgressAuditEntry(
+            url="<unparsed>",
+            method="?",
+            decision="denied",
+            reason=f"invalid request artifact: {e}",
+        )
+        return EgressResult(
+            response_doc={"ok": False, "error": f"invalid request artifact: {e}"},
+            audit=entry,
+        )
+    audit = validate_request(policy, request)
+    if audit.decision == "denied":
+        return EgressResult(
+            response_doc={
+                "ok": False,
+                "error": f"denied by egress policy: {audit.reason}",
+            },
+            audit=audit,
+        )
+    decision = ledger.record_call(grant, now=now)
+    if not decision.allowed:
+        grant_entry = EgressAuditEntry(
+            url=request.url,
+            method=request.method,
+            decision="denied",
+            reason=f"egress grant: {decision.reason}",
+            limit=decision.limit,
+        )
+        return EgressResult(
+            response_doc={"ok": False, "error": f"egress grant: {decision.reason}"},
+            audit=grant_entry,
+        )
+    return execute_request(policy, request, audit=audit)
+
+
+#: Schema tag of the frozen grant envelope. A future version coexists by tag.
+GRANT_SCHEMA_VERSION = "egress-grant.v1"
+
+
+@dataclass(frozen=True)
+class EgressGrant:
+    """A SIGNED egress allowance — the envelope an enforcement consumer reads.
+
+    This freezes the SHAPE of a grant (who, to what, until when, how much,
+    under which key) so the schema can be published and interoperated on.
+    :meth:`policy` yields the :class:`EgressPolicy` the mediator checks;
+    ``not_before`` / ``not_after`` / ``max_calls`` and revocation are ENFORCED
+    by :class:`~ephemora_cell.grant_ledger.GrantLedger`, the shipped consumer
+    that reads them (ADR-013, Prio 1). :func:`mediate_with_grant` is the path
+    that applies all of it; :func:`mediate` alone stays allowlist-only.
+
+    What is still NOT claimed, and stays true with a ledger attached: a
+    revocation or a cap bites at the NEXT mediated call, never an in-flight
+    one, and a delivered response is not recalled. The grant in isolation is
+    only ever the allowlist — the window/cap/revocation only mean something
+    while a :class:`GrantLedger` is reading them.
+
+    ``canonical_bytes()`` is RFC 8785 (JCS) over the grant's fields — the exact
+    bytes an issuer signs and a verifier recomputes with the same recipe as
+    every other Cell record. Signature verification on the execution path is
+    still the open piece (the loader, not the enforcement, is unsigend).
+    """
+
+    grant_id: str
+    tool: str
+    allowed_endpoints: tuple[str, ...]
+    allowed_methods: tuple[str, ...] = ("GET", "POST")
+    not_before: str | None = None  # ISO-8601 UTC, or None = no lower bound
+    not_after: str | None = None  # ISO-8601 UTC, or None = does not expire
+    max_calls: int | None = None  # None = uncapped (and NOT enforced today)
+    key_id: str | None = None  # which operator key is expected to sign it
+
+    def __post_init__(self) -> None:
+        if not self.grant_id:
+            raise ValueError("grant_id must be non-empty")
+        if not self.tool:
+            raise ValueError("tool must be non-empty")
+        # Fail closed on the ONE part that is real today: the allowlist the
+        # mediator will actually apply. The time/usage fields above are
+        # schema-only and validated no further than that.
+        self.policy()
+
+    def policy(self) -> EgressPolicy:
+        """The endpoint/method allowlist this grant describes (the enforced part)."""
+        return EgressPolicy(
+            allowed_endpoints=self.allowed_endpoints,
+            allowed_methods=self.allowed_methods,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "grant_version": GRANT_SCHEMA_VERSION,
+            "grant_id": self.grant_id,
+            "tool": self.tool,
+            "allowed_endpoints": list(self.allowed_endpoints),
+            "allowed_methods": list(self.allowed_methods),
+            "not_before": self.not_before,
+            "not_after": self.not_after,
+            "max_calls": self.max_calls,
+            "key_id": self.key_id,
+            # Stated in the payload itself: a verifier must never infer more
+            # assurance than the schema currently carries.
+            "enforced": "allowlist-only",
+        }
+
+    def canonical_bytes(self) -> bytes:
+        from ephemora_cell.execution_report import canonical_bytes
+
+        return canonical_bytes(self.to_dict())
+
+    @classmethod
+    def from_document(cls, doc: dict) -> EgressGrant:
+        """Rebuild a grant from its :meth:`to_dict` shape — fail closed.
+
+        The inverse of ``to_dict``: a stored grant file is read back through
+        this, so the loader accepts exactly what an issuer serialises. The
+        schema tag is checked (an unknown ``grant_version`` is refused, not
+        guessed), ``enforced`` is ignored (it is a description of the running
+        enforcement, not a grant input), and the allowlist re-validates through
+        :meth:`__post_init__`.
+        """
+        if not isinstance(doc, dict):
+            raise ValueError("grant document must be a JSON object")
+        version = doc.get("grant_version")
+        if version != GRANT_SCHEMA_VERSION:
+            raise ValueError(
+                f"unsupported grant_version {version!r} (expected "
+                f"{GRANT_SCHEMA_VERSION!r})"
+            )
+        for field in ("grant_id", "tool", "allowed_endpoints", "allowed_methods"):
+            if field not in doc:
+                raise ValueError(f"grant document is missing {field!r}")
+        return cls(
+            grant_id=doc["grant_id"],
+            tool=doc["tool"],
+            allowed_endpoints=tuple(doc["allowed_endpoints"]),
+            allowed_methods=tuple(doc["allowed_methods"]),
+            not_before=doc.get("not_before"),
+            not_after=doc.get("not_after"),
+            max_calls=doc.get("max_calls"),
+            key_id=doc.get("key_id"),
+        )
+
+
+def load_egress_grants(grants_dir) -> tuple[dict[str, EgressGrant], list[str]]:
+    """Read ``*.egress.grant.json`` files into tool-name -> grant, fail closed.
+
+    Returns ``(grants, errors)`` — the loader is deliberately not silent: every
+    file it could not accept is reported, so a caller can refuse to start rather
+    than run with a cap or expiry the operator believed was in force. NO
+    SIGNATURE VERIFICATION happens here (ADR-013): a file the host reads is
+    trusted as operator intent; authenticating the grant's Ed25519 envelope on a
+    startup path is the one open item, not yet implemented.
+    """
+    directory = Path(grants_dir)
+    if not directory.is_dir():
+        raise NotADirectoryError(f"grants directory does not exist: {directory}")
+    grants: dict[str, EgressGrant] = {}
+    errors: list[str] = []
+    for file in sorted(directory.glob("*.egress.grant.json")):
+        try:
+            doc = json.loads(file.read_text(encoding="utf-8"))
+            grant = EgressGrant.from_document(doc)
+        except (OSError, ValueError) as e:
+            errors.append(f"{file.name}: {e}")
+            continue
+        if grant.tool in grants:
+            errors.append(
+                f"{file.name}: duplicate grant for tool {grant.tool!r} "
+                f"(already from {grants[grant.tool]})"
+            )
+            continue
+        grants[grant.tool] = grant
+    return grants, errors

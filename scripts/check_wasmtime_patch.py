@@ -3,17 +3,21 @@
 
 GHSA-m63x-6p34-q65x (fuel amplification via call_ref/try_table) is patched
 in wasmtime 48.0.3 / 49.0.1; GHSA-vqjp-4c8c-hfgg (CVE-2026-47261,
-filesystem escape) in 47.0.4. As of 2026-09-24 none of these exist as
-Python wheels on PyPI (latest was 49.0.0, itself affected), so Ephemora
-Cell runs its interim posture on wasmtime 47.0.1 with the affected
-proposals enforced-off (see SECURITY_ADVISORY_PLAN_2026-09-24.md).
+filesystem escape) in 47.0.4. The 2026-10-02 wave (GHSA-j366-h8gg-77pm,
+GHSA-gqmc-89g8-p25r, GHSA-96f6-r43r-8c24, RUSTSEC-2026-0324) is patched only
+one step further: 36.0.17 / 48.0.4 / 49.0.2. So 47.0.4 and 48.0.3 close
+individual advisories but NOT the whole set — only the 48.0.4 / 49.0.2 lines
+do. As of 2026-10-03 none of these exist as Python wheels on PyPI (the
+binding publishes one wheel per major: 47.0.1, 48.0.0, 49.0.0 — no patch
+releases at all), so Ephemora Cell runs its interim posture on wasmtime
+47.0.1 with the affected proposals enforced-off (see SECURITY.md).
 
 Run this (manually or from CI) to learn when the upgrade path M2 opens:
 
     python scripts/check_wasmtime_patch.py
 
-Exit codes: 0 = a fully-patched target is available, 1 = still waiting.
-Stdlib only — no dependencies.
+Exit codes: 0 = a target closing the full advisory set is available,
+1 = still waiting. Stdlib only — no dependencies.
 """
 
 from __future__ import annotations
@@ -22,8 +26,11 @@ import json
 import sys
 import urllib.request
 
-# Candidate targets, most preferred first.
-TARGETS = ("48.0.3", "49.0.1", "47.0.4")
+# Candidate targets, most preferred first. The first two close every advisory
+# in the set above; 47.0.4 is listed because it removes the filesystem-escape
+# class, but it is NOT an M2 trigger on its own.
+TARGETS = ("48.0.4", "49.0.2", "47.0.4")
+FULLY_PATCHED = TARGETS[:2]
 REQUIRED_WHEEL_MARKERS = ("macosx", "manylinux")  # Cell ships macOS + Linux
 
 
@@ -55,7 +62,7 @@ def main() -> int:
     print("wasmtime-Patch-Wheels für die 2026er Security-Advisories:")
     for version in TARGETS:
         print(summarize(version))
-    for version in TARGETS[:2]:  # fully patched targets: 48.0.3, 49.0.1
+    for version in FULLY_PATCHED:
         data = fetch_release(version)
         if data is None:
             continue

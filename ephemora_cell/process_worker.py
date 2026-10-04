@@ -38,12 +38,21 @@ if TYPE_CHECKING:
     from .wasi_02 import ComponentSandbox
 
 from .execution_report import ExecutionReport
-from .wasi_runtime import ExecutionStatus, WASIConfig, WASISandbox
+from .wasi_runtime import (
+    DEFAULT_MAX_WASM_BYTES,
+    ExecutionStatus,
+    WASIConfig,
+    WASISandbox,
+    module_size_cap_error,
+)
 
-# Hard cap for guest .wasm files (checked in worker and parent).
-DEFAULT_MAX_WASM_BYTES = 32 * 1024 * 1024
+# Re-exported from wasi_runtime (single source) — the MCP tool registry load
+# guard imports it from here. DEFAULT_MAX_WASM_BYTES stays 32 MiB; a run that
+# needs a larger module raises WASIConfig.max_wasm_bytes (0 = no cap).
 # Worker FD cap — bounds guest fd-draining per process.
 _RLIMIT_NOFILE = 256
+
+__all__ = ["DEFAULT_MAX_WASM_BYTES", "main", "run_worker"]
 # Address-space headroom above the guest memory limit (best effort).
 _RLIMIT_MARGIN_BYTES = 64 * 1024 * 1024
 # RLIMIT_AS floor. wasmtime reserves a large virtual address space per
@@ -183,12 +192,18 @@ def run_worker(
     config: WASIConfig,
     args: list[str] | None = None,
     stdin_data: str | None = None,
-    max_wasm_bytes: int = DEFAULT_MAX_WASM_BYTES,
+    max_wasm_bytes: int | None = None,
     abi: str = "auto",
     expected_sha256: str | None = None,
 ) -> dict:
-    """Execute one sandboxed run and return the report dict (no process exit)."""
+    """Execute one sandboxed run and return the report dict (no process exit).
+
+    ``max_wasm_bytes`` overrides the config cap; unset takes
+    ``config.max_wasm_bytes`` so the cap a caller configured is what this
+    process enforces (0 = no cap).
+    """
     start = time.monotonic()
+    cap = config.max_wasm_bytes if max_wasm_bytes is None else max_wasm_bytes
 
     resolved = Path(wasm_path).resolve()
     if not resolved.is_file():
@@ -202,15 +217,13 @@ def run_worker(
             "sandbox_dir": None,
             "baseline_ms": (time.monotonic() - start) * 1000,
         }
-    if resolved.stat().st_size > max_wasm_bytes:
+    cap_error = module_size_cap_error(resolved, cap)
+    if cap_error is not None:
         return {
             "status": "error",
             "exit_code": 1,
             "stdout": "",
-            "stderr": (
-                f"WASM module exceeds size limit of {max_wasm_bytes} bytes: "
-                f"{resolved.stat().st_size}"
-            ),
+            "stderr": cap_error,
             "elapsed_ms": (time.monotonic() - start) * 1000,
             "fuel_consumed": None,
             "sandbox_dir": None,
@@ -310,8 +323,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-wasm-bytes",
         type=int,
-        default=DEFAULT_MAX_WASM_BYTES,
-        help="maximum .wasm file size in bytes",
+        default=None,
+        help="override the payload config's module size cap "
+        "(unset = config.max_wasm_bytes, 0 = no cap)",
     )
     parser.add_argument(
         "--abi",

@@ -73,6 +73,60 @@ class TestRunInProcess:
         assert "Traceback" not in out.err
 
 
+class TestTenantFlags:
+    """ADR-012 across PROCESSES: one book, several invocations, a cap that bites."""
+
+    def test_tenant_without_a_book_is_a_clean_error(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        wasm = _write_module(tmp_path, PRINTING_WAT)
+        code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--tenant", "acme"])
+        assert code == 1
+        assert "--tenant-book" in out.err
+        assert "Traceback" not in out.err
+
+    def test_two_runs_accumulate_and_the_third_is_refused(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        from ephemora_cell import TenantStore
+
+        wasm = _write_module(tmp_path, PRINTING_WAT)
+        book = tmp_path / "book.jsonl"
+        argv = [
+            "run",
+            str(wasm),
+            "--json",
+            "--tenant",
+            "acme",
+            "--tenant-book",
+            str(book),
+            "--tenant-max-runs",
+            "2",
+        ]
+        for _ in range(2):
+            code, out = _run(monkeypatch, capsys, argv)
+            assert code == 0, out.err
+            doc = json.loads(out.out)
+            assert doc["security_baseline"]["tenant"] == "acme"
+            assert len(doc["security_baseline"]["tenant_budget_ref"]) == 16
+        code, out = _run(monkeypatch, capsys, argv)
+        assert code == 1
+        assert json.loads(out.out)["status"] == "error"
+        assert "tenant budget exhausted: runs" in out.err
+        usage = TenantStore(book).usage("acme")
+        assert (usage.runs, usage.refused) == (2, 1)
+
+    def test_an_unaccounted_run_attests_no_tenant_keys(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        wasm = _write_module(tmp_path, PRINTING_WAT)
+        code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--json"])
+        assert code == 0
+        baseline = json.loads(out.out)["security_baseline"]
+        assert "tenant" not in baseline
+        assert "tenant_budget_ref" not in baseline
+
+
 class TestInspectInProcess:
     def test_core_module_summary(self, monkeypatch, capsys, tmp_path):
         wasm = _write_module(tmp_path, PRINTING_WAT)

@@ -168,6 +168,49 @@ class TestPolicyAndInputDigests:
         )
         assert a.config_fingerprint != b.config_fingerprint
 
+    def test_policy_fingerprint_sees_both_posture_knobs(self):
+        """max_wasm_bytes and allow_fsync ARE posture. A fingerprint that
+        ignores them lets an opened run certify itself as a closed one."""
+        closed = PreExecutionRecord.build(
+            module_bytes=b"x", config=WASIConfig(), record_id="i", timestamp="t"
+        )
+        open_sync = PreExecutionRecord.build(
+            module_bytes=b"x",
+            config=WASIConfig(allow_fsync=True),
+            record_id="i",
+            timestamp="t",
+        )
+        open_cap = PreExecutionRecord.build(
+            module_bytes=b"x",
+            config=WASIConfig(max_wasm_bytes=0),
+            record_id="i",
+            timestamp="t",
+        )
+        assert closed.config_fingerprint != open_sync.config_fingerprint
+        assert closed.config_fingerprint != open_cap.config_fingerprint
+
+    def test_pre_exec_record_attests_the_config_not_the_default(self):
+        """The record a verifier sees BEFORE the run must carry the same
+        posture the run will actually have — this used to be the hardcoded
+        default regardless of the config passed in."""
+        record = PreExecutionRecord.build(
+            module_bytes=b"x",
+            config=WASIConfig(allow_fsync=True, max_wasm_bytes=0),
+            record_id="i",
+            timestamp="t",
+        )
+        baseline = record.security_baseline
+        assert baseline["allow_fsync"] is True
+        assert baseline["max_wasm_bytes"] == 0
+        # 0 means "no cap", which a bare number reads as the strictest limit.
+        assert baseline["max_wasm_bytes_unlimited"] is True
+
+        default = PreExecutionRecord.build(
+            module_bytes=b"x", config=WASIConfig(), record_id="i", timestamp="t"
+        ).security_baseline
+        assert default["allow_fsync"] is False
+        assert default["max_wasm_bytes_unlimited"] is False
+
     def test_policy_fingerprint_excludes_env_values(self):
         """Env NAMES are policy; VALUES are secrets — the fingerprint
         must not depend on them."""
@@ -183,6 +226,67 @@ class TestPolicyAndInputDigests:
         assert input_digest(["-x"], "a") != input_digest(["-x"], "b")
         assert input_digest(["-x"], "a") != input_digest(["-y"], "a")
         assert input_digest(None, None) == input_digest([], None)
+
+
+class TestTenantAttestation:
+    """ADR-012 in the envelopes: the account is attested, and its absence is
+    invisible down to the signing bytes."""
+
+    def _pre(self, **kwargs):
+        return PreExecutionRecord.build(
+            module_bytes=b"x",
+            config=WASIConfig(),
+            record_id="i",
+            timestamp="t",
+            **kwargs,
+        )
+
+    def _receipt(self, **kwargs):
+        return ExecutionReport(
+            status="success", exit_code=0, elapsed_ms=1.0
+        ).apply_config(WASIConfig(), **kwargs)
+
+    def test_no_tenant_keeps_the_signing_bytes_identical(self):
+        implied = self._pre()
+        explicit_none = self._pre(tenant=None, tenant_budget_ref=None)
+        assert implied.to_dict() == explicit_none.to_dict()
+        assert "tenant" not in implied.security_baseline
+        assert "tenant_budget_ref" not in implied.security_baseline
+        # same for the receipt: passing nothing and passing None must be the
+        # same bytes, or every pre-1.1 receipt changes shape
+        assert canonical_bytes(self._receipt()) == canonical_bytes(
+            self._receipt(tenant=None, tenant_budget_ref=None)
+        )
+        assert "tenant" not in self._receipt().security_baseline
+
+    def test_the_account_moves_both_halves_of_the_record(self):
+        plain = self._pre()
+        billed = self._pre(tenant="acme", tenant_budget_ref="0" * 16)
+        assert billed.config_fingerprint != plain.config_fingerprint
+        assert billed.security_baseline["tenant"] == "acme"
+        assert billed.security_baseline["tenant_budget_ref"] == "0" * 16
+
+    def test_two_accounts_under_one_config_cannot_share_an_agreement(self):
+        """The point of fingerprinting the account: an agreement made for one
+        tenant must not be reusable for another under an identical config."""
+        acme = self._pre(tenant="acme", tenant_budget_ref="0" * 16)
+        globex = self._pre(tenant="globex", tenant_budget_ref="0" * 16)
+        assert acme.config_fingerprint != globex.config_fingerprint
+
+    def test_the_budget_reference_is_recomputable_from_the_cap(self):
+        from ephemora_cell import CumulativeBudget
+        from ephemora_cell.execution_report import policy_fingerprint
+
+        cap = CumulativeBudget(max_runs=5, max_total_fuel=1_000)
+        record = self._pre(tenant="acme", tenant_budget_ref=cap.ref())
+        assert record.security_baseline["tenant_budget_ref"] == cap.ref()
+        # a verifier holding only the cap confirms the attested reference —
+        # and only that: the reference binds the cap, not the consumption
+        assert cap.ref() == CumulativeBudget(max_runs=5, max_total_fuel=1_000).ref()
+        assert cap.ref() != CumulativeBudget(max_runs=6, max_total_fuel=1_000).ref()
+        assert policy_fingerprint(WASIConfig(), tenant="acme") != policy_fingerprint(
+            WASIConfig()
+        )
 
 
 class TestDSSE:

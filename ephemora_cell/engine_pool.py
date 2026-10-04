@@ -57,7 +57,8 @@ def config_fingerprint(config: WASIConfig) -> str:
     deliberately NOT part of the fingerprint: the timeout is enforced
     per-run via the store's epoch deadline, not by the engine — including
     it would split one engine pool into per-timeout shards. allow_dirs/
-    allow_env are WASI-level and do not affect the Engine.
+    allow_env are WASI-level and do not affect the Engine. max_wasm_bytes
+    is a pre-compile input guard either, not an engine knob.
     """
     key = (
         config.max_memory_mb,

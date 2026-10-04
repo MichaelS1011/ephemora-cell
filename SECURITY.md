@@ -69,7 +69,7 @@ Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platf
   only comparable within one platform.
 - **GC heap not byte-bounded:** `Store.set_limits` limits linear memory only. `WASIConfig.max_gc_heap_mb` is recorded in the security baseline (observability); wasmtime-py 47 has no GC-heap limiter binding, so fuel remains the effective GC memory bound (see `benchmarks/pocs/README.md`)
 - **No memory zeroing:** WASM memory is reclaimed by the Python GC, not cryptographically wiped
-- **Single-tenant:** No multi-tenant isolation between concurrent modules in the same process
+- **Single-tenant:** No multi-tenant isolation between concurrent modules in the same process. `--tenant`/`TenantStore` (ADR-012) attribute consumption to an account and refuse a run whose cumulative caps are spent — a tenant is a billing identity, never a security boundary, and nothing a guest can observe changes when one is attached
 - **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path.
 - **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
@@ -130,7 +130,7 @@ Ephemora Cell relies on:
 - **WASM Memory Safety:** Bounds-checked memory access (no buffer overflows)
 - **WASI Preview1 / WASI 0.2:** Capability-based filesystem access (only preopened directories; the effective per-ABI grant is attested in the execution report's `security_baseline.preopens`)
 - **Resource Limits:** Fuel metering (CPU), memory caps (128MB default), wall-clock timeout (30s default)
-- **Import Blocking:** `fd_psync`/`fd_sync` imports rejected at the WASI layer
+- **Sync refusal (P1 #12):** `fd_sync`, `fd_datasync` and `fd_psync` are shadowed with a trapping shim at the link layer, so a guest that CALLS one fails closed instead of driving a host `fsync(2)`. Importing them stays legal — every wasm32-wasi Zig binary imports `fd_sync` and every CPython-WASI guest imports `fd_datasync`, in both cases without calling it (measured: `benchmarks/interpreter_guest/probe_datasync.py`, cold and warm stdlib tree). The earlier design rejected these at the IMPORT layer, which refused interpreters and toolchains while `fd_sync` — the name its matcher never saw — still reached the host under the default configuration. `allow_fsync=True` is the opt-out for a caller that needs real durability; it is attested in the report's `security_baseline` and it is **not** bounded by `io_cpu_seconds`, because a sync storm is kernel and device work that keeps the guest under its own CPU budget while host I/O throughput collapses ([arXiv 2509.11242](https://arxiv.org/html/2509.11242v1), USENIX Security '25). `fd_psync` stays trapped either way — Preview1 has no implementation to serve it. **Scope: this covers the WASI Preview1 path. The WASI 0.2 component path carries no sync blockade today, and that is measured rather than inferred** — `benchmarks/component_sync_probe.py` runs a wasip2 guest that calls `wasi:filesystem/types` `sync` and `sync-data`: with an operator-granted directory both calls complete into the host (`SYNC-ALL:OK`, `SYNC-DATA:OK`, artifact written), and in the default posture the component route grants no preopen at all (`ephemora_cell/wasi_02.py:293-294`), so the surface needs an explicit `allow_dirs` before a guest can reach it. Closing it is OODA-4 work, not this release's (see the attack-vector table's path note and `docs/threat-model.md`).
 
 ### Proposal policy — set, not inherited (2026-09-25)
 
@@ -287,7 +287,10 @@ advisories affect the pinned 47.0.1 line:
   exceptions/GC cannot run until the engine upgrade — this is the documented
   trade-off for keeping "deterministic fuel accounting" honest. Full fix:
   upgrade to wasmtime 48.0.3/49.0.1 (Python wheels pending on PyPI — tracked
-  by `scripts/check_wasmtime_patch.py`), then re-qualify fuel determinism.
+  by `scripts/check_wasmtime_patch.py`), then re-qualify fuel determinism. The
+  watcher's M2 target line is **48.0.4 / 49.0.2**, one step above this
+  advisory's own fix, because the 2026-10-02 wave below is not closed at
+  48.0.3.
 - **GHSA-vqjp-4c8c-hfgg** (CVE-2026-47261, CVSS 7.5, wasmtime-wasi filesystem
   escape via trailing-slash/symlink paths in `path_open`): **Cell's exposure:**
   every Preview1 run grants the `/sandbox` scratch preopen by design, so the
@@ -299,9 +302,14 @@ advisories affect the pinned 47.0.1 line:
   trailing-slash/hardlink/rename/TRUNCATE companion vectors with positive
   controls — measured on the pinned 47.0.1 engine, **none of the escape shapes
   reproduce through Cell's preopen grant path** (all blocked, dated evidence in
-  `benchmarks/results/2026-09-25/probe_classes_2026.json`). The xfail markers
-  stay until the M2 upgrade re-runs the matrix on the patched engine — the
-  advisory remains authoritative.
+  `benchmarks/results/2026-09-25/probe_classes_2026.json`). **Since 2026-10-04
+  the matrix is a strict gate, not an xfail note:** the markers were removed,
+  so a vector that re-opens (engine bump, profile change, weaker preopen
+  grant) turns CI red instead of landing as a silent "xfailed". Re-measured
+  green on the second CI leg (linux/amd64, 2026-10-04) on top of macOS arm64,
+  and red-capability was proven by injecting a successful vector — it FAILS.
+  The advisory itself remains open upstream and authoritative; that is what
+  the engine-upgrade gate above tracks.
 
 **2026-09-24 advisory batch, second wave — triage (2026-09-29):** three further
 wasmtime advisories published 2026-09-24 (none carries a CVE ID — upstream marked
@@ -357,9 +365,38 @@ range. Triage per advisory:
   instantiate time with "a matching implementation was not found in the
   linker" (`wasi_02.py:262-269`, verified empirically). The `add_wasi_http`
   METHOD exists on the wasmtime-py `Linker` class — existence is not use.
-  Egress is host-mediated regardless (`ephemora_cell/egress_sidecar.py`: the
+  Egress is host-mediated (`ephemora_cell/egress_sidecar.py`: the
   guest has no sockets; a tool writes a request artifact that the host
-  mediates and policy-gates). Pinned in `tests/test_surface_audit.py`
+  mediates and policy-gates). With `--egress-allow` the MCP engine is that
+  host: it mediates after the run and reports the decision under
+  `_meta.egress`. Off by default. The `--egress-allow` path enforces the
+  endpoint/method allowlist only. A grant's expiry, usage cap and revocation are
+  enforced through a `GrantLedger`, reachable from the CLI with
+  `--egress-grants-dir DIR --grant-ledger PATH` (loaded fail-closed by
+  `egress_sidecar.load_egress_grants`; `egress_sidecar.mediate_with_grant`,
+  `ephemora_cell/grant_ledger.py`, ADR-013): cap inclusive, decided and charged
+  in one critical section, and a ledger-less grant fails closed at construction
+  rather than silently downgrading. DNS-rebinding is closed at resolve time (Prio
+  2): every mediated connect resolves hostnames through a filter that drops
+  loopback/RFC1918/CGNAT/link-local/multicast/reserved addresses,
+  validate-and-connect in one step; an IP-literal allowlist entry is operator
+  intent and stays reachable. Hardened 2026-10-04 on three fronts: (a) the
+  filtered families now include scoped IPv6 (`fe80::1%eth0`), both metadata
+  addresses, IPv4-mapped IPv6 (`::ffff:127.0.0.1`) and 6to4/NAT64 forms that
+  embed a private v4 address; (b) **an ambient `http_proxy` used to defeat the
+  guard** — urllib resolves the PROXY, never the URL host, so the filter vetted
+  the wrong address and the real resolution happened on a third party's box; the
+  mediated fetch now builds its opener with `ProxyHandler({})` and goes direct;
+  (c) the pinning claim is tested at the OS boundary — a spy below the guard
+  shows `connect()` only ever receives the vetted address (one resolution per
+  hop). Cap and revocation are additionally tested under 20 simultaneous
+  mediated calls: exactly `max_calls` fetches leave the process, and no call line
+  can be booked after a revoke line. Still open: verifying a grant's Ed25519
+  signature on a startup path (the CLI loader trusts the file it reads). The no-socket
+  boundary stays the enforced guarantee. Pinned in `tests/test_surface_audit.py`,
+  `tests/test_grant_ledger.py`, `TestEngineGrantEnforcement`, `TestSSRFGuard`,
+  `TestSSRFAdversarialFamilies`, `TestResolvePinningTOCTOU` and
+  `TestGrantConcurrency`
   (structural: the linker construction site never calls `add_wasi_http`;
   behavioral: a wasi:http-importing component fails closed) so an upgrade
   that starts linking wasi-http for guests fails loudly.
@@ -382,6 +419,62 @@ range. Triage per advisory:
   wasmtime's C API routes component calls through `component::Val` internally
   is a Rust-internal detail not verifiable from the Python package — the
   class is re-checked at the M2 upgrade. No config change required now.
+
+**2026-10-02 advisory wave — triage (2026-10-03).** Four further `wasmtime-wasi`
+advisories were published on 2026-10-02 (RustSec `RUSTSEC-2026-0321…0324`). All
+four are patched only in **36.0.17 / 48.0.4 / 49.0.2**, and none of those exist
+as a `wasmtime` Python wheel: re-checked against the PyPI JSON API on
+2026-10-03, the binding's release line is **47.0.1, 48.0.0, 49.0.0** — one wheel
+per major, no patch releases. So the pinned 47.0.1 sits inside every affected
+range and the engine-upgrade gate stays the only closure path. Sources here are
+RustSec's own database files plus the GitHub advisory pages; the GitHub
+global-advisory REST endpoint returned 404 for several of these IDs even though
+the advisories exist, which is why the citations name RustSec.
+
+- **GHSA-j366-h8gg-77pm** (`poll_oneoff` performs O(n) host work over the
+  subscription array **without consuming fuel or checking exhaustion**, Low,
+  CVSS 4.0, availability-only): **Cell's exposure: YES, and it is measured.**
+  `benchmarks/poll_oneoff_fuel_probe.py` runs the identical guest instruction
+  count (400 rounds) against a growing subscription array on the pinned
+  engine: **fuel is 5 605 at every count — n = 0, 1, 500, 5 000 and 20 000 —
+  while wall time on the same run goes ≈1.5 ms → ≈1.25 s** (re-run
+  2026-10-03: 1 226 ms and 1 308 ms on two consecutive passes; the floor is
+  noisy, the flat fuel line is not). The host work is therefore real
+  and uncharged — this is the one place where "deterministic fuel accounting"
+  needs its qualifier: accounting is deterministic for *guest instructions*,
+  and a WASI host call that scales with guest-supplied data is not covered by
+  it. What does bound it: the epoch-interruption wall clock on both paths, and
+  on the isolation path `io_cpu_seconds`, which measures worker CPU — and this
+  work IS worker CPU, unlike the sync case below. Upstream's named mitigation
+  (`-Spreview0=n`) is **not reachable from wasmtime-py**: neither `Config` nor
+  `WasiConfig` exposes a preview-version switch (probed against the installed
+  47.0.1 binding). **Patch plan: M2 (48.0.4/49.0.2 wheels).** The probe file is
+  the interim evidence; it is not in CI because it needs no guest binary but
+  does need the pinned engine version to be meaningful.
+- **GHSA-gqmc-89g8-p25r** (unbounded host allocation when a guest has **no
+  configured stdout**, via the default `SinkOutputStream` write-zeros path,
+  Moderate, CVSS 5.9): **Cell's exposure: NO — by construction.** Every run
+  installs our own bounded sinks for both streams, on either path
+  (`ephemora_cell/wasi_runtime.py:638-639`,
+  `ephemora_cell/wasi_02.py:271-272`), and the advisory itself notes that
+  configured streams carry their own limits. The claim is code-level, not
+  measurement-level; the construction site is covered by the existing output
+  cap tests, so a change that drops a sink would fail there.
+- **GHSA-96f6-r43r-8c24** (`fd_readdir` copies **three uninitialized host
+  padding bytes per directory entry** into guest memory, Low, CVSS 2.1,
+  confidentiality-only, WASIp1 only, needs a preopen): **Cell's exposure: YES
+  wherever a directory listing is possible** — the Preview1 `/sandbox` scratch
+  preopen exists in every default run, and operator `allow_dirs` widen it. This
+  is disclosure *into* the guest, not an escape: the guest still cannot read a
+  host path it was not granted, but what it can read from a granted directory is
+  no longer only file data. Upstream states there is **no workaround** short of
+  the patch, so this is documented exposure with M2 as the fix, not a config
+  claim. Guests that never call `fd_readdir` do not hit it; Cell does not
+  dispatch directory listings on a guest's behalf.
+- **RUSTSEC-2026-0324** (host panic on a filesystem timestamp before the epoch,
+  wasip3 surface): **Cell's exposure: NO** — WASI 0.3 is gate-off by decision
+  (ADR-009 D3) and no wasip3 surface is linked for guests.
+
 
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
 `benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi

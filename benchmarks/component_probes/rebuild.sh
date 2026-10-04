@@ -8,6 +8,9 @@
 #                      default in-process run aborts the host process,
 #                      so it must never be executed inside a shared
 #                      harness process — see the evidence harness)
+#   sync_probe.wasm  — WASI 0.2 sync surface (descriptor/sync +
+#                      /sync-data through std), measured by
+#                      benchmarks/component_sync_probe.py
 #
 # Requirements:
 #   cargo with the wasm32-wasip2 target   (rustup target add wasm32-wasip2)
@@ -20,7 +23,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for crate in fs_probe net_probe times_probe; do
+for crate in fs_probe net_probe times_probe sync_probe; do
   (
     cd "$HERE/src/$crate"
     cargo build --release --target wasm32-wasip2
@@ -30,4 +33,5 @@ for crate in fs_probe net_probe times_probe; do
     -o "$HERE/$crate.wasm"
 done
 
-echo "component probes regenerated: fs_probe.wasm, net_probe.wasm, times_probe.wasm"
+echo "component probes regenerated: fs_probe.wasm, net_probe.wasm, times_probe.wasm,
+sync_probe.wasm"

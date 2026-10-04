@@ -65,6 +65,13 @@ def test_source_exposes_gc_limiter(wu):
 
 
 def test_patch_targets_cover_the_2026_advisory_batch(wu):
-    # Fully patched targets first (gate opens on either), 47.0.4 as the
-    # 47.x-line subset — mirrors SECURITY.md's advisory table.
-    assert wu.WASMTIME_PATCH_TARGETS == ("48.0.3", "49.0.1", "47.0.4")
+    """The first two entries open the M2 gate; the rest are informational.
+
+    The 2026-10-02 wave (GHSA-j366-h8gg-77pm, GHSA-gqmc-89g8-p25r,
+    GHSA-96f6-r43r-8c24, RUSTSEC-2026-0324) is patched only from
+    48.0.4 / 49.0.2. Naming 48.0.3 / 49.0.1 here — as this list did — would
+    have declared the upgrade path open on an engine that still carries the
+    uncharged-host-work and readdir-leak classes.
+    """
+    assert wu.WASMTIME_PATCH_TARGETS[:2] == ("48.0.4", "49.0.2")
+    assert wu.WASMTIME_PATCH_TARGETS[2] == "47.0.4"

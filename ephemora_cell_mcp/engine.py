@@ -20,7 +20,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from ephemora_cell import (
@@ -29,6 +30,15 @@ from ephemora_cell import (
     WASISandbox,
     is_component_binary,
 )
+from ephemora_cell.egress_sidecar import (
+    REQUEST_FILENAME,
+    RESPONSE_FILENAME,
+    EgressGrant,
+    EgressPolicy,
+    mediate,
+    mediate_with_grant,
+)
+from ephemora_cell.grant_ledger import GrantLedger
 from ephemora_cell.profiles import get as get_profile
 
 from .tool_registry import ToolSpec
@@ -36,10 +46,18 @@ from .tool_registry import ToolSpec
 
 @dataclass
 class CellOutcome:
-    """A cell execution: raw result plus its enriched ExecutionReport."""
+    """A cell execution: raw result plus its enriched ExecutionReport.
+
+    ``egress`` carries zero or more mediated egress decisions for the run
+    (ADR-002 host-sidecar pattern). Each entry is an audit dict —
+    url/method/decision/reason/status/bytes/hops plus the response document.
+    It is empty unless the operator enabled an egress policy AND the guest
+    wrote a request artifact, so an unaccounted run's ``_meta`` is unchanged.
+    """
 
     result: ExecutionResult
     report: ExecutionReport
+    egress: tuple[dict[str, Any], ...] = ()
 
 
 class ToolExecutionError(Exception):
@@ -93,14 +111,26 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
         module_path="",
         sandbox_dir=result.sandbox_dir or "",
     )
-    report.apply_config(config, effective_preopens=result.effective_preopens)
+    report.apply_config(
+        config,
+        effective_preopens=result.effective_preopens,
+        tenant=result.tenant,
+        tenant_budget_ref=result.tenant_budget_ref,
+    )
     return report
 
 
 class CellToolEngine:
     """Runs a ToolSpec's WASM module inside the Ephemora Cell."""
 
-    def __init__(self, profile: str = "llm", pooled: bool = False) -> None:
+    def __init__(
+        self,
+        profile: str = "llm",
+        pooled: bool = False,
+        egress_policy: EgressPolicy | None = None,
+        egress_grants: dict[str, EgressGrant] | None = None,
+        grant_ledger: GrantLedger | None = None,
+    ) -> None:
         self.default_profile = profile
         # Trusted fast path (decision D3, 2026-09-12): disabling the
         # sandbox-dir byte wall re-enables the pooled engine (~0.5 ms/call
@@ -109,6 +139,26 @@ class CellToolEngine:
         # walled. The knob flows through _config_for, so get-policy
         # attests exactly what execution enforces.
         self.pooled = pooled
+        # ADR-002 host-sidecar egress: when set, a guest that wrote a
+        # sidecar.request.json into its sandbox is mediated by the HOST after
+        # the run and the decision is surfaced in _meta. None (default) means
+        # the mediator is never invoked — the receipts and _meta of an
+        # unaccounted deployment stay byte-for-byte as they were.
+        self.egress_policy = egress_policy
+        # ADR-013 grant enforcement (Prio 1): tool name -> a SIGNED grant whose
+        # window/cap/revocation a GrantLedger reads. When a run's tool has a
+        # grant AND a ledger is attached, mediation is grant-gated (the grant's
+        # allowlist + a charged call) instead of the server-wide policy path. A
+        # tool with no grant keeps the plain egress_policy path; no policy and
+        # no grant means no mediation at all.
+        self.egress_grants = egress_grants or {}
+        self.grant_ledger = grant_ledger
+        if self.egress_grants and self.grant_ledger is None:
+            raise ValueError(
+                "egress_grants require a grant_ledger to enforce their "
+                "window/cap/revocation — a grant without a consumer would "
+                "silently downgrade to allowlist-only"
+            )
 
     def _config_for(self, spec: ToolSpec) -> Any:
         try:
@@ -183,6 +233,7 @@ class CellToolEngine:
             sandbox = WASISandbox(config=config)
         except ValueError as e:
             raise ToolExecutionError(str(e)) from e
+        egress: tuple[dict[str, Any], ...] = ()
         try:
             result = sandbox.run(
                 spec.wasm_path,
@@ -193,6 +244,64 @@ class CellToolEngine:
                 # verified at register time (per-call module binding).
                 expected_sha256=spec.wasm_sha256,
             )
+            # Mediate AFTER the run but BEFORE cleanup — the request artifact
+            # lives in the sandbox dir, which cleanup() removes. Reading it
+            # here is the whole point of the trace: this is the one line that
+            # turns the mediator from a reference module into an executed call.
+            egress = self._mediate_egress(result.sandbox_dir, spec.name)
         finally:
             sandbox.cleanup()
-        return CellOutcome(result=result, report=build_report(result, config))
+        return CellOutcome(
+            result=result,
+            report=build_report(result, config),
+            egress=egress,
+        )
+
+    def _mediate_egress(
+        self, sandbox_dir: str | None, tool_name: str
+    ) -> tuple[dict[str, Any], ...]:
+        """Host-sidecar mediation of one run's request artifact, if any.
+
+        Returns [] (no egress attempted, no _meta key) unless the run has an
+        egress surface AND the guest wrote ``sidecar.request.json``. There are
+        two surfaces (ADR-013): a tool with a signed grant and an attached
+        ledger is mediated grant-gated — the grant's allowlist plus a charged
+        call (revocation/window/cap enforced); any other tool falls back to the
+        server-wide ``egress_policy`` allowlist path, and no surface at all
+        means no mediation. A present-but-unreadable artifact still yields an
+        audit: the mediator parses untrusted bytes fail-closed, so a malformed
+        request becomes a ``denied`` entry rather than silence — an absent file
+        is the only case that stays quiet.
+        """
+        grant = self.egress_grants.get(tool_name)
+        ledger = self.grant_ledger
+        use_grant = grant is not None and ledger is not None
+        policy: EgressPolicy | None = (
+            grant.policy() if grant and use_grant else self.egress_policy
+        )
+        if policy is None or not sandbox_dir:
+            return ()
+        request_path = Path(sandbox_dir) / REQUEST_FILENAME
+        if not request_path.is_file():
+            return ()
+        try:
+            raw = request_path.read_bytes()
+        except OSError as e:
+            logging.getLogger(__name__).warning("egress artifact unreadable: %s", e)
+            return ()
+        if use_grant and grant is not None and ledger is not None:
+            outcome = mediate_with_grant(grant, ledger, raw)
+        else:
+            outcome = mediate(policy, raw)
+        # Produce the response artifact per the pattern. With a fresh sandbox
+        # per call it does NOT survive cleanup — delivery to a follow-up run
+        # is the host's job (state store or an explicit preopen), and the
+        # audit + response below are what this call surfaces. The write is
+        # best-effort and never fails the run.
+        try:
+            (Path(sandbox_dir) / RESPONSE_FILENAME).write_text(
+                json.dumps(outcome.response_doc), encoding="utf-8"
+            )
+        except OSError:
+            pass
+        return ({**asdict(outcome.audit), "response": outcome.response_doc},)

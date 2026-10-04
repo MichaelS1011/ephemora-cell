@@ -1,0 +1,264 @@
+{
+  "date": "2026-10-02",
+  "host": "macOS arm64 (this machine)",
+  "wasmtime": "47.0.1",
+  "guest": {
+    "measured": true,
+    "binary": "wasi-python 3.10 (CPython-WASI)",
+    "sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02",
+    "sha256_matches_pin": true,
+    "size_bytes": 22363477,
+    "source": "https://github.com/singlestore-labs/python-wasi/releases/download/v3.10-alpha/wasi-python-3.10.tgz",
+    "stdlib_preopen_guest_path": "/opt/wasi-python/lib/python3.10",
+    "note": "this build has no embedded stdlib: encodings lives in the preopened lib/python3.10 directory"
+  },
+  "cell": {
+    "profile_used": {
+      "max_memory_mb": 1024,
+      "max_fuel": 2000000000,
+      "timeout_seconds": 120,
+      "max_wasm_bytes": 536870912,
+      "allow_fsync": false,
+      "io_cpu_seconds": 30.0,
+      "io_budget_bytes": 67108864
+    },
+    "profile_shipped": {
+      "max_memory_mb": 1024,
+      "max_fuel": 1000000000,
+      "timeout_seconds": 120,
+      "max_wasm_bytes": 536870912,
+      "allow_fsync": false,
+      "io_cpu_seconds": 30.0,
+      "io_budget_bytes": 67108864
+    },
+    "fuel_note": "max_fuel is raised above the shipped profile for measurement only \u2014 a truncated run reports no fuel at all",
+    "boot": {
+      "in_process": {
+        "measured": true,
+        "count": 25,
+        "mean_ms": 658.885,
+        "median_ms": 607.234,
+        "p95_ms": 704.121,
+        "min_ms": 597.044,
+        "max_ms": 1450.033,
+        "fuel_mean": 71673715,
+        "fuel_max": 71846062,
+        "statuses": {
+          "success": 25
+        }
+      },
+      "isolated": {
+        "measured": true,
+        "count": 15,
+        "mean_ms": 1022.516,
+        "median_ms": 859.922,
+        "p95_ms": 2256.517,
+        "min_ms": 726.877,
+        "max_ms": 2256.517,
+        "fuel_mean": 71657620,
+        "fuel_max": 71889365,
+        "statuses": {
+          "success": 15
+        }
+      }
+    },
+    "print": {
+      "in_process": {
+        "measured": true,
+        "count": 25,
+        "mean_ms": 674.756,
+        "median_ms": 629.921,
+        "p95_ms": 836.51,
+        "min_ms": 618.64,
+        "max_ms": 1034.116,
+        "fuel_mean": 71766550,
+        "fuel_max": 71985557,
+        "statuses": {
+          "success": 25
+        }
+      },
+      "isolated": {
+        "measured": true,
+        "count": 15,
+        "mean_ms": 947.809,
+        "median_ms": 728.808,
+        "p95_ms": 2218.987,
+        "min_ms": 707.614,
+        "max_ms": 2218.987,
+        "fuel_mean": 71721678,
+        "fuel_max": 71982460,
+        "statuses": {
+          "success": 15
+        }
+      }
+    },
+    "stdlib": {
+      "in_process": {
+        "measured": true,
+        "count": 25,
+        "mean_ms": 638.256,
+        "median_ms": 635.215,
+        "p95_ms": 660.432,
+        "min_ms": 622.819,
+        "max_ms": 681.446,
+        "fuel_mean": 127999093,
+        "fuel_max": 128231342,
+        "statuses": {
+          "success": 25
+        }
+      },
+      "isolated": {
+        "measured": true,
+        "count": 15,
+        "mean_ms": 954.194,
+        "median_ms": 732.819,
+        "p95_ms": 2194.338,
+        "min_ms": 702.691,
+        "max_ms": 2194.338,
+        "fuel_mean": 127943090,
+        "fuel_max": 128251030,
+        "statuses": {
+          "success": 15
+        }
+      }
+    },
+    "compute": {
+      "in_process": {
+        "measured": true,
+        "count": 25,
+        "mean_ms": 743.345,
+        "median_ms": 673.557,
+        "p95_ms": 1026.583,
+        "min_ms": 626.44,
+        "max_ms": 1073.867,
+        "fuel_mean": 194392847,
+        "fuel_max": 194557510,
+        "statuses": {
+          "success": 25
+        }
+      },
+      "isolated": {
+        "measured": true,
+        "count": 15,
+        "mean_ms": 725.564,
+        "median_ms": 709.412,
+        "p95_ms": 847.087,
+        "min_ms": 701.829,
+        "max_ms": 847.087,
+        "fuel_mean": 194435895,
+        "fuel_max": 194514727,
+        "statuses": {
+          "success": 15
+        }
+      }
+    },
+    "default_profile_boot": {
+      "measured": true,
+      "status": "fuel_exhausted",
+      "fuel_consumed": 1000000,
+      "stderr_tail": "wasm trap: all fuel consumed by WebAssembly"
+    }
+  },
+  "memory_breakpoint": {
+    "64_mb": {
+      "status": "error",
+      "fuel_consumed": null
+    },
+    "128_mb": {
+      "status": "success",
+      "fuel_consumed": 71586274
+    },
+    "first_cap_mib": 128
+  },
+  "cold_vs_warm": {
+    "cold": {
+      "measured": true,
+      "wall_ms": 756.4,
+      "status": "success",
+      "fuel_consumed": 357362178
+    },
+    "warm_2": {
+      "measured": true,
+      "wall_ms": 701.6,
+      "status": "success",
+      "fuel_consumed": 350233291
+    },
+    "warm_3": {
+      "measured": true,
+      "wall_ms": 707.7,
+      "status": "success",
+      "fuel_consumed": 293429652
+    },
+    "warm_4": {
+      "measured": true,
+      "wall_ms": 671.5,
+      "status": "success",
+      "fuel_consumed": 230695468
+    },
+    "warm_5": {
+      "measured": true,
+      "wall_ms": 662.0,
+      "status": "success",
+      "fuel_consumed": 151025750
+    },
+    "warm_6": {
+      "measured": true,
+      "wall_ms": 654.3,
+      "status": "success",
+      "fuel_consumed": 71598744
+    },
+    "warm_7": {
+      "measured": true,
+      "wall_ms": 645.9,
+      "status": "success",
+      "fuel_consumed": 71715853
+    },
+    "warm_8": {
+      "measured": true,
+      "wall_ms": 679.7,
+      "status": "success",
+      "fuel_consumed": 71724330
+    },
+    "warm_9": {
+      "measured": true,
+      "wall_ms": 671.0,
+      "status": "success",
+      "fuel_consumed": 71586236
+    },
+    "warm_10": {
+      "measured": true,
+      "wall_ms": 669.9,
+      "status": "success",
+      "fuel_consumed": 71819611
+    },
+    "warm_11": {
+      "measured": true,
+      "wall_ms": 670.7,
+      "status": "success",
+      "fuel_consumed": 71459051
+    },
+    "warm_12": {
+      "measured": true,
+      "wall_ms": 706.9,
+      "status": "success",
+      "fuel_consumed": 71750281
+    },
+    "primed_at_run": 6,
+    "steady_fuel": 71750281,
+    "pyc_files_in_preopen": {
+      "before": 69,
+      "after": 82,
+      "written_by_guest": 13
+    }
+  },
+  "docker": {
+    "measured": true,
+    "count": 25,
+    "mean_ms": 204.963,
+    "median_ms": 204.416,
+    "p95_ms": 228.323,
+    "min_ms": 180.08,
+    "max_ms": 231.134,
+    "command": "docker run --rm python:3.12-slim python3 -c pass"
+  }
+}

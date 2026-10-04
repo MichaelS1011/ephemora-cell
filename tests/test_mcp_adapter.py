@@ -39,9 +39,9 @@ ECHO_WASM = PACKAGE_TOOLS / "echo.wasm"
 def server_with(tmp_path):
     """Build a Server over a MemoryTransport seeded with requests."""
 
-    def _build(tools_dir=PACKAGE_TOOLS, inbox=None):
+    def _build(tools_dir=PACKAGE_TOOLS, inbox=None, engine=None):
         transport = MemoryTransport(inbox or [])
-        server = Server(tools_dir=tools_dir, transport=transport)
+        server = Server(tools_dir=tools_dir, transport=transport, engine=engine)
         return server, transport
 
     return _build
@@ -544,14 +544,14 @@ class TestMcpHardening:
 # --- native meta tool: get-policy -------------------------------------
 
 
-def _call_get_policy(server_with, arguments):
+def _call_get_policy(server_with, arguments, engine=None):
     request = {
         "jsonrpc": "2.0",
         "id": 7,
         "method": "tools/call",
         "params": {"name": "get-policy", "arguments": arguments},
     }
-    server, transport = server_with(inbox=[request])
+    server, transport = server_with(inbox=[request], engine=engine)
     responses = _reply(server, transport)
     assert len(responses) == 1
     return responses[0]
@@ -592,6 +592,81 @@ def test_get_policy_registry_wide(server_with):
         assert entry["security_baseline"]["fuel"] > 0
         assert entry["security_baseline"]["threads_enabled"] is False
     assert payload["native_tools"][0]["name"] == "get-policy"
+
+
+def test_get_policy_reports_egress_disabled(server_with):
+    """Default posture: get-policy attests mediation is off, both shapes.
+
+    The egress block is server-wide, so a single-tool query and the
+    registry-wide listing carry the same ``disabled`` attestation — an
+    operator can tell from get-policy that the mediator never runs.
+    """
+    single = _call_get_policy(server_with, {"tool": "clock"})
+    payload = json.loads(single["result"]["content"][0]["text"])
+    assert payload["egress"] == {"mediation": "disabled"}
+    wide = _call_get_policy(server_with, None)
+    payload = json.loads(wide["result"]["content"][0]["text"])
+    assert payload["egress"] == {"mediation": "disabled"}
+
+
+def test_get_policy_reports_egress_enabled_as_allowlist_only(server_with):
+    """With a policy wired but no grant, get-policy discloses endpoints and
+    the allowlist-only enforced scope (mirrors :meth:`EgressGrant.to_dict`)."""
+    from ephemora_cell.egress_sidecar import EgressPolicy
+
+    engine = CellToolEngine(
+        egress_policy=EgressPolicy(
+            allowed_endpoints=("https://api.example.com/v1",),
+            max_response_bytes=4096,
+            timeout_seconds=3.5,
+        )
+    )
+    response = _call_get_policy(server_with, None, engine=engine)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["egress"] == {
+        "mediation": "enabled",
+        "enforced": "allowlist-only",
+        "ip_resolution_guard": "filter-names-block-private",
+        "policy_endpoints": ["https://api.example.com/v1"],
+        "max_response_bytes": 4096,
+        "timeout_seconds": 3.5,
+    }
+
+
+def test_get_policy_attests_grant_enforcement_as_ledger_backed(server_with, tmp_path):
+    """A grant + a GrantLedger flips the attestation to the gates that are
+    real today (window/cap/revocation) and reports per-grant state — it does
+    not claim in-flight revocation."""
+    from ephemora_cell.egress_sidecar import EgressGrant
+    from ephemora_cell.grant_ledger import GrantLedger
+
+    grant = EgressGrant(
+        grant_id="g-7",
+        tool="echo",
+        allowed_endpoints=("https://api.example.com/v1",),
+        max_calls=5,
+        not_after="2099-01-01T00:00:00Z",
+    )
+    engine = CellToolEngine(
+        egress_grants={"echo": grant},
+        grant_ledger=GrantLedger(tmp_path / "grants.jsonl"),
+    )
+    response = _call_get_policy(server_with, None, engine=engine)
+    payload = json.loads(response["result"]["content"][0]["text"])
+    egress = payload["egress"]
+    assert egress["grant_enforcement"] == "ledger-backed"
+    assert egress["enforced"] == "allowlist+window+cap+revocation"
+    assert egress["grants"] == [
+        {
+            "tool": "echo",
+            "grant_id": "g-7",
+            "allowed_endpoints": ["https://api.example.com/v1"],
+            "not_before": None,
+            "not_after": "2099-01-01T00:00:00Z",
+            "max_calls": 5,
+            "revoked": False,
+        }
+    ]
 
 
 def test_get_policy_unknown_tool_is_invalid_params(server_with):

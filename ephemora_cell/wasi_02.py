@@ -108,6 +108,7 @@ from .wasi_runtime import (
     ExecutionResult,
     ExecutionStatus,
     WASIConfig,
+    module_size_cap_error,
 )
 
 __all__ = ["ComponentSandbox", "is_component_binary"]
@@ -202,6 +203,9 @@ class ComponentSandbox:
                 status=ExecutionStatus.ERROR,
                 stderr=f"WASM component not found: {wasm_path}",
             )
+        cap_error = module_size_cap_error(resolved, self._config.max_wasm_bytes)
+        if cap_error is not None:
+            return ExecutionResult(status=ExecutionStatus.ERROR, stderr=cap_error)
         if not is_component_binary(str(resolved)):
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,

@@ -131,6 +131,67 @@ def main() -> None:
     envelope = report2.to_dsse(key.sign, alg="EdDSA", key_id="demo-key")
     print("dsse(intact):", dsse_verify(envelope, _ed25519_verify(key)))
 
+    # ------------------------------------------------------------------
+    # ADR-011 chain ACROSS RUNS. verify_chain() above binds two records of
+    # ONE run; nothing there can see a run before or after it. The Ledger
+    # appends a signed entry per run that seals the previous entry's digest,
+    # so a whole sequence becomes edit/drop/reorder evident. The position is
+    # assigned by ONE writer under a lock (this loop is that writer) and the
+    # embedder — never Cell — holds the key.
+    # ------------------------------------------------------------------
+    from ephemora_cell import Ledger, LedgerEntry, chain_break, verify_ledger
+
+    def sign_pair(wat: bytes) -> tuple[dict, dict]:
+        """One run -> a signed (pre-exec, receipt) pair, back-linked."""
+        mb = wasmtime.wat2wasm(wat)
+        with tempfile.TemporaryDirectory() as t2:
+            mod = Path(t2) / "m.wasm"
+            mod.write_bytes(mb)
+            sbx = WASISandbox(config=config)
+            try:
+                res = sbx.run(str(mod))
+            finally:
+                sbx.cleanup()
+        p = PreExecutionRecord.build(module_bytes=mb, config=config).sign(
+            key.sign, alg="EdDSA"
+        )
+        pd = hashlib.sha256(
+            canonical_bytes({k: v for k, v in p.items() if k != "signature"})
+        ).hexdigest()
+        r = ExecutionReport(
+            status=res.status.value,
+            exit_code=res.exit_code,
+            elapsed_ms=res.elapsed_ms,
+            fuel_consumed=res.fuel_consumed,
+            fuel_budget=config.max_fuel,
+        )
+        r.apply_config(config, effective_preopens=res.effective_preopens)
+        r.back_link = {"pre_exec_id": p["id"], "pre_exec_digest": pd}
+        return p, r.sign(key.sign, alg="EdDSA")
+
+    with tempfile.TemporaryDirectory() as t:
+        chain = Ledger(Path(t) / "ledger.jsonl")
+        for _ in range(3):
+            pre, rec = sign_pair(b'(module (func (export "_start")))')
+            chain.append(LedgerEntry.from_records(pre, rec), key.sign, alg="EdDSA")
+
+        print("ledger entries:", len(chain.entries()))
+        # Linkage is not a trust decision: sequence + prev_hash continuity
+        # needs no key at all.
+        print("chain(intact, no key):", chain.verify())
+        # Authorship does — the same file checked against the public key.
+        print("chain(intact, signed):", chain.verify(_ed25519_verify(key)))
+
+        # Edit one sealed field and the NEXT entry stops linking to it.
+        forged = chain.entries()
+        forged[1]["receipt_digest"] = "0" * 64
+        print("break after edit:", chain_break(forged))
+
+        # What the chain cannot see from the file alone: a history chopped
+        # short at the head's end still links. Closing that needs an external
+        # anchor for the current head — ADR-011 leaves it open by decision.
+        print("truncated tail still links:", verify_ledger(chain.entries()[:2]))
+
 
 if __name__ == "__main__":
     main()

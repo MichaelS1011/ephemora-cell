@@ -4,6 +4,28 @@
 the reference implementation follow below and in `ephemora_cell/egress_sidecar.py`, respectively.
 Decision basis: ADR-002 (`docs/decisions/ADR-002-io-budget-egress.md`).
 
+**Status (2026-10-04, ADR-013):** the MCP engine now *executes* this mediator when
+the operator passes `--egress-allow URL_PREFIX` — it mediates the request
+artifact after the run and reports the decision under `_meta.egress`. Off by
+default. The `--egress-allow` path enforces the endpoint/method allowlist only;
+a grant's `EgressGrant` expiry/usage/revocation fields are enforced once a
+`GrantLedger` is wired to the engine (`ephemora_cell/grant_ledger.py`,
+`egress_sidecar.mediate_with_grant`) — cap inclusive and charged in one critical
+`egress_sidecar.mediate_with_grant`) — cap inclusive and charged in one critical
+section, revocation effective at the next call. It is reachable from the shipped
+CLI (`--egress-grants-dir DIR --grant-ledger PATH`), which loads grants
+fail-closed but does not verify their signature. DNS-rebinding is closed at
+resolve time — a hostname that resolves only to private/link-local space is
+refused, validate-and-connect in one step (IP-literal entries are operator
+intent). That filter only means anything if the address it checked is the
+address the socket uses, so a mediated fetch also **refuses an ambient proxy**:
+with `http_proxy` in the environment urllib resolves the PROXY host and never
+the URL host, which would vet an unrelated address and hand the real resolution
+to a third party — the opener is built with `ProxyHandler({})` and goes direct.
+An operator who wants proxied egress has to configure that deliberately; it must
+not arrive through the shell. Still open: verifying a grant's signature on a
+startup path.
+
 ## Why this catalog exists
 
 Ephemora Cell exposes **no sockets** — verified by `benchmarks/verify_8_vectors.py`

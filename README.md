@@ -55,10 +55,10 @@ AI Agent / Application
     <img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/tests-589_passing-brightgreen" alt="Tests (589 pass, 4 skipped — see CI)">
+    <img src="https://img.shields.io/badge/tests-804_passing-brightgreen" alt="Tests (804 pass, 4 skipped — see CI)">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/badge/coverage-87%25-brightgreen" alt="Coverage">
+    <img src="https://img.shields.io/badge/coverage-89%25-brightgreen" alt="Coverage">
   </a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml">
     <img src="https://img.shields.io/badge/types-mypy%20clean-brightgreen" alt="Type-checked with mypy (22 files, 0 errors)">
@@ -92,7 +92,7 @@ AI Agent / Application
   <a href="#documentation">Docs</a>
 </p>
 
-> **Status (2026-09-29):** latest release **v1.0.5** (2026-09-29, licensing & security-readiness release — [changelog](CHANGELOG.md)) · license now **BUSL-1.1** (source-available; ≤ 1.0.4.3 stays Apache-2.0 — [ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)) · 2026-09-24 wasmtime advisory wave triaged with measured evidence (see [SECURITY.md](SECURITY.md)) · latest reproducible evidence: 2026-09-29 (CVE replays + component security matrix, [`benchmarks/results/`](benchmarks/results/)) · 589 tests passing, 87% coverage (see CI badge — refreshed per release)
+> **Status (2026-10-04):** latest release **v1.0.5** (2026-09-29, licensing & security-readiness release — [changelog](CHANGELOG.md)) · license now **BUSL-1.1** (source-available; ≤ 1.0.4.3 stays Apache-2.0 — [ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)) · 2026-09-24 wasmtime advisory wave triaged with measured evidence (see [SECURITY.md](SECURITY.md)) · latest reproducible evidence: 2026-10-02 (interpreter-guest measurement, [`benchmarks/results/`](benchmarks/results/)) · 804 tests passing, 89% coverage (see CI badge — refreshed per release)
 
 <p align="center">
   <picture>
@@ -130,7 +130,7 @@ Ephemora Cell is not trying to replace general-purpose containers or full develo
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
 
-- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets run per execution and cannot be switched off by guest or caller; the effective posture is attested in the execution record (RFC 8785 JCS, sign-ready).
+- **Enforced, not promised** — fuel metering (CPU), memory caps, epoch-based wall-clock timeouts, output caps and I/O budgets run per execution; the guest cannot reach any of them off, and the two settings an operator can widen — the module size cap and the WASI sync opt-out — are named in the execution record so a widened run never reads as a default one (RFC 8785 JCS, sign-ready).
 - **Deterministic loop-stop** — a hostile or buggy module that loops forever is stopped at exactly the budget you set, every time; the run cannot overshoot its fuel budget. The epoch-based wall-clock timeout is the safety net on top — fuel counts CPU, the clock bounds everything else.
 - **Measured isolation advantage** — of the attack vectors that succeed against a stock Docker container (shell, fork, socket, host filesystem, symlink escape, …), all 8 are blocked here (live-verified, script in the repo).
 - **Sub-millisecond warm execution** — 0.17 ms guest / 0.51 ms end-to-end (pooled, measured 2026-09-14; `benchmarks/results/`).
@@ -165,7 +165,7 @@ GUEST / UNTRUSTED CODE
 
 By default: **no network · no arbitrary filesystem access · no process spawning · no unrestricted environment access** — and **bounded CPU/fuel, memory, execution time and output**.
 
-**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on, neither the guest nor the caller can switch them off). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
+**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on; the guest cannot reach them off and the caller sets their size, not their existence). Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load) and `allow_fsync` (whether WASI sync calls are permitted) — both attested in the signed baseline, both off-by-default-widened-in-no-profile. The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
 
 | Resource | Default |
 |---|---|
@@ -180,7 +180,7 @@ By default: **no network · no arbitrary filesystem access · no process spawnin
 
 The same rule governs **language features**: every WebAssembly proposal Cell's shipped WASI surface does not need is **enforced off in the engine config** (threads, function-references, exceptions, GC, tail-calls, stack-switching — attested in every `security_baseline`, compile-probe-tested per release). That is a deliberate structural defense: the 2025/26 record — fuel accounting dropped across `call_ref`/`try_table` calls ([GHSA-m63x-6p34-q65x](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-m63x-6p34-q65x)), a Cranelift aarch64 heap escape (CVE-2026-34971), and the vm2 escape riding WebAssembly `try_table` exception handling (CVE-2026-26956, secondary sources) — repeats one pattern: sandboxes diverge exactly where a proposal quietly flipped to default-on. Cell keeps that surface at zero and pays the cost in what guests *can't* run, not in what the host can't guarantee. Full proposal table: [SECURITY.md](SECURITY.md#proposal-policy--set-not-inherited-2026-09-25).
 
-Additional controls: **I/O budgets** (`io_cpu_seconds` / `io_budget_bytes` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap**, **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** reference mediator ([docs/egress_patterns.md](docs/egress_patterns.md)).
+Additional controls: **I/O budgets** (`io_cpu_seconds` / `io_budget_bytes` — walls for host work, not just guest compute), **dual-ABI** (WASI Preview1 + WASI 0.2 components, opt-in), **memory64 opt-in**, **GC-heap declared cap**, **named state** (64 entries · 256 KiB · 1 MiB per session), and an **egress sidecar** mediator ([docs/egress_patterns.md](docs/egress_patterns.md)) — the guest has no sockets (enforced); with `--egress-allow` the MCP engine mediates a tool's request artifact after the run and reports the decision under `_meta.egress`. Off by default. The `--egress-allow` path enforces the allowlist only; a grant's **expiry, usage cap and revocation are enforced** when a `GrantLedger` is attached (`ephemora_cell/grant_ledger.py`, ADR-013); DNS-rebinding is closed at resolve time (hostnames that answer with a private/link-local address are refused). Verifying a grant's signature on a startup path is still open.
 
 ## Quick Start
 
@@ -269,7 +269,7 @@ Ask your agent for the current time: the answer comes from the bundled `clock` t
 **What you get:**
 
 - **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
-- **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`), and the native `get-policy` tool reports the exact sandbox policy per tool — computed from the same code path that enforces it, so report and enforcement cannot drift. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured).
+- **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`), and the native `get-policy` tool reports the exact sandbox policy per tool — computed from the same code path that enforces it, so report and enforcement cannot drift. The protocol does not verify `_meta`, so with `--receipt-signing-key` each receipt additionally carries a DSSE signature (`_meta.attestation`) over the same bytes — verifiable out-of-band by the caller with the operator's public key (`execution_report.verify_execution_attestation`). Inside the signed bytes each receipt carries a one-of-one block (`report_id`, `issued_at`, the tool it answers for), so a receipt is evidence about one execution rather than about a shape that many calls could produce — and `max_age_seconds` lets a caller refuse a stale one. Deduping `report_id` across presentations stays the caller's job. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured).
 - **Stateless by design (`2026-07-28` revision).** Clients on the current revision skip the `initialize` handshake entirely; results carry `resultType: "complete"` and `tools/list` answers with `ttlMs`/`cacheScope`. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras served from one process and tested side-by-side against the official MCP SDK in CI. Details: [docs/mcp.md](docs/mcp.md).
 - **Isolation priced for every call** — three distinct numbers ([comparison](docs/comparison-mcp-servers.md)):
 
@@ -376,6 +376,9 @@ Anything failing verification is rejected before a single instruction executes �
 - **Signed execution records.** Any run folds into a tamper-evident record covering status, fuel, timing and the attested security baseline — rewrite one field and verification fails. Runnable demo: `python examples/signed_record_demo.py`.
 - **Pre-exec / receipt split ([ADR-008](docs/decisions/ADR-008-record-split-and-standard-envelopes.md)).** `PreExecutionRecord` signs what a run *will* do (module digest, policy fingerprint, input digest) before it runs; the receipt's optional `back_link` binds it to exactly that attestation. Open-standard envelopes (DSSE v1, detached JWS) carry the same JCS bytes for ecosystem interop — no network client, no dependency.
 - **Trusted fast path.** `ephemora-cell-mcp --pooled` serves verified tools from the pooled engine at ~0.5 ms per call instead of ~12 ms (measured) — the relaxed I/O wall is attested in `get-policy`.
+- **Host-mediated egress.** `ephemora-cell-mcp --egress-allow https://api.example.com/v1` gives the guest's `sidecar.request.json` a real caller: the engine mediates it after the run against that allowlist and reports the decision under `_meta.egress`. Off by default; the no-socket boundary is the enforced guarantee. The `--egress-allow` path applies the allowlist only; `--egress-grants-dir DIR --grant-ledger PATH` loads each tool's signed grant and enforces its expiry/usage cap/revocation in one critical section (`ephemora_cell/grant_ledger.py`, `load_egress_grants`, ADR-013); DNS-rebinding is closed at resolve time (private/link-local resolutions refused) — the grant file's signature is not yet verified on load ([ADR-013](docs/decisions/ADR-013-egress-host-mediation-and-grant-form.md)).
+- **A chain across runs** *(on main, unreleased)*. Each run's pre-exec record and receipt are sealed into a signed `LedgerEntry` JSONL chain (`sequence` + `prev_hash`), so a folder of evidence can be shown to be continuous, ordered and untampered — linkage verifies without any key, authorship only with one. Default-off and host-side; what it cannot see is a chain truncated at its end, which is stated in [ADR-011](docs/decisions/ADR-011-execution-ledger-chain.md) and tested. Check one: `ephemora-cell ledger <path>`.
+- **Budgets that survive the next call** *(on main, unreleased)*. A tenant is a billing identity, not an isolation boundary: `--tenant ID --tenant-book PATH --tenant-max-runs N` (or `WASISandbox.run(tenant=…, tenant_budget=…)`) reserves the run's own ceiling before it starts, books what it actually consumed, and refuses the next run over the cap — with a receipt that names the account. Overshoot is bounded by concurrent runs times the per-run walls; there is no mid-run kill here ([ADR-012](docs/decisions/ADR-012-tenant-attribution-and-cumulative-budgets.md)).
 
 The two execution paths differ materially. `run_wasm()` runs the guest inside your process; `run_isolated()` adds OS-level walls around a disposable worker (and returns the report fields as a dict). For guests from outside your own build — agent output, third-party plugins, PR-contributed code — use the isolated path:
 
@@ -418,7 +421,7 @@ The guest receives only the capabilities explicitly made available to it. Live v
 |---|---|---|---|---|
 | Shell (`os.system`) / fork | ALLOWED | ALLOWED | **BLOCKED** — APIs don't exist in WASI | 1 |
 | Network sockets | ALLOWED | ALLOWED — creation needs no capability | **BLOCKED** — APIs don't exist in WASI | 1 |
-| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — import-level rejection | 2 |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — `fd_sync`/`fd_datasync`/`fd_psync` refused at the call (`allow_fsync` opts out) | 2 |
 | Host filesystem (`/etc/passwd`) | ALLOWED | ALLOWED — the container's own file | **BLOCKED** — preopen default-deny | 2 |
 | Symlink escape | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — dangerous directory filter | 2 |
 | Multi-threading | ALLOWED | ALLOWED | **BLOCKED** — `wasm_threads=False` | 2 |
@@ -427,10 +430,10 @@ The guest receives only the capabilities explicitly made available to it. Live v
 The boundary is three layers, and the table measures them separately:
 
 - **Layer 1 — WASI surface:** the guest format itself has no shell/fork/socket entry points to call.
-- **Layer 2 — Sandbox policy (always on):** preopen default-deny, dangerous-directory filter, import traps, `wasm_threads=False`, `allow_env` — enforced per execution, not configurable away.
+- **Layer 2 — Sandbox policy (always on):** preopen default-deny, dangerous-directory filter, sync-call traps, `wasm_threads=False`, `allow_env` — enforced per execution. Two values are operator-configurable by design: `max_wasm_bytes` (how big a module a run may load) and `allow_fsync` (a caller's durability choice). Neither is reachable by the guest, and both are attested in the signed baseline, so an opened run never reads like a closed one.
 - **Layer 3 — OS process wall (`--isolated`):** a disposable worker process with OS rlimits and a hard kill — the mitigation layer for engine 0-days ([SECURITY.md](SECURITY.md) documents the April 2026 wasmtime advisories).
 
-**Result: 8/8 attack vectors blocked (live-verified); both Docker baselines are measured live per run — never hardcoded.**
+**Result: 8/8 attack vectors blocked (live-verified, default configuration, WASI Preview1 path); both Docker baselines are measured live per run — never hardcoded.** The WASI 0.2 component path is a separate boundary and does not carry the sync blockade today — measured, not asserted: `python benchmarks/component_sync_probe.py` shows both `wasi:filesystem/types` sync calls completing into the host when a directory is granted, while the default component run gets no preopen, so the surface needs an operator grant first ([SECURITY.md](SECURITY.md)).
 
 For context, the same eight intents were measured against **gVisor** (`runsc`, pinned release, executed in CI twice for determinism): 8/8 ALLOWED. gVisor walls the host off from the container, but the guest keeps the Linux ABI — so the same primitives stay available to guest code. Expectation matrix pre-declared in [`benchmarks/gvisor_docker_probe.py`](benchmarks/gvisor_docker_probe.py); raw evidence: `benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json` (committed from the `gvisor-boundary` CI job).
 
@@ -525,15 +528,24 @@ result.fuel_consumed
 result = run_isolated("tool.wasm", config=WASIConfig(max_fuel=500_000))
 ```
 
-Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`), named state, disk quotas and GC-heap caps are `WASIConfig` knobs; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
+Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`, `interpreter`), named state, disk quotas and GC-heap caps are `WASIConfig` knobs; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
 
-**CLI** — four verbs cover the loop:
+`interpreter` is the budget preset for running a bring-your-own interpreter
+*as the guest* (CPython-WASI and friends): a larger module cap, more memory,
+more fuel, a longer clock, and the host-CPU wall an isolated worker needs to
+compile a 22 MB guest first. It ships no interpreter, opens no sync exception
+and grants no filesystem or environment access — the language posture stays
+[ADR-009](docs/decisions/ADR-009-language-support.md), and
+[docs/languages.md](docs/languages.md) carries the measured numbers.
+
+**CLI** — five verbs cover the loop:
 
 ```text
-ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile, --abi)
+ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile, --abi, --tenant)
 ephemora-cell inspect   Imports, exports, memory — what a module wants, before you run it
 ephemora-cell benchmark Cold/warm latency and fuel spread
 ephemora-cell build     Compile Rust/Go/C/AssemblyScript/Zig straight to WASM
+ephemora-cell ledger    Verify a run chain: linkage and order, and what it cannot prove
 ```
 
 `ephemora-cell --help` and [docs/recipes.md](docs/recipes.md) for the full reference.
@@ -565,13 +577,13 @@ Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/th
 
 Real, gated items — no dates promised:
 
-- **Engine upgrade gate (in progress):** wasmtime 48.0.3/49.0.1 closes the 2026 fuel-amplification advisory (GHSA-m63x-6p34-q65x) and the WASIp3-streams advisory; blocked on Python wheels publishing to PyPI (`scripts/check_wasmtime_patch.py` watches), then fuel determinism re-qualification and a strict re-run of the FS-escape matrix ([tests/test_fs_escape_matrix.py](tests/test_fs_escape_matrix.py) — the 2026-09-25 measured run shows the companion vectors already denied on the pinned engine).
+- **Engine upgrade gate (in progress):** wasmtime 48.0.3/49.0.1 closes the 2026 fuel-amplification advisory (GHSA-m63x-6p34-q65x) and the WASIp3-streams advisory, and the 2026-10-02 wave (uncharged `poll_oneoff` host work, `fd_readdir` padding leak) is only closed one step higher at **48.0.4/49.0.2** — that pair is what the gate watches for ([SECURITY.md](SECURITY.md), `scripts/watch_upstream.py`); blocked on Python wheels publishing to PyPI (`scripts/check_wasmtime_patch.py` watches), then fuel determinism re-qualification and a re-run of the FS-escape matrix, which has been a **strict gate since 2026-10-04** — the five companion vectors are plain asserts, measured denied on the pinned engine on both CI legs (macOS arm64, linux/amd64), so an engine bump that re-opened one of them would fail CI rather than xfail it ([tests/test_fs_escape_matrix.py](tests/test_fs_escape_matrix.py)).
 - **WASI 0.3 evaluation gate:** WASI 0.3 (Component-Model async) is deliberately gated off until the 0.3 surface ships in the Python wheels, the streams advisory line is closed, and the surface has its own budget qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
 - **Threading opt-in phase:** shared-everything threads stay frozen by default; enabling them is a separately security-reviewed opt-in with thread-aware fuel and wall-clock accounting ([SECURITY.md](SECURITY.md#threading)).
 
 ## Testing & Verification
 
-589 tests passing (4 skipped) · 87% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+804 tests passing (4 skipped) · 89% statement coverage (Cell + MCP, gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Documentation
 
@@ -585,7 +597,7 @@ Real, gated items — no dates promised:
 
 **Integrations** · [docs/mcp.md](docs/mcp.md) — MCP server · [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md) — CVE-to-probe mapping · [`action/`](action/) — composite GitHub Action
 
-**Languages** · [docs/languages.md](docs/languages.md) — compile matrix · [docs/egress_patterns.md](docs/egress_patterns.md) — sanctioned API-call patterns
+**Languages** · [docs/languages.md](docs/languages.md) — compile matrix · [docs/egress_patterns.md](docs/egress_patterns.md) — sanctioned API-call patterns · [docs/observations.md](docs/observations.md) — the two watch items we are deliberately not acting on, each with its exit condition
 
 **Enterprise** · [docs/enterprise.md](docs/enterprise.md) — isolation vs. operation: when that conversation is worth having
 

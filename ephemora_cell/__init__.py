@@ -49,9 +49,27 @@ from .execution_report import (
     dsse_verify,
     verify_chain,
 )
+from .ledger import (
+    DSSE_TYPE_LEDGER_ENTRY as dsse_type_ledger_entry,
+)
+from .ledger import (
+    Ledger,
+    LedgerEntry,
+    chain_break,
+    record_digest,
+    verify_ledger,
+)
 from .process_executor import measure_overhead
 from .process_executor import run_isolated as _run_isolated_dict
 from .profiles import get as get_profile
+from .tenant import (
+    Admission,
+    Charge,
+    CumulativeBudget,
+    TenantId,
+    TenantStore,
+    TenantUsage,
+)
 from .wasi_02 import ComponentSandbox, is_component_binary
 from .wasi_runtime import (
     STDIN_MAX_BYTES,
@@ -122,13 +140,12 @@ def run_isolated(
 
     For the raw dict (legacy), import directly:
     ``from ephemora_cell.process_executor import run_isolated``.
-    """
-    from .process_executor import DEFAULT_MAX_WASM_BYTES
 
+    ``max_wasm_bytes`` overrides the module size cap; unset takes the
+    config's own cap (WASIConfig default 32 MiB, 0 = no cap).
+    """
     if config is None:
         config = WASIConfig()
-    if max_wasm_bytes is None:
-        max_wasm_bytes = DEFAULT_MAX_WASM_BYTES
     raw = _run_isolated_dict(
         wasm_path,
         config,
@@ -166,31 +183,43 @@ run_isolated_dict = _run_isolated_dict
 
 __all__ = [
     "STDIN_MAX_BYTES",
+    "Admission",
+    "Charge",
     "ComponentSandbox",
+    "CumulativeBudget",
     "EnginePool",
     "ExecutionReport",
     "ExecutionResult",
     "ExecutionStatus",
+    "Ledger",
+    "LedgerEntry",
     "ModuleInfo",
     "PreExecutionRecord",
+    "TenantId",
+    "TenantStore",
+    "TenantUsage",
     "WASIConfig",
     "WASISandbox",
+    "chain_break",
     "config_fingerprint",
     "detached_jws_sign",
     "detached_jws_verify",
     "dsse_pae",
     "dsse_sign",
     "dsse_type_execution_report",
+    "dsse_type_ledger_entry",
     "dsse_type_pre_exec_record",
     "dsse_verify",
     "get_profile",
     "inspect_module",
     "is_component_binary",
     "measure_overhead",
+    "record_digest",
     "run_isolated",
     "run_isolated_dict",
     "run_wasm",
     "verify_chain",
+    "verify_ledger",
 ]
 
 __version__ = "1.0.5"

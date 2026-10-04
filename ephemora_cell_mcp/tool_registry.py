@@ -190,6 +190,34 @@ def ed25519_verifier_from_pem(pem_path: str) -> Callable[[bytes, bytes], bool]:
     return _verify
 
 
+def ed25519_signer_from_pem(pem_path: str) -> Callable[[bytes], bytes]:
+    """Build a signer from an Ed25519 private key (PEM file).
+
+    The inverse of :func:`ed25519_verifier_from_pem`: the host signs with this
+    and callers verify with the matching public key PEM. Same optional
+    ``cryptography`` dependency, same actionable error. Used for signed
+    per-call receipts (ADR-008) — the private key never leaves the operator.
+    """
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    except ImportError as e:  # pragma: no cover - exercised via flag path
+        raise RuntimeError(
+            "receipt signing needs the optional 'cryptography' package "
+            "(pip install 'ephemora-cell[tools-signing]') — or sign receipts "
+            "in the host process instead"
+        ) from e
+    with open(pem_path, "rb") as f:
+        key = load_pem_private_key(f.read(), password=None)
+    sign = getattr(key, "sign", None)
+    if sign is None:
+        raise ValueError(f"{pem_path!r} is not a private key")
+
+    def _sign(data: bytes) -> bytes:
+        return sign(data)
+
+    return _sign
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     """A single WASM-backed MCP tool."""

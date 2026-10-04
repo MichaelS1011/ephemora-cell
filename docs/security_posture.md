@@ -96,9 +96,10 @@ pytest counterparts in `tests/test_fs_escape_matrix.py`,
   rename across the boundary, TRUNCATE without the write/set-size
   right), each with a granted positive control. Measured on the pinned
   47.0.1 engine: **all vectors denied** (errno 63/44/28 — NOTCAPABLE /
-  ENOENT / EINVAL-class refusals), host-side artifacts untouched. The
-  pytest markers stay xfail until the M2 engine upgrade re-runs the
-  matrix on the patched engine — the advisory remains authoritative.
+  ENOENT / EINVAL-class refusals), host-side artifacts untouched. **Since
+  2026-10-04 these five vectors are strict asserts, not xfail markers** — a
+  re-opening vector turns CI red (re-measured green on linux/amd64 in addition
+  to macOS arm64). The advisory itself remains open upstream and authoritative.
 - **Persistence / worm** — a marker written by run N is invisible to
   run N+1 (fresh scratch per run, same instance or not); the reader
   probe proves detection via a legitimate allow-dir control; named

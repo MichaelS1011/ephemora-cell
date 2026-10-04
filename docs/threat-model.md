@@ -43,7 +43,7 @@ whether guest code is *good* — only contained.
 
 | Boundary | What crosses it | Enforcement |
 |---|---|---|
-| Guest → WASI Preview1 surface | syscalls only (`fd_*`, `path_open`, `clock`, `random`, `environ`) | capability-based: preopened dirs only, dangerous dirs denied, `fd_psync`/`fd_sync` rejected at instantiate |
+| Guest → WASI Preview1 surface | syscalls only (`fd_*`, `path_open`, `clock`, `random`, `environ`) | capability-based: preopened dirs only, dangerous dirs denied, sync calls refused at the CALL layer for `fd_sync`/`fd_datasync`/`fd_psync` (imports stay legal — Zig and CPython both link the symbols without calling them; `allow_fsync` opts out, `fd_psync` stays trapped) |
 | Guest → host compute | fuel, memory pages, wall clock | fuel metering, `Store.set_limits`, epoch interruption — enforced on **both** execution paths |
 | Sandbox dir → host disk | guest-written bytes | `io_budget_bytes` wall (both paths); `disk_quota_bytes` (RLIMIT_FSIZE) and `io_cpu_seconds` rusage watchdog on the **subprocess path only** — see the [execution-path matrix](../SECURITY.md#execution-paths--which-control-runs-where) |
 | Worker → OS (subprocess path) | process creation itself | RLIMIT_NOFILE/AS/RSS, 32 MB module cap, hard kill on timeout |
@@ -105,7 +105,10 @@ matrix](../SECURITY.md#execution-paths--which-control-runs-where).
   cap your own process (I/O CPU wall, disk quota) — subprocess path enforces
   them; the matrix states which control runs where.
 - **Single-tenant by design** — no isolation between concurrent modules in
-  one process beyond per-run budgets.
+  one process beyond per-run budgets. ADR-012 adds host-side attribution
+  (`--tenant`) and cumulative caps that refuse a run BEFORE it starts; that
+  bills and limits an account, it does not isolate one tenant's memory, files
+  or CPU from another's.
 - **Supply-chain trust in wasmtime** — mitigated by CI (pip-audit, SBOM),
   never by the sandbox itself.
 

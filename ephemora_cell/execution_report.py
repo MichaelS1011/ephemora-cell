@@ -29,6 +29,16 @@ PRE_EXEC_RECORD_TYPE = "ephemora.pre_exec.v1"
 DSSE_TYPE_EXECUTION_REPORT = "https://ephemora.dev/execution-report.v1"
 DSSE_TYPE_PRE_EXEC_RECORD = "https://ephemora.dev/pre-execution-record.v1"
 
+#: Schema tag of the replay-binding block inside a signed receipt. The tag is
+#: signed *with* the receipt, so a verifier that requires freshness can tell
+#: "this receipt predates the evidence field" apart from "this one is forged".
+EVIDENCE_SCHEMA = "ephemora-execution-evidence.v1"
+
+#: Clock skew a freshness check tolerates before it calls a receipt from the
+#: future a forgery. One minute: enough for an NTP hop, small enough that a
+#: deliberately long-lived replay cannot hide behind the skew.
+_ISSUED_AT_FUTURE_SKEW_SECONDS = 60.0
+
 
 def _default_security_baseline() -> dict[str, Any]:
     """Fingerprint of the runtime's security-relevant settings."""
@@ -61,8 +71,59 @@ def _default_security_baseline() -> dict[str, Any]:
         "tail_calls_enabled": False,
         # WASI 0.3 gate-off: native async rides on stack-switching.
         "stack_switching_enabled": False,
+        # Loader posture (see apply_config): module size cap and whether
+        # WASI sync calls are permitted.
+        "max_wasm_bytes": 32 * 1024 * 1024,
+        "allow_fsync": False,
         "preopens": [],
     }
+
+
+def security_baseline_for(
+    config: Any,
+    *,
+    tenant: str | None = None,
+    tenant_budget_ref: str | None = None,
+) -> dict[str, Any]:
+    """The posture a run carries, read off ITS OWN config.
+
+    Single source for both attestations — the execution receipt
+    (``ExecutionReport.apply_config``) and the pre-execution record
+    (``PreExecutionRecord.build``). Before this existed the pre-exec record
+    took the hardcoded default baseline, so a signed record could certify
+    ``allow_fsync: false`` for a run whose config had it on: the two
+    attestations of one run could disagree, and the one a verifier sees
+    first was the wrong one.
+
+    ``max_wasm_bytes: 0`` means NO cap, which reads like the tightest
+    possible limit in a bare number, so the posture carries the flag too.
+
+    ``tenant``/``tenant_budget_ref`` (ADR-012) add their keys ONLY when set:
+    an unaccounted run's baseline stays byte-identical to every earlier
+    release. With them, a receipt says which account it drained and under
+    which cumulative cap — a number no single run's config can show.
+    """
+    baseline = _default_security_baseline()
+    baseline.update(
+        {
+            "memory_limit_bytes": config.memory_capacity_bytes,
+            "fuel": config.max_fuel,
+            "memory64": bool(config.memory64),
+            "gc_heap_mb": config.max_gc_heap_mb,
+            "disk_quota_bytes": config.disk_quota_bytes,
+            "io_budget_bytes": config.io_budget_bytes,
+            "io_cpu_seconds": config.io_cpu_seconds,
+            "max_wasm_bytes": config.max_wasm_bytes,
+            "max_wasm_bytes_unlimited": config.max_wasm_bytes == 0,
+            "allow_fsync": bool(config.allow_fsync),
+            "preopens": list(config.allow_dirs),
+        }
+    )
+    if tenant is not None:
+        baseline["tenant"] = str(tenant)
+    if tenant_budget_ref is not None:
+        baseline["tenant_budget_ref"] = str(tenant_budget_ref)
+    return baseline
 
 
 @dataclass
@@ -91,6 +152,10 @@ class ExecutionReport:
     # None (default) for every plain report — `to_dict()` output is
     # byte-identical to pre-ADR-008 reports unless the caller opts in.
     back_link: dict[str, Any] | None = None
+    # ADR-008 replay binding: a per-receipt nonce, its issue time and the tool it
+    # answers for. None (default) keeps `to_dict()` byte-identical to an
+    # evidence-free report — only the signing path populates it.
+    evidence: dict[str, Any] | None = None
 
     @property
     def fuel_utilization(self) -> float | None:
@@ -116,7 +181,12 @@ class ExecutionReport:
         self.warnings.append(warning)
 
     def apply_config(
-        self, config: Any, *, effective_preopens: tuple[str, ...] | None = None
+        self,
+        config: Any,
+        *,
+        effective_preopens: tuple[str, ...] | None = None,
+        tenant: str | None = None,
+        tenant_budget_ref: str | None = None,
     ) -> ExecutionReport:
         """Overlay the effective sandbox configuration into the baseline.
 
@@ -128,29 +198,30 @@ class ExecutionReport:
         execution result; when no run result is available, the configured
         ``allow_dirs`` are reported as configured, without claiming grants
         only a live run can attest.
+
+        ``tenant``/``tenant_budget_ref`` are read from the result for the same
+        reason (ADR-012): the run, not the caller, decides whether it was
+        billed. Passing neither leaves both keys absent, so records of
+        unaccounted runs keep the exact bytes they had before this existed.
         """
         baseline = self.security_baseline
-        baseline["memory_limit_bytes"] = config.memory_capacity_bytes
-        baseline["fuel"] = config.max_fuel
+        baseline.update(
+            security_baseline_for(
+                config, tenant=tenant, tenant_budget_ref=tenant_budget_ref
+            )
+        )
+        # Engine posture keys are enforced by the runtime, not chosen by the
+        # config, so they stay as the default sets them (threads, multi-memory
+        # and the enforced-off proposals).
         baseline["threads_enabled"] = False
-        baseline["memory64"] = bool(config.memory64)
         baseline["multi_memory"] = False
-        baseline["gc_heap_mb"] = config.max_gc_heap_mb
-        # GHSA-m63x-6p34-q65x hardening — enforced engine posture, attested
-        # so a report cannot claim features the engine would reject.
         baseline["function_references_enabled"] = False
         baseline["exceptions_enabled"] = False
         baseline["gc_enabled"] = False
         baseline["tail_calls_enabled"] = False
         baseline["stack_switching_enabled"] = False
-        # ADR-002 I/O budgets — attested alongside fuel/memory so a report
-        # cannot claim the wall while the run carried a different one.
-        baseline["io_budget_bytes"] = config.io_budget_bytes
-        baseline["io_cpu_seconds"] = config.io_cpu_seconds
         if effective_preopens is not None:
             baseline["preopens"] = list(effective_preopens)
-        else:
-            baseline["preopens"] = list(config.allow_dirs)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -173,6 +244,8 @@ class ExecutionReport:
         }
         if self.back_link is not None:
             out["back_link"] = dict(self.back_link)
+        if self.evidence is not None:
+            out["evidence"] = dict(self.evidence)
         return out
 
     def to_json(self, indent: int = 2) -> str:
@@ -315,13 +388,23 @@ class ExecutionReport:
         return "\n".join(lines)
 
 
-def policy_fingerprint(config: Any) -> str:
+def policy_fingerprint(
+    config: Any,
+    *,
+    tenant: str | None = None,
+    tenant_budget_ref: str | None = None,
+) -> str:
     """SHA-256 over the JCS of the security-relevant policy (ADR-008).
 
     Deliberately broader than the engine-pool cache fingerprint: this is
     the PRE-EXECUTION attestation of the policy a run carries, covering
     every wall the guest experiences. ``allow_env`` contributes its NAMES
     only — values are secrets, not policy.
+
+    ``tenant``/``tenant_budget_ref`` (ADR-012) join the digest only when
+    given. Without them two runs that drained different accounts from the
+    same cumulative cap fingerprinted identically, and an agreement made
+    against one account would have been usable for the other.
     """
 
     def _names(pairs: Any) -> list:
@@ -337,10 +420,20 @@ def policy_fingerprint(config: Any) -> str:
         "max_gc_heap_mb": getattr(config, "max_gc_heap_mb", None),
         "disk_quota_bytes": getattr(config, "disk_quota_bytes", None),
         "io_cpu_seconds": getattr(config, "io_cpu_seconds", None),
+        # The two posture knobs an operator can move: how big a module a run
+        # may load, and whether WASI sync calls are permitted. Without them
+        # here, a config with allow_fsync on fingerprinted IDENTICALLY to the
+        # closed default — the attestation could not tell the two runs apart.
+        "max_wasm_bytes": getattr(config, "max_wasm_bytes", None),
+        "allow_fsync": bool(getattr(config, "allow_fsync", False)),
         "io_budget_bytes": getattr(config, "io_budget_bytes", None),
         "allow_env_names": _names(getattr(config, "allow_env", None)),
         "allow_dirs": list(getattr(config, "allow_dirs", ()) or ()),
     }
+    if tenant is not None:
+        policy["tenant"] = str(tenant)
+    if tenant_budget_ref is not None:
+        policy["tenant_budget_ref"] = str(tenant_budget_ref)
     return hashlib.sha256(jcs_canonicalize(policy).encode("utf-8")).hexdigest()
 
 
@@ -400,11 +493,16 @@ class PreExecutionRecord:
         security_baseline: dict[str, Any] | None = None,
         record_id: str | None = None,
         timestamp: str | None = None,
+        tenant: str | None = None,
+        tenant_budget_ref: str | None = None,
     ) -> PreExecutionRecord:
         """Assemble a pre-exec record from the run's inputs.
 
         ``record_id``/``timestamp`` are injectable for deterministic
         tests; production callers let them default (uuid4 hex / UTC ISO).
+        ``tenant``/``tenant_budget_ref`` (ADR-012) are attested in BOTH
+        halves of the record — the fingerprint and the baseline — and are
+        omitted entirely when unset.
         """
         if config is None:
             raise ValueError("config is required")
@@ -413,9 +511,16 @@ class PreExecutionRecord:
             timestamp=timestamp
             or datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             module_sha256=module_digest(module_path, module_bytes),
-            config_fingerprint=policy_fingerprint(config),
+            config_fingerprint=policy_fingerprint(
+                config, tenant=tenant, tenant_budget_ref=tenant_budget_ref
+            ),
             input_hash=input_digest(args, stdin_data),
-            security_baseline=dict(security_baseline or _default_security_baseline()),
+            security_baseline=dict(
+                security_baseline
+                or security_baseline_for(
+                    config, tenant=tenant, tenant_budget_ref=tenant_budget_ref
+                )
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -800,6 +905,114 @@ def dsse_verify(envelope: Any, verifier: Callable[[bytes, bytes], bool]) -> bool
     except (KeyError, TypeError, ValueError):
         return False
     return True
+
+
+def new_execution_evidence(
+    *, tool: str | None = None, now: datetime | None = None
+) -> dict[str, Any]:
+    """Build the replay-binding block for one signed receipt.
+
+    A receipt without a nonce is a statement about a *shape* ("a call of this
+    tool ended like this"), not about one *execution* — the same bytes prove any
+    call that looked the same. ``report_id`` makes each receipt one-of-one and
+    ``issued_at`` makes it ageable, so a caller can refuse a receipt that is
+    stale or that it has already seen. The signature covers this block because
+    it is part of the payload (see :meth:`ExecutionReport.to_dsse`).
+
+    ``issued_at`` is always an aware UTC timestamp (``+00:00``): a naive stamp
+    would be re-readable as local time, which is how a replay gains hours.
+    """
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        raise ValueError("issued_at must be an aware datetime (UTC), not naive")
+    evidence: dict[str, Any] = {
+        "schema": EVIDENCE_SCHEMA,
+        "report_id": uuid.uuid4().hex,
+        "issued_at": moment.astimezone(timezone.utc).isoformat(),
+    }
+    if tool is not None:
+        # Binding to the tool is what stops a receipt for `echo` being presented
+        # as evidence for a call of a different tool.
+        evidence["tool"] = tool
+    return evidence
+
+
+def verify_execution_attestation(
+    envelope: Any,
+    verifier: Callable[[bytes, bytes], bool],
+    execution: Any,
+    *,
+    payload_type: str = DSSE_TYPE_EXECUTION_REPORT,
+    max_age_seconds: float | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """Verify a signed receipt against the ``_meta.execution`` it accompanies.
+
+    Not just :func:`dsse_verify`: the signature alone proves nothing about the
+    receipt a caller is reading, because a signer could sign one dict and present
+    another. This binds the two — the envelope must carry this ``payload_type``,
+    its base64 payload must be EXACTLY ``canonical_bytes(execution)``, and the
+    DSSE signature over the PAE must verify. All three hold or it returns False
+    (fails closed on any malformed input). This is the check a caller runs with
+    the host's public key to turn a self-reported ``_meta`` into a verified
+    receipt.
+
+    ``max_age_seconds`` adds a freshness requirement on top of the cryptographic
+    one: the receipt must carry an :data:`EVIDENCE_SCHEMA` block whose
+    ``issued_at`` is within the window (and not more than
+    :data:`_ISSUED_AT_FUTURE_SKEW_SECONDS` in the future). A receipt that is
+    genuinely signed but months old passes without this argument — which is
+    exactly why the nonce exists: it is the caller's job to also refuse a
+    ``report_id`` it has already accepted.
+    """
+    if not isinstance(envelope, dict):
+        return False
+    if envelope.get("payloadType") != payload_type:
+        return False
+    payload_b64 = envelope.get("payload")
+    if not isinstance(payload_b64, str):
+        return False
+    try:
+        expected = canonical_bytes(execution)
+        if base64.b64decode(payload_b64, validate=True) != expected:
+            return False
+    except (ValueError, TypeError):
+        return False
+    if not dsse_verify(envelope, verifier):
+        return False
+    if max_age_seconds is not None:
+        if not _issued_at_is_fresh(execution, max_age_seconds, now):
+            return False
+    return True
+
+
+def _issued_at_is_fresh(execution: Any, max_age_seconds: float, now: Any) -> bool:
+    """Fail-closed freshness check on the signed evidence block."""
+    if not isinstance(execution, dict):
+        return False
+    evidence = execution.get("evidence")
+    if not isinstance(evidence, dict):
+        return False
+    if evidence.get("schema") != EVIDENCE_SCHEMA:
+        return False
+    if not isinstance(evidence.get("report_id"), str) or not evidence["report_id"]:
+        return False
+    stamp = evidence.get("issued_at")
+    if not isinstance(stamp, str):
+        return False
+    try:
+        issued = datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    if issued.tzinfo is None:
+        # A naive stamp is not a timestamp, it is a guess about which zone was
+        # meant — refuse rather than pick one.
+        return False
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        return False
+    age = (moment - issued).total_seconds()
+    return -_ISSUED_AT_FUTURE_SKEW_SECONDS <= age <= max_age_seconds
 
 
 def detached_jws_sign(

@@ -8,7 +8,10 @@ uses, not assumed:
   2. Fork     — same capability scan for fork/vfork.
   3. Network  — same capability scan for socket/sock_* (WASI Preview1 has no
                sockets); importing one is refused at instantiate.
-  4. fsync    — real WASM imports fd_psync; the sandbox traps it.
+  4. fsync    — all three sync entry points (fd_sync, fd_datasync, fd_psync)
+               are called through a real fd; each must trap. Importing them is
+               legal by design — Zig emits fd_sync and CPython emits
+               fd_datasync in every binary — so only the call can be refused.
   5. Host-FS  — real WASM path_open("/etc/passwd") with no preopen; must fail.
   6. Symlink  — real WASM opens a symlink inside a preopened dir that points
                outside; must fail (positive control: a real file must open).
@@ -120,16 +123,30 @@ def test_capability_blocked(kind, names, surface):
 # Real execution payloads (vectors 4-8)
 # =====================================================================
 
-# fd_psync — the sandbox registers this import and traps it.
-FSYNC_WAT = r"""(module
-  (import "wasi_snapshot_preview1" "fd_psync" (func $p (param i32) (result i32)))
+#: Vector 4 — every sync entry point the Cell refuses. One template, three
+#: names: fd_sync is Preview1's own sync call (what os.fsync reaches, wired by
+#: define_wasi to a real fsync(2)), fd_datasync is its sibling, fd_psync does
+#: not exist in Preview1 and only exists as the Cell's own shim. All three are
+#: trapped at the CALL layer; importing them is legal on purpose, because every
+#: wasm32-wasi Zig binary imports fd_sync and CPython-WASI imports fd_datasync
+#: without ever calling either. The module calls the sync on fd 3 (the
+#: preopened sandbox dir) and would exit 0 if the call returned — so it reports
+#: BLOCKED only when the call never comes back to the guest.
+SYNC_NAMES = ("fd_sync", "fd_datasync", "fd_psync")
+
+SYNC_CALL_WAT = r"""(module
+  (import "wasi_snapshot_preview1" "%(name)s" (func $s (param i32) (result i32)))
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
   (memory (export "memory") 1)
   (func (export "_start")
-    i32.const 0 call $p drop
+    i32.const 3 call $s drop
     i32.const 0 call $exit
   )
 )"""
+
+
+def sync_call_wat(name: str) -> str:
+    return SYNC_CALL_WAT % {"name": name}
 
 
 def _path_open_wat(target: str) -> str:
@@ -253,23 +270,34 @@ def main():
     )
     blocked += r["blocked"]
 
-    # 4. fsync (real execution)
-    print("\n[4/8] fsync (fd_psync)")
-    p = compile_wat(FSYNC_WAT)
-    r = run_attack(p, DEFAULT)
-    p.unlink(missing_ok=True)
-    blocked_ok = (r["status"] != "success") and (
-        "fsync" in r.get("stderr", "").lower()
-        or "blocked" in r.get("stderr", "").lower()
-    )
+    # 4. fsync (real execution) — every sync entry point the Cell traps,
+    # called through the fd the guest actually gets.
+    print("\n[4/8] fsync (" + " + ".join(SYNC_NAMES) + " calls)")
+    details = {}
+    blocked_ok = True
+    for label in SYNC_NAMES:
+        p = compile_wat(sync_call_wat(label))
+        r = run_attack(p, DEFAULT)
+        p.unlink(missing_ok=True)
+        ok = (r["status"] != "success") and (
+            "fsync" in r.get("stderr", "").lower()
+            or "blocked" in r.get("stderr", "").lower()
+        )
+        details[label] = r
+        blocked_ok = blocked_ok and ok
+        print(
+            f"  {label}: {'BLOCKED' if ok else 'ALLOWED (BUG!)'} "
+            f"({r['status']}) {r.get('stderr', r.get('error', ''))[:60]}"
+        )
+    first, second, third = (details[n] for n in SYNC_NAMES)
     results["fsync"] = {
         "blocked": blocked_ok,
-        "status": r["status"],
-        "detail": r.get("stderr", r.get("error", "")),
+        "status": first["status"],
+        "fd_datasync_status": second["status"],
+        "fd_psync_status": third["status"],
+        "detail": first.get("stderr", "") or first.get("error", ""),
     }
-    print(f"  Result: {'BLOCKED' if blocked_ok else 'ALLOWED (BUG!)'} ({r['status']})")
-    if r.get("stderr"):
-        print(f"  Detail: {r['stderr'][:80]}")
+    print(f"  Result: {'BLOCKED' if blocked_ok else 'ALLOWED (BUG!)'}")
     blocked += blocked_ok
 
     # 5. Host FS (real execution)

@@ -31,8 +31,12 @@ import sys
 import time
 from pathlib import Path
 
-from .process_worker import DEFAULT_MAX_WASM_BYTES
-from .wasi_runtime import ExecutionStatus, WASIConfig
+from .wasi_runtime import (
+    DEFAULT_MAX_WASM_BYTES,
+    ExecutionStatus,
+    WASIConfig,
+    module_size_cap_error,
+)
 
 __all__ = ["DEFAULT_MAX_WASM_BYTES", "measure_overhead", "run_isolated"]
 
@@ -72,6 +76,8 @@ def _payload_bytes(
                 "disk_quota_bytes": config.disk_quota_bytes,
                 "io_cpu_seconds": config.io_cpu_seconds,
                 "io_budget_bytes": config.io_budget_bytes,
+                "max_wasm_bytes": config.max_wasm_bytes,
+                "allow_fsync": config.allow_fsync,
             },
             "args": args,
             "stdin": stdin_data,
@@ -143,7 +149,7 @@ def run_isolated(
     config: WASIConfig,
     args: list[str] | None = None,
     stdin_data: str | None = None,
-    max_wasm_bytes: int = DEFAULT_MAX_WASM_BYTES,
+    max_wasm_bytes: int | None = None,
     abi: str = "auto",
     expected_sha256: str | None = None,
 ) -> dict:
@@ -154,11 +160,25 @@ def run_isolated(
     status (ExecutionStatus), exit_code, stdout, stderr, elapsed_ms,
     fuel_consumed, sandbox_dir.
 
+    ``max_wasm_bytes`` overrides the module size cap; unset takes
+    ``config.max_wasm_bytes`` (0 = no cap). The resolved cap is enforced
+    here AND in the worker, and travels to the worker on argv — the payload
+    config carries it too, so parent and worker cannot end up with two
+    different caps for one run.
+
     Failure mapping: worker death without a JSON report -> ERROR with
     "worker crashed"; parent-side process timeout -> TIMEOUT; unparseable
     output -> ERROR.
     """
     start = time.monotonic()
+
+    cap = config.max_wasm_bytes if max_wasm_bytes is None else max_wasm_bytes
+    if cap < 0:
+        return _failure_result(
+            ExecutionStatus.ERROR,
+            "max_wasm_bytes must be a non-negative int (0 disables the cap)",
+            (time.monotonic() - start) * 1000,
+        )
 
     resolved = Path(wasm_path).resolve()
     if not resolved.is_file():
@@ -167,20 +187,16 @@ def run_isolated(
             f"WASM module not found: {wasm_path}",
             (time.monotonic() - start) * 1000,
         )
-    if resolved.stat().st_size > max_wasm_bytes:
+    cap_error = module_size_cap_error(resolved, cap)
+    if cap_error is not None:
         return _failure_result(
-            ExecutionStatus.ERROR,
-            (
-                f"WASM module exceeds size limit of {max_wasm_bytes} bytes: "
-                f"{resolved.stat().st_size}"
-            ),
-            (time.monotonic() - start) * 1000,
+            ExecutionStatus.ERROR, cap_error, (time.monotonic() - start) * 1000
         )
 
     process_timeout = max(
         config.timeout_seconds + _PROCESS_TIMEOUT_MARGIN, _MIN_PROCESS_TIMEOUT
     )
-    cmd = _worker_cmd(str(resolved), max_wasm_bytes, abi)
+    cmd = _worker_cmd(str(resolved), cap, abi)
     payload = _payload_bytes(config, args or [], stdin_data, expected_sha256)
     try:
         returncode, raw_out, raw_err = _spawn_worker(cmd, payload, process_timeout)

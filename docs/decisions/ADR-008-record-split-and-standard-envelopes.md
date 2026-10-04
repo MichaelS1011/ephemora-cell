@@ -72,3 +72,48 @@
 - `examples/signed_record_demo.py` demonstrates the full chain end to
   end (pre-exec → receipt → DSSE), with tamper/wrong-reference
   negatives printed verbatim.
+
+## Shipped status (2026-10-04)
+
+The envelope primitives above are now wired to the MCP call path: with
+`--receipt-signing-key` the server emits `_meta.attestation` — a DSSE v1
+envelope over `canonical_bytes(_meta.execution)` — so the per-call receipt, which
+the MCP spec explicitly declines to verify ("callers SHOULD NOT rely on them for
+security decisions"), becomes verifiable out-of-band by a caller holding the
+operator's public key. `execution_report.verify_execution_attestation` binds the
+check: it fails closed unless the envelope's `payloadType`, its payload (exactly
+`canonical_bytes(execution)`) and the DSSE signature all agree, so a host cannot
+sign one receipt and present another. Off by default; an unconfigured deployment's
+`_meta` is unchanged. Pinned in `tests/test_signed_receipt.py`. The signing trust
+root (which issuer keys a caller trusts) is an operator decision — the same open
+piece as grant-signature verification in ADR-013.
+
+## Replay binding added (2026-10-04, same release)
+
+A signed receipt by itself proves a **shape**, not an **execution**: two calls of
+one tool with one outcome canonicalize to nearly the same bytes, so a captured
+receipt can be presented again for a call that never happened. The signing path
+now puts a one-of-one block INSIDE the signed payload
+(`ExecutionReport.evidence`, schema `ephemora-execution-evidence.v1`):
+
+* `report_id` — a fresh 128-bit nonce per receipt, so receipts are
+  distinguishable and a caller's seen-set has something to key on;
+* `issued_at` — aware UTC; a naive stamp is refused at construction, because
+  "12:00" without a zone is a guess a replay can hide in;
+* `tool` — the receipt answers for exactly this tool, which stops an honest
+  `echo` receipt being presented as evidence about a different tool;
+* `schema` — the tag is signed, so a verifier that requires freshness can tell
+  "this predates the field" apart from "this is forged".
+
+`verify_execution_attestation(..., max_age_seconds=...)` puts an age requirement
+on top of the cryptographic one: a missing evidence block, a naive stamp, a stamp
+older than the window, or one more than 60 s into the future all fail closed —
+while a valid signature over an old receipt still verifies without the argument,
+because the age requirement belongs to the caller, not to the format.
+
+Honest limits this does NOT remove: **the caller must dedupe `report_id`** — we
+sign a nonce but keep no server-side seen-list (that would be the append-only
+book's job, and this path stays stateless), and **the trust root remains an
+operator decision**. A report without a signer never receives `evidence`, so its
+bytes and `_meta` are identical to before; `get-policy` discloses the schema
+under `receipt_signing.evidence`.

@@ -19,13 +19,21 @@ import wasmtime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import ephemora_cell_mcp.engine as engine_module
 from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 from ephemora_cell.egress_sidecar import (
     EgressPolicy,
+    execute_request,
     parse_request_document,
     run_sidecar_cycle,
     validate_request,
 )
+from ephemora_cell_mcp.engine import (
+    CellOutcome,
+    CellToolEngine,
+    ExecutionResult,
+)
+from ephemora_cell_mcp.tool_registry import ToolSpec
 
 # --- local stand-in API (loopback only, tests never touch the network) ---
 
@@ -213,3 +221,1096 @@ class TestEndToEnd:
         # is not possible, so assert the policy knob exists and defaults
         assert policy.max_response_bytes == 64 * 1024
         assert len(payload) > policy.max_response_bytes
+
+
+# --- allowlist semantics and redirect revalidation (2026-10-03 findings) ---
+
+
+class _RoutingHandler(BaseHTTPRequestHandler):
+    """Serves a path table shared by every instance of this handler class.
+
+    ``routes`` maps a path to either ("redirect", location) or ("json", obj);
+    an unlisted path answers 200 with a marker, so a test can prove which
+    server actually received the request.
+    """
+
+    routes: typing.ClassVar[dict] = {}
+    hits: typing.ClassVar[dict] = {}
+
+    def do_GET(self):
+        port = self.server.server_address[1]
+        _RoutingHandler.hits[port] = _RoutingHandler.hits.get(port, 0) + 1
+        action = _RoutingHandler.routes.get((port, self.path))
+        if action is not None and action[0] == "redirect":
+            self.send_response(302)
+            self.send_header("Location", action[1])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        body = json.dumps(
+            action[1] if action is not None else {"served_by": port, "path": self.path}
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def _serve(routes: dict | None = None):
+    _RoutingHandler.routes = dict(routes or {})
+    _RoutingHandler.hits = {}
+    server = HTTPServer(("127.0.0.1", 0), _RoutingHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, server.server_address[1]
+
+
+def _route(server_port: int, path: str, action: tuple) -> None:
+    """Register a route once the ephemeral port is known."""
+    _RoutingHandler.routes[(server_port, path)] = action
+
+
+def _request(url: str):
+    return parse_request_document(json.dumps({"url": url}))
+
+
+class TestAllowlistPrefixSemantics:
+    """A path entry is a SEGMENT prefix. It used to be a string prefix."""
+
+    def test_sibling_prefix_is_not_admitted(self):
+        policy = EgressPolicy(allowed_endpoints=("https://api.example.com/v1",))
+        assert validate_request(policy, _request("https://api.example.com/v1")).decision
+        assert (
+            validate_request(
+                policy, _request("https://api.example.com/v1/keys")
+            ).decision
+            == "allowed"
+        )
+        denied = validate_request(
+            policy, _request("https://api.example.com/v1-admin/keys")
+        )
+        assert denied.decision == "denied"
+
+    def test_dot_segments_are_denied_before_any_socket(self):
+        policy = EgressPolicy(allowed_endpoints=("https://api.example.com/v1/",))
+        for probe in ("/v1/../v1-admin", "/v1/%2e%2e/admin", "/v1/./../../etc/passwd"):
+            entry = validate_request(
+                policy, _request("https://api.example.com" + probe)
+            )
+            assert entry.decision == "denied", probe
+            assert "dot segment" in entry.reason, probe
+
+    def test_bare_host_entry_admits_every_path(self):
+        """Stated semantics, not an accident: no path in the entry = whole host."""
+        policy = EgressPolicy(allowed_endpoints=("https://api.example.com",))
+        assert (
+            validate_request(
+                policy, _request("https://api.example.com/anything/here")
+            ).decision
+            == "allowed"
+        )
+
+    def test_policy_rejects_unusable_entries(self):
+        for bad in (
+            "https://api.example.com/v1/../",  # dot segment in the ENTRY
+            "https://api.example.com/%2e%2e",  # encoded dot segment
+            "https://api.example.com/v1?a=b",  # a query is never matched on
+            "https://user@api.example.com/v1",  # userinfo
+            "https://",  # no host
+        ):
+            try:
+                EgressPolicy(allowed_endpoints=(bad,))
+            except ValueError:
+                continue
+            raise AssertionError(f"entry accepted but must not be: {bad}")
+
+
+class TestRedirectRevalidation:
+    """The stdlib default opener used to follow redirects past the allowlist."""
+
+    def test_off_allowlist_redirect_is_refused_and_never_fetched(self):
+        other, other_port = _serve()
+        entry, entry_port = _serve()
+        _route(
+            entry_port,
+            "/v1/away",
+            ("redirect", f"http://127.0.0.1:{other_port}/latest/meta-data/"),
+        )
+        try:
+            policy = EgressPolicy(
+                allowed_endpoints=(f"http://127.0.0.1:{entry_port}/v1",)
+            )
+            request = _request(f"http://127.0.0.1:{entry_port}/v1/away")
+            audit = validate_request(policy, request)
+            assert audit.decision == "allowed"  # the first URL is on policy
+            result = execute_request(policy, request, audit=audit)
+            assert _RoutingHandler.hits.get(other_port, 0) == 0, (
+                "the off-allowlist target was fetched — redirect revalidation "
+                "is not holding"
+            )
+            assert result.response_doc["ok"] is False
+            assert result.audit.decision == "denied"
+            assert "not on the egress allowlist" in result.audit.reason
+            assert str(other_port) in result.audit.reason
+        finally:
+            entry.shutdown()
+            other.shutdown()
+
+    def test_on_allowlist_redirect_is_followed_and_recorded(self):
+        server, port = _serve()
+        _route(port, "/v1/hop", ("redirect", f"http://127.0.0.1:{port}/v1/real"))
+        _route(port, "/v1/real", ("json", {"answer": "landed"}))
+        try:
+            policy = EgressPolicy(allowed_endpoints=(f"http://127.0.0.1:{port}/v1",))
+            request = _request(f"http://127.0.0.1:{port}/v1/hop")
+            audit = validate_request(policy, request)
+            result = execute_request(policy, request, audit=audit)
+            assert result.response_doc["ok"] is True, result.response_doc
+            assert result.response_doc["content"] == {"answer": "landed"}
+            assert result.audit.hops == (f"http://127.0.0.1:{port}/v1/real",)
+            assert result.audit.decision == "allowed"
+        finally:
+            server.shutdown()
+
+    def test_scheme_changing_redirect_is_refused(self):
+        """Even an allowlisted https entry must not be reached by an http
+        request hopping schemes (the stdlib also lets ftp through)."""
+        server, port = _serve()
+        _route(port, "/v1/up", ("redirect", f"https://127.0.0.1:{port}/v1/secret"))
+        try:
+            policy = EgressPolicy(
+                allowed_endpoints=(
+                    f"http://127.0.0.1:{port}/v1",
+                    f"https://127.0.0.1:{port}/v1",
+                )
+            )
+            request = _request(f"http://127.0.0.1:{port}/v1/up")
+            audit = validate_request(policy, request)
+            result = execute_request(policy, request, audit=audit)
+            assert result.response_doc["ok"] is False
+            assert "scheme" in result.audit.reason
+        finally:
+            server.shutdown()
+
+    def test_plain_response_carries_no_hops(self):
+        server, port = _serve()
+        try:
+            policy = EgressPolicy(allowed_endpoints=(f"http://127.0.0.1:{port}/v1",))
+            request = _request(f"http://127.0.0.1:{port}/v1/plain")
+            audit = validate_request(policy, request)
+            result = execute_request(policy, request, audit=audit)
+            assert result.response_doc["ok"] is True
+            assert result.audit.hops == ()
+        finally:
+            server.shutdown()
+
+
+# --- the MCP host-sidecar trace: the mediator finally has a real caller ---
+
+
+def _artifact_dir(tmp_path: Path, url: str) -> Path:
+    """A fake sandbox dir holding one guest-written request artifact."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "sidecar.request.json").write_text(
+        json.dumps({"url": url, "method": "GET"}), encoding="utf-8"
+    )
+    return tmp_path
+
+
+def _spec() -> ToolSpec:
+    return ToolSpec(name="t", wasm_path="t.wasm", description="d", profile="llm")
+
+
+def _ok_result(sandbox_dir: str | None) -> ExecutionResult:
+    return ExecutionResult(
+        status=ExecutionStatus.SUCCESS,
+        exit_code=0,
+        stdout="{}",
+        sandbox_dir=sandbox_dir,
+    )
+
+
+class TestEngineEgressTrace:
+    def test_no_policy_never_reads_the_artifact(self, tmp_path):
+        d = _artifact_dir(tmp_path, "http://127.0.0.1:1/v1/x")
+        assert CellToolEngine()._mediate_egress(str(d), "t") == ()
+
+    def test_no_artifact_is_silent(self, tmp_path):
+        eng = CellToolEngine(egress_policy=EgressPolicy(allowed_endpoints=()))
+        assert eng._mediate_egress(str(tmp_path), "t") == ()
+        assert eng._mediate_egress(None, "t") == ()
+
+    def test_on_policy_request_is_mediated_and_written_back(self, tmp_path):
+        server, port = _serve()
+        try:
+            d = _artifact_dir(tmp_path, f"http://127.0.0.1:{port}/v1/data")
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                )
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed"
+            assert audit["response"]["ok"] is True
+            # the response artifact the between-runs pattern promises
+            assert (d / "sidecar.response.json").is_file()
+        finally:
+            server.shutdown()
+
+    def test_off_policy_request_is_denied_not_fetched(self, tmp_path):
+        server, port = _serve()
+        try:
+            d = _artifact_dir(tmp_path, f"http://127.0.0.1:{port}/secret/admin")
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                )
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied"
+            assert "egress policy" in audit["reason"]
+            assert audit["response"]["ok"] is False
+        finally:
+            server.shutdown()
+
+    def test_malformed_artifact_denies_rather_than_staying_quiet(self, tmp_path):
+        (tmp_path / "sidecar.request.json").write_text("{not json", encoding="utf-8")
+        eng = CellToolEngine(egress_policy=EgressPolicy(allowed_endpoints=()))
+        (audit,) = eng._mediate_egress(str(tmp_path), "t")
+        assert audit["decision"] == "denied"
+        assert "invalid request artifact" in audit["reason"]
+
+    def test_execute_invokes_the_mediator_before_cleanup(self, tmp_path, monkeypatch):
+        """The whole point of the trace: execute() is a real caller, and it
+        mediates while the sandbox dir still exists (cleanup would erase it)."""
+        server, port = _serve()
+        try:
+            _artifact_dir(tmp_path, f"http://127.0.0.1:{port}/v1/data")
+            cleaned: list[bool] = []
+
+            class FakeSandbox:
+                def __init__(self, config=None):
+                    pass
+
+                def run(self, *a, **k):
+                    return _ok_result(str(tmp_path))
+
+                def cleanup(self):
+                    # Runs AFTER execute() has mediated: if mediation happened
+                    # before cleanup, the response artifact the mediator wrote
+                    # is present here. If the order ever flips, mediation would
+                    # read a dir cleanup already erased and this stays False.
+                    cleaned.append((tmp_path / "sidecar.response.json").is_file())
+
+            monkeypatch.setattr(engine_module, "WASISandbox", FakeSandbox)
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                )
+            )
+            outcome = eng.execute(_spec(), {})
+            assert isinstance(outcome, CellOutcome)
+            assert outcome.egress and outcome.egress[0]["decision"] == "allowed"
+            # mediated against a live dir, THEN cleaned up (order is the point)
+            assert cleaned == [True]
+        finally:
+            server.shutdown()
+
+    def test_execute_without_policy_leaves_egress_empty(self, monkeypatch):
+        class FakeSandbox:
+            def __init__(self, config=None):
+                pass
+
+            def run(self, *a, **k):
+                return _ok_result(None)
+
+            def cleanup(self):
+                pass
+
+        monkeypatch.setattr(engine_module, "WASISandbox", FakeSandbox)
+        outcome = CellToolEngine().execute(_spec(), {})
+        assert outcome.egress == ()
+
+
+class TestEngineGrantEnforcement:
+    """ADR-013 Prio 1: a tool with a signed grant + a GrantLedger is mediated
+    grant-gated — window/cap/revocation enforced, not just the allowlist."""
+
+    def _grant(self, port, max_calls=None, not_before=None, not_after=None):
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        return EgressGrant(
+            grant_id="g-eng",
+            tool="t",
+            allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
+            max_calls=max_calls,
+            not_before=not_before,
+            not_after=not_after,
+        )
+
+    def _ledger(self, tmp_path):
+        from ephemora_cell.grant_ledger import GrantLedger
+
+        return GrantLedger(tmp_path / "grants.jsonl")
+
+    def test_grant_charges_each_fetched_call_and_stops_at_the_cap(self, tmp_path):
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_grants={"t": self._grant(port, max_calls=1)},
+                grant_ledger=ledger,
+            )
+            d = _artifact_dir(tmp_path / "one", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed"
+            assert ledger.usage("g-eng").calls == 1
+            # The second call hits the cap — refused, and nothing was fetched.
+            d2 = _artifact_dir(tmp_path / "two", f"http://127.0.0.1:{port}/v1/data")
+            (audit2,) = eng._mediate_egress(str(d2), "t")
+            assert audit2["decision"] == "denied"
+            assert audit2["limit"] == "max_calls"
+            assert "egress grant" in audit2["reason"]
+            assert ledger.usage("g-eng").calls == 1
+        finally:
+            server.shutdown()
+
+    def test_revocation_refuses_without_touching_the_booked_count(self, tmp_path):
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_grants={"t": self._grant(port)}, grant_ledger=ledger
+            )
+            d = _artifact_dir(tmp_path / "a", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed"
+            ledger.revoke("g-eng")
+            d2 = _artifact_dir(tmp_path / "b", f"http://127.0.0.1:{port}/v1/data")
+            (audit2,) = eng._mediate_egress(str(d2), "t")
+            assert audit2["decision"] == "denied"
+            assert audit2["limit"] == "revoked"
+        finally:
+            server.shutdown()
+
+    def test_a_denied_endpoint_does_not_spend_a_grant_slot(self, tmp_path):
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_grants={"t": self._grant(port, max_calls=1)},
+                grant_ledger=ledger,
+            )
+            # Off the /v1 prefix: refused by the allowlist before any charge.
+            d = _artifact_dir(tmp_path / "x", f"http://127.0.0.1:{port}/secret/admin")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied"
+            assert "egress policy" in audit["reason"]
+            assert ledger.usage("g-eng").calls == 0
+        finally:
+            server.shutdown()
+
+    def test_grant_is_keyed_by_tool_name(self, tmp_path):
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_grants={"other": self._grant(port)}, grant_ledger=ledger
+            )
+            # Tool "t" has no grant and there is no server policy → no mediation.
+            d = _artifact_dir(tmp_path / "a", f"http://127.0.0.1:{port}/v1/data")
+            assert eng._mediate_egress(str(d), "t") == ()
+        finally:
+            server.shutdown()
+
+    def test_grants_without_a_ledger_fail_closed_at_construction(self):
+        import pytest
+
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        with pytest.raises(ValueError, match="grant_ledger"):
+            CellToolEngine(egress_grants={"t": self._grant(8080)})
+
+
+class TestGrantConcurrency:
+    """The cap under simultaneous load, driven through the engine path the MCP
+    server actually takes and against a real local origin.
+
+    "2 calls go, the 3rd doesn't" is only worth something if the counter cannot
+    be raced: twenty requests released by one barrier must spend exactly
+    `max_calls` slots — not 21, not a slot twice — and the origin must have seen
+    exactly the approved number of requests. The book itself is the ordering
+    evidence: each decision appends a line inside one exclusive lock, so the
+    file is a total order of what the enforcement decided.
+    """
+
+    @staticmethod
+    def _grant(port: int, max_calls: int | None, grant_id: str = "g-load"):
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        return EgressGrant(
+            grant_id=grant_id,
+            tool="t",
+            allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
+            max_calls=max_calls,
+        )
+
+    @staticmethod
+    def _lines(path) -> list[dict]:
+        text = Path(path).read_text(encoding="utf-8")
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+    def _hammer(self, tmp_path, threads: int, max_calls, revoke_midflight=False):
+        """Release `threads` mediated calls at the same instant; return the
+        audits, how many requests the origin actually served, and the ledger."""
+        from ephemora_cell.grant_ledger import GrantLedger
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            grant = self._grant(port, max_calls)
+            ledger = GrantLedger(tmp_path / "grants.jsonl")
+            eng = CellToolEngine(egress_grants={"t": grant}, grant_ledger=ledger)
+            url = f"http://127.0.0.1:{port}/v1/data"
+            # Write every artifact BEFORE the race so the threads contend on the
+            # ledger, not on the filesystem.
+            dirs = [_artifact_dir(tmp_path / f"c{i}", url) for i in range(threads)]
+            audits: list[dict] = []
+            lock = threading.Lock()
+            barrier = threading.Barrier(threads + 1 if revoke_midflight else threads)
+
+            def worker(directory):
+                barrier.wait()
+                (audit,) = eng._mediate_egress(str(directory), "t")
+                with lock:
+                    audits.append(audit)
+
+            threads_pool = [threading.Thread(target=worker, args=(d,)) for d in dirs]
+            for t in threads_pool:
+                t.start()
+            if revoke_midflight:
+                barrier.wait()  # everyone released; revoke lands mid-flight
+                ledger.revoke("g-load", reason="operator-race")
+            for t in threads_pool:
+                t.join()
+            served = sum(_RoutingHandler.hits.values())
+        finally:
+            server.shutdown()
+            server.server_close()
+        return audits, served, ledger
+
+    def test_twenty_simultaneous_calls_spend_exactly_the_cap(self, tmp_path):
+        audits, served, ledger = self._hammer(tmp_path, 20, max_calls=7)
+        allowed = [a for a in audits if a["decision"] == "allowed"]
+        denied = [a for a in audits if a["decision"] == "denied"]
+        assert len(allowed) == 7, f"{len(allowed)} approvals against a cap of 7"
+        assert len(denied) == 13
+        assert {a["limit"] for a in denied} == {"max_calls"}, denied
+        # nothing was fetched that the cap did not approve
+        assert served == 7, f"origin served {served}, cap allows 7"
+        assert ledger.usage("g-load").calls == 7
+        booked = [
+            line["calls_after"]
+            for line in self._lines(tmp_path / "grants.jsonl")
+            if line["kind"] == "call"
+        ]
+        assert booked == [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+        ], f"booked counters must be contiguous, never a slot twice: {booked}"
+        assert ledger.verify() == []
+
+    def test_a_single_slot_cannot_be_taken_twice(self, tmp_path):
+        audits, served, ledger = self._hammer(tmp_path, 20, max_calls=1)
+        assert sum(1 for a in audits if a["decision"] == "allowed") == 1
+        assert served == 1
+        assert ledger.usage("g-load").calls == 1
+
+    def test_revocation_racing_parallel_load_stays_ordered(self, tmp_path):
+        """Revocation while twenty calls are in flight has ONE legal shape: the
+        book is a total order, so after the revoke line no call line may appear.
+        Approvals that were already inside the critical section when the revoke
+        landed stay approved — that is the documented semantics ("effective at
+        this call, not an in-flight one"), asserted here instead of assumed."""
+        audits, served, ledger = self._hammer(
+            tmp_path, 20, max_calls=None, revoke_midflight=True
+        )
+        lines = self._lines(tmp_path / "grants.jsonl")
+        kinds = [line["kind"] for line in lines]
+        assert "revoke" in kinds, kinds
+        revoke_at = kinds.index("revoke")
+        assert (
+            "call" not in kinds[revoke_at + 1 :]
+        ), f"a call was booked after the revoke: {kinds}"
+        booked_calls = kinds.count("call")
+        denied = [a for a in audits if a["decision"] == "denied"]
+        assert {a["limit"] for a in denied} <= {"revoked"}, denied
+        assert booked_calls + len(denied) == 20
+        assert (
+            served == booked_calls
+        ), f"origin served {served} but {booked_calls} calls were booked"
+        assert ledger.verify() == []
+
+
+class TestSSRFGuard:
+    """ADR-013 Prio 2: the resolve-time IP filter that closes the rebinding
+    window the redirect fix left open — validate and connect in one step."""
+
+    def _addrinfo(self, ip, port=80):
+        import socket as _s
+
+        return (_s.AF_INET, _s.SOCK_STREAM, 0, "", (ip, port))
+
+    def _fake_resolver(self, *ips):
+        def resolver(_host, port, *a, **k):
+            return [self._addrinfo(ip, port) for ip in ips]
+
+        return resolver
+
+    def test_blocked_address_classes(self):
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        # The SSRF set: loopback, RFC1918, link-local (metadata), CGNAT,
+        # multicast, reserved/unspecified, and the IPv6 equivalents.
+        for ip in (
+            "127.0.0.1",
+            "10.0.0.5",
+            "192.168.1.1",
+            "172.16.0.1",
+            "169.254.169.254",  # cloud metadata
+            "100.64.0.1",  # CGNAT
+            "224.0.0.1",  # multicast
+            "0.0.0.0",
+            "::1",
+            "fe80::1",  # link-local v6
+            "fc00::1",  # unique local
+            "ff02::1",
+        ):
+            assert _ip_blocked(ip), ip
+        for ip in ("8.8.8.8", "93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"):
+            assert not _ip_blocked(ip), ip
+
+    def test_shim_drops_blocked_and_raises_when_none_safe(self):
+        from ephemora_cell.egress_sidecar import (
+            _egress_context,
+            _guarded_getaddrinfo,
+            _SSRFBlocked,
+        )
+
+        with _egress_context(self._fake_resolver("93.184.216.34", "169.254.169.254")):
+            out = _guarded_getaddrinfo("api.example.com", 80)
+        assert [e[4][0] for e in out] == ["93.184.216.34"]
+        with _egress_context(self._fake_resolver("127.0.0.1")):
+            import pytest
+
+            with pytest.raises(_SSRFBlocked):
+                _guarded_getaddrinfo("internal.example.com", 80)
+
+    def test_shim_passes_ip_literals_unfiltered(self):
+        from ephemora_cell.egress_sidecar import (
+            _egress_context,
+            _guarded_getaddrinfo,
+            _real_getaddrinfo,
+        )
+
+        # A literal host inside a context is operator intent: returned
+        # unfiltered even though it is loopback — this is what keeps a deliberate
+        # ``--egress-allow http://127.0.0.1:PORT`` (and the test harness) working.
+        with _egress_context(self._fake_resolver("127.0.0.1")):
+            out = _guarded_getaddrinfo("127.0.0.1", 8080)
+        assert out == [self._addrinfo("127.0.0.1", 8080)]
+        # The guard defers to the real resolver when no egress context is set, so
+        # it is transparent to every non-mediated socket use in the process.
+        assert _real_getaddrinfo is not _guarded_getaddrinfo
+
+    def test_mediate_denies_a_name_that_rebinds_to_metadata(self):
+        from ephemora_cell.egress_sidecar import EgressPolicy, mediate
+
+        # The URL is on the allowlist (a name), but that name resolves to the
+        # cloud-metadata address -> refused at connect, before any socket opens.
+        policy = EgressPolicy(
+            allowed_endpoints=("http://api.rebind.test/v1",),
+            resolver=self._fake_resolver("169.254.169.254"),
+        )
+        raw = json.dumps({"url": "http://api.rebind.test/v1/data", "method": "GET"})
+        result = mediate(policy, raw)
+        assert result.audit.decision == "denied"
+        assert result.audit.limit == "ssrf"
+        assert "SSRF" in result.audit.reason
+
+
+class TestSSRFAdversarialFamilies:
+    """ADR-013 Prio 2, driven harder than the loopback case: every address
+    family a mediated NAME can be pointed at, plus the two bypass channels an
+    operator environment opens — an ambient proxy (which moves the resolution
+    target off the URL entirely) and a redirect hop (which introduces a second
+    name after the first answer was already vetted).
+    """
+
+    @staticmethod
+    def _addrinfo(ip: str, port: int = 80):
+        import socket as _s
+
+        family = _s.AF_INET6 if ":" in ip else _s.AF_INET
+        return (family, _s.SOCK_STREAM, 0, "", (ip, port))
+
+    def _resolver(self, *ips):
+        def resolver(_host, port, *a, **k):
+            return [self._addrinfo(ip, port) for ip in ips]
+
+        return resolver
+
+    def _host_resolver(self, table: dict, asked: list | None = None):
+        """Per-name answers; a name missing from the table resolves to nothing.
+
+        ``asked`` records (host, port) in call order — that log is the point of
+        several tests here: WHO is resolved says as much as WHAT comes back.
+        """
+
+        def resolver(host, port, *a, **k):
+            if asked is not None:
+                asked.append((str(host), port))
+            return [self._addrinfo(ip, port) for ip in table.get(str(host), [])]
+
+        return resolver
+
+    def test_every_private_or_special_use_address_is_blocked(self):
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        blocked = {
+            "127.0.0.1": "loopback v4",
+            "127.5.6.7": "the whole 127/8 is loopback, not just .1",
+            "::1": "loopback v6",
+            "169.254.169.254": "cloud metadata (AWS/GCP/OpenStack)",
+            "169.254.170.2": "ECS task metadata",
+            "fe80::1": "link-local v6",
+            "fe80::1%eth0": "scoped link-local v6 (scope id must not dodge it)",
+            "10.0.0.5": "RFC1918",
+            "172.16.0.1": "RFC1918",
+            "192.168.1.1": "RFC1918",
+            "100.64.0.0": "CGNAT first address",
+            "100.127.255.255": "CGNAT last address",
+            "::ffff:127.0.0.1": "IPv4-mapped loopback",
+            "::ffff:169.254.169.254": "IPv4-mapped metadata",
+            "::ffff:10.0.0.5": "IPv4-mapped RFC1918",
+            "2002:7f00:1::": "6to4 embedding 127.0.0.1",
+            "64:ff9b::7f00:1": "NAT64 well-known prefix embedding 127.0.0.1",
+            "fc00::1": "unique local v6",
+            "ff02::1": "multicast v6",
+            "0.0.0.0": "unspecified v4",
+            "::": "unspecified v6",
+            "192.0.2.1": "documentation range — refused, fail closed",
+            "198.51.100.7": "documentation range — refused, fail closed",
+            "203.0.113.9": "documentation range — refused, fail closed",
+        }
+        for ip, why in blocked.items():
+            assert _ip_blocked(ip), f"{ip} ({why}) must never be an egress target"
+
+    def test_public_targets_stay_reachable(self):
+        """The positive control: a filter that also blocks the internet is a
+        broken filter. ``::ffff:8.8.8.8`` matters — the guard refuses the family
+        an address MAPS to, not the notation, so mapped public space is still
+        reachable."""
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        for ip in (
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "2606:2800:220:1:248:1893:25c8:1946",
+            "::ffff:8.8.8.8",
+        ):
+            assert not _ip_blocked(ip), ip
+
+    def test_multi_a_record_keeps_only_public_in_original_order(self):
+        from ephemora_cell.egress_sidecar import (
+            _egress_context,
+            _guarded_getaddrinfo,
+        )
+
+        resolver = self._resolver(
+            "169.254.169.254", "93.184.216.34", "fe80::1", "8.8.8.8"
+        )
+        with _egress_context(resolver):
+            out = _guarded_getaddrinfo("api.example.com", 443)
+        assert [entry[4][0] for entry in out] == ["93.184.216.34", "8.8.8.8"]
+
+    def test_multi_a_record_all_private_fails_closed(self):
+        import pytest
+
+        from ephemora_cell.egress_sidecar import (
+            _egress_context,
+            _guarded_getaddrinfo,
+            _SSRFBlocked,
+        )
+
+        with _egress_context(self._resolver("10.1.1.1", "::1", "192.168.9.9")):
+            with pytest.raises(_SSRFBlocked):
+                _guarded_getaddrinfo("allprivate.example", 80)
+
+    def test_ambient_proxy_env_does_not_move_the_resolution_target(self, monkeypatch):
+        """With ``http_proxy`` set, urllib resolves and connects to the PROXY and
+        never asks for the URL host — measured 2026-10-04, the guard was called
+        with ('proxy.internal', 8080) for a request to api.example.com. That
+        would vet the wrong address and hand the real resolution to a third
+        party, so a mediated fetch ignores environment proxies by construction.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy, mediate
+
+        for name in (
+            "http_proxy",
+            "HTTP_PROXY",
+            "https_proxy",
+            "HTTPS_PROXY",
+            "all_proxy",
+            "ALL_PROXY",
+        ):
+            monkeypatch.setenv(name, "http://proxy.internal:8080")
+        monkeypatch.delenv("no_proxy", raising=False)
+
+        asked: list = []
+        policy = EgressPolicy(
+            allowed_endpoints=("http://api.example.com/",),
+            resolver=self._host_resolver({"api.example.com": ["93.184.216.34"]}, asked),
+            timeout_seconds=2,
+        )
+        mediate(
+            policy, json.dumps({"url": "http://api.example.com/v1/x", "method": "GET"})
+        )
+        assert asked == [
+            ("api.example.com", 80)
+        ], f"resolution target moved off the allowlisted origin: {asked}"
+
+    def test_redirect_hop_to_a_name_resolving_metadata_is_denied(self):
+        """A second name behind a real 302: the origin is an allowlisted IP
+        literal (operator intent, reachable), the hop is an allowlisted NAME
+        whose answer is the metadata address. The hop must be refused and the
+        origin must have seen exactly one request — nothing after the redirect.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy, mediate
+
+        server, port = _serve()
+        try:
+            _route(port, "/v1/start", ("redirect", "http://meta.hop.test/v1/x"))
+            policy = EgressPolicy(
+                allowed_endpoints=(
+                    f"http://127.0.0.1:{port}/v1/",
+                    "http://meta.hop.test/v1/",
+                ),
+                resolver=self._host_resolver(
+                    {
+                        "127.0.0.1": ["127.0.0.1"],
+                        "meta.hop.test": ["169.254.169.254"],
+                    }
+                ),
+                timeout_seconds=3,
+            )
+            result = mediate(
+                policy,
+                json.dumps(
+                    {"url": f"http://127.0.0.1:{port}/v1/start", "method": "GET"}
+                ),
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+        assert result.audit.decision == "denied", result.audit
+        assert result.audit.limit == "ssrf", result.audit.reason
+        assert _RoutingHandler.hits == {port: 1}, _RoutingHandler.hits
+
+
+class TestResolvePinningTOCTOU:
+    """The stronger half of the ADR-013 claim: it is not only "private answers
+    are filtered", it is "the address that was vetted IS the address the socket
+    is asked to connect to". A resolver that changes its answer between calls is
+    what a DNS-rebinding server does, so these tests spy on the OS boundary
+    *below* the guard and look at the addresses actually handed to connect().
+    """
+
+    class _SpySocket:
+        """Stands in for ``socket.socket`` inside ``socket.create_connection``.
+
+        Records every address the stdlib tries and refuses the connection, so a
+        test sees WHICH address was chosen without a socket leaving the machine.
+        """
+
+        attempts: typing.ClassVar[list] = []
+
+        def __init__(self, family, type_, proto=0):
+            self.family, self.type, self.proto = family, type_, proto
+
+        def settimeout(self, _timeout):
+            pass
+
+        def connect(self, address):
+            type(self).attempts.append(address)
+            raise OSError("spy socket: no connection leaves the test")
+
+        def close(self):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def _addrinfo(self, ip, port=80):
+        import socket as _s
+
+        family = _s.AF_INET6 if ":" in ip else _s.AF_INET
+        return (family, _s.SOCK_STREAM, 0, "", (ip, port))
+
+    def _mediate_with_spy(self, monkeypatch, policy, url):
+        from ephemora_cell.egress_sidecar import mediate
+
+        self._SpySocket.attempts = []
+        # create_connection builds its socket through the module-level `socket`
+        # name, so patching it intercepts exactly the connect the stdlib makes
+        # from the (already filtered) addrinfo list.
+        monkeypatch.setattr("socket.socket", self._SpySocket)
+        result = mediate(policy, json.dumps({"url": url, "method": "GET"}))
+        return result, [attempt[0] for attempt in self._SpySocket.attempts]
+
+    def test_rebinding_second_answer_never_reaches_the_socket(self, monkeypatch):
+        """What this pins is the SHAPE of the lookup: one hop triggers exactly
+        ONE resolution, and the address the socket is handed is that vetted
+        answer — so a DNS server that would answer differently on the second
+        ask has no window to do it in. (Filtering of a bad answer within one
+        lookup is the next two tests.)
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy
+
+        answers = [["93.184.216.34"], ["127.0.0.1"]]
+        asked: list = []
+
+        def resolver(host, port, *a, **k):
+            index = min(len(asked), len(answers) - 1)
+            asked.append((str(host), port))
+            return [self._addrinfo(ip, port) for ip in answers[index]]
+
+        policy = EgressPolicy(
+            allowed_endpoints=("http://rebind.example/",),
+            resolver=resolver,
+            timeout_seconds=2,
+        )
+        result, connected = self._mediate_with_spy(
+            monkeypatch, policy, "http://rebind.example/v1/x"
+        )
+        assert asked == [("rebind.example", 80)], asked
+        assert connected == ["93.184.216.34"], connected
+        assert "127.0.0.1" not in connected
+        # the policy ALLOWED this hop (public answer) — only the spy socket
+        # stopped the bytes, which is what shows the vetted address reached
+        # connect() rather than being refused earlier in the chain
+        assert result.audit.decision == "allowed", result.audit.reason
+
+    def test_mixed_record_never_hands_a_private_address_to_connect(self, monkeypatch):
+        """One resolve, several answers: whatever the socket may try is the
+        filtered subset — a private sibling in the same A-record set is dropped
+        before create_connection ever sees it."""
+        from ephemora_cell.egress_sidecar import EgressPolicy
+
+        policy = EgressPolicy(
+            allowed_endpoints=("http://multi.example/",),
+            resolver=lambda host, port, *a, **k: [
+                self._addrinfo("93.184.216.34", port),
+                self._addrinfo("169.254.169.254", port),
+                self._addrinfo("8.8.8.8", port),
+            ],
+            timeout_seconds=2,
+        )
+        _result, connected = self._mediate_with_spy(
+            monkeypatch, policy, "http://multi.example/v1/x"
+        )
+        assert connected == ["93.184.216.34", "8.8.8.8"], connected
+
+    def test_all_private_answer_never_reaches_the_socket(self, monkeypatch):
+        """No safe address at all: the resolve itself refuses, so connect() is
+        called zero times — the denial happens before any socket, not after."""
+        from ephemora_cell.egress_sidecar import EgressPolicy
+
+        policy = EgressPolicy(
+            allowed_endpoints=("http://internal.example/",),
+            resolver=lambda host, port, *a, **k: [self._addrinfo("10.0.3.7", port)],
+            timeout_seconds=2,
+        )
+        result, connected = self._mediate_with_spy(
+            monkeypatch, policy, "http://internal.example/v1/x"
+        )
+        assert connected == [], connected
+        assert result.audit.decision == "denied"
+        assert result.audit.limit == "ssrf"
+
+
+class TestServerMetaEgress:
+    def _server(self, tmp_path):
+        from ephemora_cell_mcp.server import Server
+
+        return Server(tools_dir=tmp_path, transport=object())
+
+    def _outcome(self, egress):
+        from ephemora_cell_mcp.engine import ExecutionReport
+
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        return CellOutcome(
+            result=_ok_result(None),
+            report=report,
+            egress=egress,
+        )
+
+    def test_no_egress_means_unchanged_meta_shape(self, tmp_path):
+        meta = self._server(tmp_path)._build_call_result(self._outcome(()))["_meta"]
+        assert set(meta) == {"execution"}
+        assert "egress" not in meta
+
+    def test_mediated_decision_surfaces_under_meta(self, tmp_path):
+        entry = {
+            "url": "http://x/v1",
+            "method": "GET",
+            "decision": "denied",
+            "reason": "url not allowed by egress policy",
+        }
+        meta = self._server(tmp_path)._build_call_result(self._outcome((entry,)))[
+            "_meta"
+        ]
+        assert meta["egress"] == [entry]
+
+
+class TestEgressGrantForm:
+    """ADR-013: the grant is a frozen envelope, not yet an enforcement."""
+
+    def test_grant_is_describable_and_canonical(self):
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        grant = EgressGrant(
+            grant_id="g1",
+            tool="weather",
+            allowed_endpoints=("https://api.example.com/v1",),
+            not_after="2027-01-01T00:00:00+00:00",
+            max_calls=100,
+        )
+        doc = grant.to_dict()
+        assert doc["enforced"] == "allowlist-only"
+        # the ONE enforced part is exactly the policy the mediator checks
+        assert grant.policy().allowed_endpoints == ("https://api.example.com/v1",)
+        # canonical bytes are stable for equal grants and move on any field
+        twin = EgressGrant(
+            grant_id="g1",
+            tool="weather",
+            allowed_endpoints=("https://api.example.com/v1",),
+            not_after="2027-01-01T00:00:00+00:00",
+            max_calls=100,
+        )
+        assert grant.canonical_bytes() == twin.canonical_bytes()
+        moved = EgressGrant(
+            grant_id="g1",
+            tool="weather",
+            allowed_endpoints=("https://api.example.com/v1",),
+            not_after="2027-06-01T00:00:00+00:00",
+            max_calls=100,
+        )
+        assert grant.canonical_bytes() != moved.canonical_bytes()
+
+    def test_grant_validates_the_enforceable_fields_only(self):
+        import pytest
+
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        with pytest.raises(ValueError):
+            EgressGrant(
+                grant_id="g", tool="t", allowed_endpoints=("ftp://x/",)
+            )  # bad scheme -> its policy() would be refused
+        with pytest.raises(ValueError):
+            EgressGrant(grant_id="", tool="t", allowed_endpoints=())
+        # an expiry / cap the mediator does NOT yet read is still constructible
+        EgressGrant(
+            grant_id="g",
+            tool="t",
+            allowed_endpoints=(),
+            not_after="2020-01-01T00:00:00+00:00",
+            max_calls=0,
+        )
+
+
+class TestGrantLoader:
+    """CLI reachability (ADR-013): a grant file is read back through
+    ``from_document`` and a directory loads fail-closed — no silent half-config.
+    Signature verification is deliberately NOT done here (the open item)."""
+
+    def _write(self, dir_path, name, doc):
+        (dir_path / name).write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_from_document_round_trips_to_dict(self):
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        grant = EgressGrant(
+            grant_id="g1",
+            tool="weather",
+            allowed_endpoints=("https://api.example.com/v1",),
+            not_after="2099-01-01T00:00:00Z",
+            max_calls=10,
+            key_id="k1",
+        )
+        assert EgressGrant.from_document(grant.to_dict()) == grant
+
+    def test_from_document_refuses_unknown_schema_and_missing_fields(self):
+        import pytest
+
+        from ephemora_cell.egress_sidecar import EgressGrant
+
+        bad = EgressGrant(grant_id="g", tool="t", allowed_endpoints=()).to_dict()
+        bad["grant_version"] = "egress-grant.v999"
+        with pytest.raises(ValueError, match="grant_version"):
+            EgressGrant.from_document(bad)
+        missing = {"grant_version": "egress-grant.v1", "tool": "t"}
+        with pytest.raises(ValueError, match="grant_id"):
+            EgressGrant.from_document(missing)
+
+    def test_loader_reads_a_directory(self, tmp_path):
+        from ephemora_cell.egress_sidecar import EgressGrant, load_egress_grants
+
+        g = EgressGrant(grant_id="g1", tool="echo", allowed_endpoints=())
+        self._write(tmp_path, "echo.egress.grant.json", g.to_dict())
+        grants, errors = load_egress_grants(tmp_path)
+        assert errors == []
+        assert set(grants) == {"echo"}
+        assert grants["echo"] == g
+
+    def test_loader_reports_malformed_and_duplicate_and_is_not_silent(self, tmp_path):
+        from ephemora_cell.egress_sidecar import EgressGrant, load_egress_grants
+
+        g = EgressGrant(grant_id="a", tool="echo", allowed_endpoints=())
+        self._write(tmp_path, "good.egress.grant.json", g.to_dict())
+        self._write(tmp_path, "dupe.egress.grant.json", g.to_dict())  # same tool
+        (tmp_path / "broken.egress.grant.json").write_text("{nope", encoding="utf-8")
+        _, errors = load_egress_grants(tmp_path)
+        # every bad file is named — the caller can refuse to start
+        assert len(errors) == 2
+        assert any("broken" in e for e in errors)
+        assert any("duplicate" in e for e in errors)
+
+    def test_loader_refuses_a_missing_directory(self, tmp_path):
+        import pytest
+
+        from ephemora_cell.egress_sidecar import load_egress_grants
+
+        with pytest.raises(NotADirectoryError):
+            load_egress_grants(tmp_path / "nope")

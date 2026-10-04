@@ -7,27 +7,23 @@ without-write-right companion classes. The preopen test matrix promised
 in SECURITY.md ("will gain trailing-slash/hardlink/rename/TRUNCATE
 vectors with positive controls") lives here.
 
-Expectation handling is honest to the advisory timeline:
+Expectation handling is a hard gate, not an advisory note:
 
-* the upstream fix ships in 47.0.4 — which has **no PyPI wheels yet**,
-  so the pinned engine (47.0.1) is treated as exposed;
-* the four ATTACK tests are ``xfail(strict=False)`` while the engine is
-  pre-fix: an actual escape (errno 0 / host-visible artifact) is
-  reported xfail, an already-blocked vector is reported xpass — both
-  green, neither silent;
-* at the M2 engine upgrade (>= 48.0.3) the xfail markers flip to strict
-  asserts and every vector must be denied with controls granted;
-* the POSITIVE CONTROLS are never xfail: a failing control means this
+* all five ATTACK vectors are **strict asserts on the pinned engine
+  (47.0.1)** — measured blocked on macOS arm64 (2026-09-25,
+  ``benchmarks/results/2026-09-25/probe_classes_2026.json``) and re-measured
+  on linux/amd64 (2026-10-04, the other CI leg). The advisory shapes target
+  wasmtime-wasi ``open_at`` semantics that Cell's granted-preopen
+  configuration does not reach, mirroring the fuel-amplification PoC result
+  recorded in SECURITY.md;
+* they are deliberately NOT ``xfail``: with an xfail marker a vector that
+  re-opens later (engine upgrade, profile change, weaker preopen grant) would
+  land as "xfailed" and stay invisible. Here it turns CI red;
+* the advisory itself remains OPEN upstream (fix in 47.0.4, wheels pending —
+  watched by ``scripts/check_wasmtime_patch.py``). That is tracked in
+  SECURITY.md; it does not make these vectors optional in this file;
+* the POSITIVE CONTROLS are never conditional: a failing control means this
   harness is broken, not the sandbox (suite control convention).
-
-**Measured 2026-09-25 (wasmtime 47.0.1, macOS arm64):** all four attack
-vectors report XPASS — through Cell's preopen grant path the
-trailing-slash, hardlink, rename and TRUNCATE escapes do NOT reproduce
-on the pinned engine (the advisory shapes target wasmtime-wasi
-``open_at`` semantics that Cell's granted-preopen configuration does not
-reach, mirroring the fuel-amplification PoC result recorded in
-SECURITY.md). The advisory remains authoritative: the markers stay
-until the M2 upgrade re-runs this matrix on the patched engine.
 
 Conventions reused from benchmarks/verify_8_vectors.py: the audit-
 corrected ``path_open`` stack order (path POINTER and LENGTH pushed
@@ -43,7 +39,6 @@ import os
 import shutil
 import sys
 import tempfile
-from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -54,29 +49,9 @@ import wasmtime
 from ephemora_cell import WASIConfig, WASISandbox
 
 # ---------------------------------------------------------------------------
-# Advisory gate
+# Advisory context (SECURITY.md) — these vectors run strict; see the module
+# docstring. Nothing here is conditioned on the engine version any more.
 # ---------------------------------------------------------------------------
-
-
-def _wasmtime_version_tuple() -> tuple[int, ...]:
-    parts: list[int] = []
-    for chunk in _pkg_version("wasmtime").split(".")[:3]:
-        digits = "".join(c for c in chunk if c.isdigit())
-        parts.append(int(digits) if digits else 0)
-    return tuple(parts)
-
-
-_FS_ADVISORY_PATCHED = _wasmtime_version_tuple() >= (47, 0, 4)
-
-_XFAIL_FS = pytest.mark.xfail(
-    condition=not _FS_ADVISORY_PATCHED,
-    strict=False,
-    reason=(
-        "GHSA-vqjp-4c8c-hfgg / CVE-2026-47261: FS escape class is unfixed "
-        "on the pinned engine (upstream fix in 47.0.4, no PyPI wheels yet); "
-        "flips to strict-green at the M2 engine upgrade"
-    ),
-)
 
 # ---------------------------------------------------------------------------
 # WAT generators (audit-corrected: dirfd=3, path ptr+len pushed, errno out)
@@ -242,7 +217,6 @@ class TestTrailingSlashOpen:
         assert errno != 0, "plain traversal escaped — this is not advisory-"
         "conditional and must never happen"
 
-    @_XFAIL_FS
     def test_trailing_slash_traversal_blocked(self, fs_env):
         """The advisory class: a trailing slash on a traversal path must
         not bypass the preopen boundary."""
@@ -252,7 +226,6 @@ class TestTrailingSlashOpen:
         # Belt and suspenders: the outside artifact must be untouched.
         assert (parent / "outside_target.txt").read_text().startswith("host")
 
-    @_XFAIL_FS
     def test_mixed_dotdot_trailing_slash_blocked(self, fs_env):
         base, parent = fs_env
         (base / "sub").mkdir()
@@ -273,7 +246,6 @@ class TestHardlinkEscape:
         assert errno == 0, "harness broken: in-sandbox link failed"
         assert (base / "linked.txt").exists()
 
-    @_XFAIL_FS
     def test_hardlink_across_boundary_blocked(self, fs_env):
         base, parent = fs_env
         errno = _run_attack(
@@ -295,7 +267,6 @@ class TestRenameEscape:
         assert errno == 0, "harness broken: in-sandbox rename failed"
         assert (base / "renamed.txt").exists()
 
-    @_XFAIL_FS
     def test_rename_across_boundary_blocked(self, fs_env):
         base, _parent = fs_env
         errno = _run_attack(
@@ -324,7 +295,6 @@ class TestTruncateWithoutWriteRight:
         )
         assert errno == 0, "harness broken: granted truncate failed"
 
-    @_XFAIL_FS
     def test_truncate_without_right_blocked(self, fs_env):
         """An fd opened WITHOUT fd_filestat_set_size (and without
         fd_write) must not be able to truncate the file."""
