@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-04
 
 Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
 runs under the same boundary — but two hard refusals made that unreachable in
@@ -215,8 +215,9 @@ weaker.
   `not_before`/`not_after`/`max_calls`, key id, JCS bytes) with `"enforced":
   "allowlist-only"` in its own payload — true of the grant read on its own, on
   the `--egress-allow` path. The next bullet adds the consumer that enforces
-  expiry, usage cap and revocation; DNS-rebinding after an allowlist match
-  remains open (the check is on the URL, not the resolved IP).
+  expiry, usage cap and revocation; at that point DNS-rebinding was still open
+  (the check was on the URL, not the resolved IP) — the resolve-time filter
+  further down closes it.
 - **`get-policy` discloses the egress posture (ADR-013).** Both get-policy
   shapes now carry a server-wide `egress` block: `{"mediation": "disabled"}`
   by default, and with `--egress-allow` the enabled endpoints, response cap and
@@ -235,9 +236,8 @@ weaker.
   tail is not — stated, tested). `get-policy` flips to
   `grant_enforcement: ledger-backed` with the per-grant state. `CellToolEngine`
   refuses `egress_grants` without a `grant_ledger` rather than silently
-  downgrading a cap to nothing. **Still open:** verifying a grant's Ed25519
-  signature on a startup path (a grant is trusted because the host passed it in,
-  not because its signature was checked).
+  downgrading a cap to nothing. At this step a grant was still trusted because the
+  host passed the file in; authenticating it is the next bullet.
 - **DNS-rebinding closed at resolve time (ADR-013, Prio 2).** Every mediated
   connect — the request and each followed redirect — resolves its hostname
   through a thread-local `socket.getaddrinfo` shim
@@ -258,9 +258,51 @@ weaker.
   operator-usable, not only library-injectable. It fails closed twice: a grants
   dir without `--grant-ledger` is a clean startup error (exit 2), and any
   malformed or duplicate grant file refuses the whole startup rather than
-  enforcing some caps and silently skipping others. **This load path does not
-  verify a grant's signature** — a file the host reads is operator intent;
-  Ed25519 verification on load is the one remaining open item.
+  enforcing some caps and silently skipping others. At this stage the load path
+  still trusted the file it read — the authentication bullet below closes that.
+- **Grants are authenticated against an out-of-artefact trust root (ADR-013,
+  P0).** A grant confers authority, so the loader may not take the file's word
+  for it. `ephemora_cell/grant_trust.py` adds `GrantTrustRoot` — an
+  operator-maintained JSON file (`egress-trust-root.v1`) that lists trusted
+  Ed25519 keys with `active`/`transition`/`retired` status, per-key validity
+  windows and `replaced_by`, so rotation is a fact on disk rather than in someone's
+  head. The rule it encodes: **a key delivered with the artefact proves nothing
+  about the artefact** — the root is passed by path (`--egress-trust FILE`,
+  REQUIRED with `--egress-grants-dir`; exit 2 before a server exists) and never
+  read from inside the grants directory. `load_egress_grants` now takes the root
+  and, per file, checks in order: DSSE shape and the grant audience
+  `https://ephemora.dev/egress-grant.v1` (so a receipt signed by the same operator
+  key cannot load as a grant); payload equals `canonical_bytes(grant)` (an edited
+  or dropped field, or an unknown key in the document, changes the bytes); every
+  signature attributed to the key its OWN `keyid` names — unknown key, retired key,
+  key outside its window, algorithm the root does not name, invalid base64, failing
+  Ed25519; the grant's `key_id` present and among the signing keys; and the grant
+  not already expired. Any failure is a startup error for the WHOLE directory:
+  half-loaded authority would enforce some caps and silently ignore others. An
+  unsigned legacy document is refused with a message that names the issuing
+  command — no silent downgrade path. `python -m ephemora_cell.grant_trust
+  --grant … --key … --key-id … --out …` issues an envelope and refuses to sign a
+  document that names a different key. `get-policy` discloses the root SUMMARY
+  (key ids, statuses, windows — no key material) under
+  `egress.grant_authentication`, and each grant under its `key_id`. Without
+  `cryptography` (extra `tools-signing`) the error is actionable at startup, never
+  a grant that loads unverified.
+- **Component-probe evidence is now hash-identified, not asserted.** The dated
+  security measurements cite `benchmarks/component_probes/*.wasm` as their fixture,
+  and those binaries are deliberately not committed (`.gitignore`: `*.wasm`, no
+  exception for that directory) — so a clone contained a citation to bytes that
+  existed nowhere in the repository, while `rebuild.sh` claimed "the committed
+  .wasm binaries are the evidence". `benchmarks/component_probes/fixtures.json`
+  pins each probe's sha256, size, source crate, build command, measurement date and
+  the dependencies pinned at that build, and states the policy: a hash identifies
+  WHICH bytes were measured, it is not a reproducibility promise, and a rebuild that
+  differs means re-running the measurement rather than editing the pin. `rebuild.sh`
+  now builds into `.rebuilt/`, verifies against the manifest, fails on on-disk
+  drift, and only overwrites the working fixtures with an explicit `--install`.
+  CI does not rebuild these (its builder job installs `wasm32-wasip1`, not
+  `wasm32-wasip2` + `wasm-tools`) — stated in the manifest, the script and
+  SECURITY.md, and checked by `tests/test_component_probe_fixtures.py` so the claim
+  cannot rot into a contradiction again.
 - **Per-call receipts are now cryptographically verifiable (ADR-008).** The MCP
   spec says `_meta` is "not verified by the protocol" and callers "SHOULD NOT
   rely on them for security decisions". With `--receipt-signing-key PEM`
@@ -302,6 +344,26 @@ weaker.
   signed two hours earlier, fail-closed behaviour with no evidence block or a
   naive stamp, the 60 s future-skew allowance, and that an unsigned report
   receives no `evidence` key at all.
+- `tests/test_grant_trust.py` (31) — the grant authentication gate: happy path,
+  payload equals canonical bytes, an edited payload and a non-canonical payload, a
+  flipped signature, an unsigned legacy document, a signature from a key outside the
+  root, a signature re-labelled under a stranger's `keyid`, retired and `transition`
+  keys, a key outside its window, an algorithm mismatch, a receipt envelope replayed
+  onto the grant audience, an already-expired grant, a grant whose `key_id` diverges
+  from or is absent in the document, every trust-root validation refusal (version,
+  audience, empty or duplicate keys, unknown status or alg, self- or dangling
+  `replaced_by`, bad PEM), `summary()` carrying no key material, loader integration,
+  and the issuing round-trip including its refusal to sign for another key.
+  `tests/test_mcp_main.py` drives the same through the CLI: an unsigned, tampered or
+  foreign-signed grant file and a broken root each refuse startup, and the server
+  receives the root summary — never key material.
+- `tests/test_component_probe_fixtures.py` (9) — the dated evidence names four WASI
+  0.2 probe binaries that are deliberately NOT committed. The gate checks the sha256
+  manifest against the source crates, that any bytes present on disk ARE the pinned
+  bytes, that every probe the docs cite is hash-identified, that no doc or script
+  claims the binaries are committed, that `rebuild.sh` verifies against the manifest
+  and cannot overwrite the evidence by default, and that CI's claim not to rebuild
+  them is still true.
 
 - `tests/test_module_size_cap.py` (40 tests) covers cap configurability,
   enforcement on all three paths, config→worker marshalling, the public API
@@ -341,13 +403,16 @@ weaker.
   `_meta` is unchanged with no egress and carries the decision under
   `_meta.egress` when present. `TestEgressGrantForm` fixes the grant envelope's
   canonical bytes and pins that only the allowlist is the enforced part.
-- `tests/test_mcp_main.py` (9 tests) — the `python -m ephemora_cell_mcp`
+- `tests/test_mcp_main.py` (14 tests) — the `python -m ephemora_cell_mcp`
   entrypoint, previously at 0% coverage: no flag builds no policy, `--egress-allow`
   builds the exact `EgressPolicy` the engine enforces, an unusable endpoint
   is a fail-closed startup error (exit 2) rather than a half-wired server,
-  `--egress-grants-dir` + `--grant-ledger` wire real grants into the server
-  while a grants dir without a ledger and a malformed grant file are both clean
-  exit-2 refusals, and `--receipt-signing-key` wires a signer (unreadable key =
+  `--egress-trust` + `--egress-grants-dir` + `--grant-ledger` wire authenticated,
+  real grants into the server, and a grants dir without a ledger, without a trust
+  root, with an unsigned legacy document, with a tampered grant, with a grant signed
+  by a key the root does not name, with a broken trust root, or with a malformed
+  grant file are each clean exit-2 refusals that construct no server, while
+  `--receipt-signing-key` wires a signer (unreadable key =
   exit 2, default = no signer).
 - `tests/test_signed_receipt.py` (7 tests) — the ADR-008 signed receipt with a
   real Ed25519 keypair through the shipped signer/verifier helpers: the
