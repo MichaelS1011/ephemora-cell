@@ -119,10 +119,15 @@
   DSSE v1 envelope over the grant's canonical bytes, signed by a key the trust root
   names, for the audience `https://ephemora.dev/egress-grant.v1`. Missing signature,
   unknown key id, retired key, key outside its own validity window, algorithm
-  mismatch, edited payload, non-canonical payload, a grant whose `key_id` diverges
+  mismatch, edited payload, non-canonical payload (or non-canonical BASE64 — an
+  alias that decodes to the same bytes would give one authority two textual
+  identities), a grant whose `key_id` diverges
   from the document, or an already-expired grant is a STARTUP ERROR — the same
   all-or-nothing posture as a malformed grant set, because a half-loaded authority
-  set would enforce some caps and silently ignore others. An unsigned legacy
+  set would enforce some caps and silently ignore others. The signature is checked
+  BEFORE the payload is parsed, so no unauthenticated byte drives grant
+  construction and the parse errors are not an oracle for whoever can write into
+  the directory. An unsigned legacy
   document in the grants dir refuses startup too: no implicit downgrade path.
   `get-policy` discloses the root that authenticated the grants (`_meta.egress.grant_authentication`)
   and, per grant, the `key_id` that signed it.
@@ -258,7 +263,7 @@ startup path is now real too.
   `ephemora_cell_mcp/__main__.py` (`--egress-trust`; a grants dir without a trust
   root exits 2 before a server is constructed, and so does a trust root whose own
   path sits inside the grants directory). Tests: `tests/test_grant_trust.py`
-  (38 — happy path, canonical-bytes equality for the exact document an issuer
+  (39 — happy path, canonical-bytes equality for the exact document an issuer
   signs, edited and non-canonical payloads, flipped signature, unsigned legacy
   document, unknown/retired/transition keys, key window, algorithm mismatch,
   cross-audience replay of a receipt envelope onto a grant, expired grant, divergent

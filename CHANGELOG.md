@@ -272,12 +272,16 @@ weaker.
   read from inside the grants directory. `load_egress_grants` now takes the root
   and, per file, checks in order: DSSE shape and the grant audience
   `https://ephemora.dev/egress-grant.v1` (so a receipt signed by the same operator
-  key cannot load as a grant); payload equals `canonical_bytes(grant)` (an edited
-  or dropped field, or an unknown key in the document, changes the bytes); every
-  signature attributed to the key its OWN `keyid` names — unknown key, retired key,
-  key outside its window, algorithm the root does not name, invalid base64, failing
-  Ed25519; the grant's `key_id` present and among the signing keys; and the grant
-  not already expired. Any failure is a startup error for the WHOLE directory:
+  key cannot load as a grant); THEN, before the payload is parsed at all, every
+  signature against the key its OWN `keyid` names — unknown key, retired key, key
+  outside its window, an algorithm the root does not name, invalid or
+  non-canonical base64 (an alias decoding to the same bytes is refused, so one
+  authority keeps exactly one textual identity), failing Ed25519; only then is the
+  payload read, and it must be `canonical_bytes(grant)` with a usable window and
+  cap (an edited or dropped field, an unknown key in the document, or a value the
+  ledger could not read is a refusal); the grant's `key_id` must be present and
+  among the signing keys; and the grant must not already be expired. Any failure
+  is a startup error for the WHOLE directory:
   half-loaded authority would enforce some caps and silently ignore others. An
   unsigned legacy document is refused with a message that names the issuing
   command — no silent downgrade path. `python -m ephemora_cell.grant_trust
@@ -356,7 +360,7 @@ weaker.
   signed two hours earlier, fail-closed behaviour with no evidence block or a
   naive stamp, the 60 s future-skew allowance, and that an unsigned report
   receives no `evidence` key at all.
-- `tests/test_grant_trust.py` (38) — the grant authentication gate: happy path,
+- `tests/test_grant_trust.py` (39) — the grant authentication gate: happy path,
   payload equals canonical bytes, an edited payload and a non-canonical payload, a
   flipped signature, an unsigned legacy document, a signature from a key outside the
   root, a signature re-labelled under a stranger's `keyid`, retired and `transition`
