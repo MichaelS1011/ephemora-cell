@@ -239,11 +239,15 @@ def test_evidence_lives_inside_the_signed_bytes(keypair, tmp_path):
         ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0),
         tool="echo",
     )
-    assert verify_execution_attestation(meta["attestation"], verifier, meta["execution"])
+    assert verify_execution_attestation(
+        meta["attestation"], verifier, meta["execution"]
+    )
     swapped = json.loads(json.dumps(meta["execution"]))
     swapped["evidence"]["report_id"] = "0" * 32
     assert not verify_execution_attestation(
-        meta["attestation"], verifier, swapped,
+        meta["attestation"],
+        verifier,
+        swapped,
     )
 
 
