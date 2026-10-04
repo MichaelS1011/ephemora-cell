@@ -1,0 +1,15 @@
+# Packaging completeness for the shipped test suite.
+#
+# The sdist includes `tests/*.py` (setuptools picks them up), which meant an
+# unpacked sdist shipped test files whose inputs it did not carry: no conftest,
+# no `tests/fixtures/*.wasm`. Running `pytest` there produced dozens of failures
+# that looked like product regressions and were packaging gaps.
+#
+# So: ship what the shipped tests need. Modules that inspect REPOSITORY files
+# (project metadata, scripts, module sources) are skipped with an explicit reason
+# when those files are absent — see `tests/conftest.py`. Nothing is skipped in a
+# real checkout, so CI keeps every gate.
+
+include tests/conftest.py
+include tests/fixtures/*.wasm
+include tests/fixtures/*.wat

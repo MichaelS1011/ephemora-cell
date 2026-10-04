@@ -188,14 +188,14 @@ class TestHelloComponent:
 
 class TestFilesystemComponent:
     def test_write_to_preopen_dir(self):
-        # macOS realpaths /var & /tmp into /private, which the canonical
-        # allowlist rejects by design — use the home dir like test_io_budget.
-        target = Path.home() / f".ephemora_component_preopen_{os.getpid()}"
-        target.mkdir(parents=True, exist_ok=True)
-        sandbox = ComponentSandbox(
-            WASIConfig(max_fuel=5_000_000, allow_dirs=(str(target),))
-        )
+        # Grant-safe location: a temp root, NOT $HOME — in a container HOME is
+        # /root, and the denylist (correctly) refuses to grant it, so a
+        # home-based fixture passes on a laptop and fails as root.
+        target = Path(tempfile.mkdtemp(prefix="ephemora_component_preopen_"))
         try:
+            sandbox = ComponentSandbox(
+                WASIConfig(max_fuel=5_000_000, allow_dirs=(str(target),))
+            )
             result = sandbox.run(FS02, args=[str(target)])
             assert result.status == ExecutionStatus.SUCCESS
             with open(os.path.join(target, "out.txt")) as f:

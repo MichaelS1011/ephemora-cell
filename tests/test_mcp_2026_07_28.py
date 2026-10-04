@@ -33,7 +33,10 @@ from ephemora_cell_mcp import Server, __version__, protocol
 from ephemora_cell_mcp.transport import MemoryTransport
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PACKAGE_TOOLS = REPO_ROOT / "ephemora_cell_mcp" / "tools"
+# From the IMPORTED package, not from the repository layout: in a checkout
+# this is the same directory, and from an installed artifact it still is —
+# so these gates test what ships, not what the repo happens to contain.
+PACKAGE_TOOLS = Path(sys.modules["ephemora_cell_mcp"].__file__).parent / "tools"
 
 MODERN = protocol.MODERN_PROTOCOL_VERSION  # "2026-07-28"
 

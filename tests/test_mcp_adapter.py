@@ -31,7 +31,10 @@ from ephemora_cell_mcp.engine import CellToolEngine
 from ephemora_cell_mcp.transport import MemoryTransport
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PACKAGE_TOOLS = REPO_ROOT / "ephemora_cell_mcp" / "tools"
+# From the IMPORTED package, not from the repository layout: in a checkout
+# this is the same directory, and from an installed artifact it still is —
+# so these gates test what ships, not what the repo happens to contain.
+PACKAGE_TOOLS = Path(sys.modules["ephemora_cell_mcp"].__file__).parent / "tools"
 ECHO_WASM = PACKAGE_TOOLS / "echo.wasm"
 
 

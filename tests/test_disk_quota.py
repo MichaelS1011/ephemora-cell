@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -79,8 +80,8 @@ QUOTA_BOMB_WAT = """
 
 def test_quota_stops_guest_write_flood():
     """Guest writing 1.6 MB with a 64 KB quota: capped, host unharmed."""
-    datadir = Path.home() / f".ephemora_quota_{os.getpid()}_{time.monotonic_ns()}"
-    datadir.mkdir()
+    # temp root, not $HOME (blocked as /root in a container)
+    datadir = Path(tempfile.mkdtemp(prefix="ephemora_quota_"))
     try:
         wasm = datadir / "quota_bomb.wasm"
         wasm.write_bytes(wasmtime.wat2wasm(QUOTA_BOMB_WAT))

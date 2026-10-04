@@ -458,6 +458,26 @@ stdin turns exactly those gates red — they are gates, not documentation.
 
 ### Changed
 
+- **The sdist can now run the tests it ships.** It contained `tests/*.py` but
+  neither `conftest.py` nor the `tests/fixtures/*.wasm` those tests need, so an
+  unpacked sdist produced 65 failures that looked like product regressions and
+  were packaging gaps (`MANIFEST.in` now ships the inputs). Modules that inspect
+  REPOSITORY files — project metadata, `scripts/`, module source text — skip with
+  an explicit reason when no checkout is present (`tests/conftest.py`); nothing is
+  skipped in a checkout, so CI keeps every gate. Measured in a clean
+  `python:3.12-slim` container (linux/amd64, running as root, `HOME=/root`) that
+  installed ONLY the sdist: **803 passed, 102 skipped, 0 failed**, against
+  901/4/0 from a checkout — the difference is the repo-inspection modules and the
+  environment gates (missing toolchains, root ignoring file permissions).
+- **Test fixtures stopped pretending `$HOME` is grant-safe.** Six modules created
+  their "grant-safe" scratch directory under `Path.home()`, which passes on a
+  laptop and fails in a container: `HOME=/root`, `/root` is a blocked canonical
+  location, and the runtime correctly refuses `allow_dirs` under it
+  (`ValueError: … resolves into blocked location '/root'`). They use a temp root
+  now — the product was right, the fixture location was wrong. Related:
+  `test_mcp_adapter` and `test_mcp_2026_07_28` resolve the shipped tool directory
+  from the IMPORTED package instead of the repository layout, so those gates test
+  what ships rather than what the checkout happens to contain.
 - `run_isolated(..., max_wasm_bytes=None)` now means "use the config's cap"
   instead of silently collapsing to 32 MiB, so a raised cap in a config is no
   longer overridden by the API layer.

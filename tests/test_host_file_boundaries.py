@@ -170,11 +170,24 @@ def test_read_regular_nofollow_refuses_links_and_directories(tmp_path):
     sys.platform != "linux" and not sys.platform.startswith("darwin"),
     reason="POSIX unlink permissions",
 )
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_cleanup_reports_a_directory_it_could_not_remove(tmp_path):
     """`shutil.rmtree(..., ignore_errors=True)` made a failed cleanup look like
     a successful one. The promise is that no execution environment survives."""
+    # A guest built here, not an example shipped in the repo: this gate has to run
+    # from an installed artifact too, where `examples/` does not exist.
+    import wasmtime
+
+    guest = tmp_path / "quiet.wasm"
+    guest.write_bytes(
+        wasmtime.wat2wasm(
+            '(module (import "wasi_snapshot_preview1" "proc_exit" '
+            '(func $exit (param i32))) (func (export "_start") '
+            "(call $exit (i32.const 0))))"
+        )
+    )
     sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000, timeout_seconds=10))
-    result = sandbox.run(str(Path(__file__).parent.parent / "examples" / "hello.wasm"))
+    result = sandbox.run(str(guest))
     guest_dir = result.sandbox_dir
     assert guest_dir and os.path.isdir(guest_dir)
 
@@ -193,6 +206,7 @@ def test_cleanup_reports_a_directory_it_could_not_remove(tmp_path):
     assert any(str(guest_dir) in item for item in leftovers), leftovers
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
 def test_read_capped_output_does_not_report_an_unreadable_capture_as_empty(tmp_path):
     """A capture file that exists but cannot be read is NOT 'the guest printed
     nothing' — that confusion turns a lost output into a confident record."""

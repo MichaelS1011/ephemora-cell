@@ -43,6 +43,18 @@ has not been checked.
 | 20 | Request artifact read unbounded before the size check | P2 | bounded at the read (1 MiB) | `tests/test_host_file_boundaries.py` |
 | 21 | The pooled execution path — the one where reuse is the risk — was **never exercised** by the statelessness test, because the default byte wall forces a per-run engine | P1 | invariants lifted deliberately, engine identity asserted stable | `tests/test_execution_invariants.py` |
 
+**Packaging, from the clean-room lane (P1, closed):** installing the sdist alone
+in `python:3.12-slim` and running the suite it ships produced **65 failures** —
+the sdist carried `tests/*.py` but not `conftest.py` and not the
+`tests/fixtures/*.wasm` those tests need, and six modules put their grant-safe
+scratch under `$HOME`, which is `/root` in a container and therefore correctly
+refused by the denylist. After shipping the fixtures (`MANIFEST.in`), resolving the
+tool directory from the imported package, and moving fixtures to a temp root:
+**803 passed / 102 skipped / 0 failed** as root on linux/amd64, with the
+repository-inspection modules skipped by name and stated reason rather than
+failing. `tests/conftest.py` records the rule: the suite is written for a
+checkout; what can run from an installed artifact does, and what cannot says why.
+
 Two **lane claims that measurement refuted**, kept here because the reviewer is
 owed the correction, not silence: the case-variant preopen bypass (`/ETC`) is
 already closed by canonical-path comparison — `realpath("/ETC")` returns the

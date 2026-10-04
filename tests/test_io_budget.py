@@ -235,8 +235,8 @@ class TestPreopenVisibility:
 
     def test_extra_allow_dir_detected(self):
         """Control: with a real extra allow_dir, the same module must exit 1."""
-        safe_dir = Path.home() / f".ephemora_preopen_ctl_{os.getpid()}"
-        safe_dir.mkdir(parents=True, exist_ok=True)
+        # temp root, not $HOME (blocked as /root in a container)
+        safe_dir = Path(tempfile.mkdtemp(prefix="ephemora_preopen_ctl_"))
         try:
             sandbox = WASISandbox(
                 config=WASIConfig(max_fuel=1_000_000, allow_dirs=(str(safe_dir),))

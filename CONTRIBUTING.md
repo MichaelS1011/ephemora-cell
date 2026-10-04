@@ -115,6 +115,11 @@ its license is compatible and note it in the PR.
 2. Update the CHANGELOG and the README freshness block (latest release,
    security audit, latest evidence dates, tests-passing badge)
 3. Tag the release with an ANNOTATED tag (`git tag -a v<version> -m "v<version>"`) — the tag IS a version source (all release tags are annotated)
+3a. Running the suite from an installed artifact is supported for the
+   behavioural tests: `pip install dist/ephemora_cell-*.tar.gz[dev,tools-signing]`,
+   unpack the sdist and run `pytest tests/`. Modules that inspect repository files
+   (metadata, `scripts/`, module source text) skip with a stated reason — the full
+   suite needs a checkout, and CI runs it from one.
 4. `python scripts/check_version_sync.py` must exit 0 (CI enforces this
    in the `security` job — a push with drifted sources fails there). The guard
    treats a bump commit whose sources all agree but whose tag does not exist yet

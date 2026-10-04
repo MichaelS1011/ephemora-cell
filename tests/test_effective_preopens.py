@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import time
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -57,9 +57,13 @@ def _write_module(base: Path, name: str = "module.wasm") -> Path:
 
 @pytest.fixture
 def home_dir():
-    """Grant-safe scratch dir under $HOME (never /private on macOS)."""
-    d = Path.home() / f".ephemora_s2_{os.getpid()}_{time.monotonic_ns()}"
-    d.mkdir()
+    """Grant-safe scratch dir: a temp root, never $HOME.
+
+    `$HOME` is `/root` in a container, and `/root` is a blocked canonical
+    location — granting it is exactly what the denylist refuses, so a home-based
+    fixture passes on a laptop and fails as root.
+    """
+    d = Path(tempfile.mkdtemp(prefix="ephemora_s2_"))
     yield d
     shutil.rmtree(d, ignore_errors=True)
 

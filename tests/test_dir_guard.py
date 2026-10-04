@@ -103,8 +103,9 @@ def test_both_paths_agree_on_every_probe():
 def test_mapping_entry_with_safe_host_kept_verbatim_on_both_paths():
     """A safe mapping entry survives verbatim (the ORIGINAL entry string is
     kept; only the checks apply to the host side) on both paths."""
-    target = Path.home() / f".ephemora_dir_guard_{os.getpid()}"
-    target.mkdir(parents=True, exist_ok=True)
+    # temp root, not $HOME: HOME is /root in a container, which the denylist
+    # blocks — the product is right and the fixture location was wrong.
+    target = Path(tempfile.mkdtemp(prefix="ephemora_dir_guard_"))
     try:
         entry = f"{target}::/"
         for sandbox in _both_sandboxes():
@@ -154,20 +155,31 @@ def test_denylist_policy_is_single_sourced():
     )
 
 
-def test_case_variant_of_a_denied_path_is_denied_on_both_paths():
-    """Measured, not assumed: `realpath` is what closes case tricks, on APFS.
+def test_case_variant_denial_follows_the_filesystem_not_the_platform():
+    """The denylist compares CANONICAL paths, so what a case trick can do is a
+    property of the filesystem, not of the code.
 
-    A reviewer asked whether ``/ETC`` slips past a textual denylist on a
-    case-insensitive filesystem. It does not, because the filter compares the
-    CANONICAL path, and ``realpath("/ETC")`` returns the stored case
-    (``/private/etc``) — so the denylist sees ``/etc`` whatever the caller typed.
-    The counter-case that proves the comparison is not a naive lowercase match:
-    ``/TMP`` stays allowed because it canonicalizes into the explicitly excepted
-    ``/private/tmp``, not because of any case rule.
+    Measured both ways: on a case-insensitive volume `realpath("/ETC")` returns
+    the stored case (`/private/etc`) and the entry is denied exactly like `/etc`;
+    on a case-sensitive volume `/ETC` is a different, non-existent path and is
+    legitimately not the same object as `/etc`. Encoding the macOS answer as
+    universal would be the same mistake in the other direction, so the test asks
+    the filesystem which world it is in and asserts that answer — the invariant
+    under test is "denial follows the canonical path", not "APFS behaves like
+    ext4".
     """
+    case_insensitive = os.path.realpath("/ETC") != "/ETC"
     for sandbox in _both_sandboxes():
         name = type(sandbox).__name__
-        assert sandbox._filter_dangerous_dirs(("/ETC::g",)) == (), name
-        assert sandbox._filter_dangerous_dirs(("/eTc/passwd::shadow",)) == (), name
-        assert sandbox._filter_dangerous_dirs(("/VAR/LOG::g",)) == (), name
-        assert sandbox._filter_dangerous_dirs(("/TMP::g",)) == ("/TMP::g",), name
+        # Exact case: denied on every platform, that is the baseline.
+        assert sandbox._filter_dangerous_dirs(("/etc::guest-etc",)) == (), name
+        assert sandbox._filter_dangerous_dirs(("/usr::g",)) == (), name
+        variant = sandbox._filter_dangerous_dirs(("/ETC::g",))
+        if case_insensitive:
+            assert (
+                variant == ()
+            ), f"{name}: /ETC is /etc on this volume and must be denied"
+        else:
+            assert variant == (
+                "/ETC::g",
+            ), f"{name}: /ETC is not /etc on a case-sensitive volume"
