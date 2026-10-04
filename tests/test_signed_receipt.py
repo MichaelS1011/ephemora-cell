@@ -25,6 +25,7 @@ from ephemora_cell.execution_report import (
     EVIDENCE_SCHEMA,
     ExecutionReport,
     canonical_bytes,
+    dsse_verify,
     new_execution_evidence,
     verify_execution_attestation,
 )
@@ -279,7 +280,7 @@ def test_freshness_window_accepts_a_new_receipt_and_refuses_a_stale_one(
     )
     private_pem, _ = keypair
     signer = tool_registry.ed25519_signer_from_pem(private_pem)
-    old_envelope = old.to_dsse(signer)
+    old_envelope = old.to_dsse(signer, alg="EdDSA")
     assert verify_execution_attestation(old_envelope, verifier, old.to_dict())
     assert not verify_execution_attestation(
         old_envelope, verifier, old.to_dict(), max_age_seconds=60
@@ -295,7 +296,7 @@ def test_freshness_check_fails_closed_without_evidence(keypair, tmp_path):
     signer = tool_registry.ed25519_signer_from_pem(private_pem)
     verifier = ed25519_verifier_from_pem(public_pem)
     report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
-    envelope = report.to_dsse(signer)
+    envelope = report.to_dsse(signer, alg="EdDSA")
     assert verify_execution_attestation(envelope, verifier, report.to_dict())
     assert not verify_execution_attestation(
         envelope, verifier, report.to_dict(), max_age_seconds=60
@@ -318,7 +319,7 @@ def test_naive_or_far_future_issue_time_is_refused(keypair, tmp_path):
     }
     private_pem, _ = keypair
     signer = tool_registry.ed25519_signer_from_pem(private_pem)
-    envelope = naive.to_dsse(signer)
+    envelope = naive.to_dsse(signer, alg="EdDSA")
     assert verify_execution_attestation(envelope, verifier, naive.to_dict())
     assert not verify_execution_attestation(
         envelope, verifier, naive.to_dict(), max_age_seconds=60
@@ -330,12 +331,18 @@ def test_naive_or_far_future_issue_time_is_refused(keypair, tmp_path):
         tool="echo", now=now + timedelta(seconds=30)
     )
     assert verify_execution_attestation(
-        skewed.to_dsse(signer), verifier, skewed.to_dict(), max_age_seconds=60
+        skewed.to_dsse(signer, alg="EdDSA"),
+        verifier,
+        skewed.to_dict(),
+        max_age_seconds=60,
     )
     future = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
     future.evidence = new_execution_evidence(tool="echo", now=now + timedelta(hours=6))
     assert not verify_execution_attestation(
-        future.to_dsse(signer), verifier, future.to_dict(), max_age_seconds=60
+        future.to_dsse(signer, alg="EdDSA"),
+        verifier,
+        future.to_dict(),
+        max_age_seconds=60,
     )
 
 
@@ -371,3 +378,60 @@ def test_verify_helper_fails_closed_on_malformed_input(keypair):
     signed = report.to_dsse(lambda b: b"")  # not a real signer, shape only
     signed["payloadType"] = "https://ephemora.dev/other.v1"
     assert not verify_execution_attestation(signed, verifier, report.to_dict())
+
+
+def test_a_receipt_declaring_a_foreign_algorithm_is_refused(keypair, tmp_path):
+    """The `alg` label is part of what a reviewer reads off the envelope.
+
+    Ed25519 bytes labelled "ES256" verified fine as long as the caller handed
+    over the right verifier — which is how an algorithm claim on an artefact
+    stops meaning anything.
+    """
+    private_pem, public_pem = keypair
+    signer = tool_registry.ed25519_signer_from_pem(private_pem)
+    verifier = tool_registry.ed25519_verifier_from_pem(public_pem)
+    report = ExecutionReport(status="success", exit_code=0, elapsed_ms=2.0)
+    envelope = report.to_dsse(signer, alg="EdDSA")
+    assert verify_execution_attestation(envelope, verifier, report.to_dict())
+    envelope["signatures"][0]["alg"] = "ES256"
+    assert not verify_execution_attestation(envelope, verifier, report.to_dict())
+
+
+def test_a_receipt_verifier_refuses_to_validate_grant_audience(keypair, tmp_path):
+    """Cross-audience pin, both directions.
+
+    The same operator key signs grants and receipts. A receipt verifier that
+    would accept any `payload_type` could be talked into confirming a grant
+    envelope as if it were evidence about an execution — so the selectable
+    audiences are Cell's own receipt types and nothing else.
+    """
+    private_pem, public_pem = keypair
+    signer = tool_registry.ed25519_signer_from_pem(private_pem)
+    verifier = tool_registry.ed25519_verifier_from_pem(public_pem)
+    report = ExecutionReport(status="success", exit_code=0, elapsed_ms=2.0)
+    envelope = report.to_dsse(signer, alg="EdDSA")
+    for stranger in (
+        "https://ephemora.dev/egress-grant.v1",
+        "https://example.com/some-other-thing.v1",
+    ):
+        assert not verify_execution_attestation(
+            envelope, verifier, report.to_dict(), payload_type=stranger
+        )
+
+
+def test_pre_execution_record_still_verifies_with_its_own_audience(keypair):
+    """Positive control for the audience pin: the other legitimate type works."""
+    private_pem, public_pem = keypair
+    signer = tool_registry.ed25519_signer_from_pem(private_pem)
+    verifier = tool_registry.ed25519_verifier_from_pem(public_pem)
+    from ephemora_cell.execution_report import PreExecutionRecord
+
+    record = PreExecutionRecord(
+        id="pre-1",
+        timestamp="2026-10-05T00:00:00Z",
+        module_sha256="a" * 64,
+        config_fingerprint="b" * 64,
+        input_hash="c" * 64,
+    )
+    envelope = record.to_dsse(signer, alg="EdDSA")
+    assert dsse_verify(envelope, verifier, expected_alg="EdDSA")

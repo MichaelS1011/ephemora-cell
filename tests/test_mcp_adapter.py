@@ -867,3 +867,70 @@ def test_host_traceback_never_reaches_the_client():
     assert "/Users/operator" not in body
     # The detail still exists for the operator side of the boundary.
     assert outcome.result.host_traceback.startswith("Traceback")
+
+
+def test_a_guest_cannot_overwrite_host_fields_in_the_error_document():
+    """A guest printing JSON that looks like a Cell result used to win.
+
+    The error body is built as ``{"status": …, "exit_code": …, **detail}``, and
+    `detail` is the guest's stdout parsed as JSON — so a guest writing
+    `{"status":"success-fake"}` replaced the host's own status INSIDE the
+    document the caller reads. Host facts are merged last now.
+    """
+    from ephemora_cell import ExecutionResult, ExecutionStatus
+    from ephemora_cell.execution_report import ExecutionReport
+    from ephemora_cell_mcp.engine import CellOutcome
+
+    outcome = CellOutcome(
+        result=ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            exit_code=7,
+            stdout='{"status": "success-fake", "exit_code": 0, "note": "guest"}',
+            sandbox_dir=None,
+        ),
+        report=ExecutionReport(status="error", exit_code=7, elapsed_ms=1.0),
+        egress=(),
+    )
+    message = Server(
+        tools_dir=str(PACKAGE_TOOLS), transport=MemoryTransport([])
+    )._build_call_result(outcome, tool="echo")
+    body = json.loads(message["content"][0]["text"])
+    assert body["status"] == "error", body
+    assert body["exit_code"] == 7, body
+    assert body["note"] == "guest", body  # guest content survives, keys do not
+    assert message["isError"] is True
+
+
+def test_get_policy_survives_an_unreadable_ledger(tmp_path):
+    """One corrupt line must not take the control plane down.
+
+    `get-policy` read grant state through the ledger directly, so a tampered book
+    raised out of the policy read — the surface an operator uses to inspect the
+    damage. It now reports the uncertainty (`revoked: null`) and says so in the
+    attestation.
+    """
+    from ephemora_cell.egress_sidecar import EgressGrant
+    from ephemora_cell.grant_ledger import GrantLedger
+
+    book = tmp_path / "grants.jsonl"
+    book.write_text('{"grant_id": "g-9", "type": "cal')  # torn line
+    engine = CellToolEngine(
+        egress_grants={
+            "echo": EgressGrant(
+                grant_id="g-9",
+                tool="echo",
+                allowed_endpoints=("https://api.example.com/v1",),
+                max_calls=3,
+            )
+        },
+        grant_ledger=GrantLedger(book),
+    )
+    transport = MemoryTransport([])
+    server = Server(tools_dir=str(PACKAGE_TOOLS), transport=transport, engine=engine)
+    reply = server._handle_get_policy({})
+    payload = json.loads(reply["content"][0]["text"])
+    grant = payload["egress"]["grants"][0]
+    assert grant["revoked"] is None, grant
+    assert (
+        payload["egress"].get("ledger_state") == "unreadable-for-some-grants"
+    ), payload["egress"]

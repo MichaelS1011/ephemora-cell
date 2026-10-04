@@ -152,3 +152,22 @@ def test_denylist_policy_is_single_sourced():
     assert wasi_02.ComponentSandbox._forbidden_canonical_match("/private/etc") == (
         "/private"
     )
+
+
+def test_case_variant_of_a_denied_path_is_denied_on_both_paths():
+    """Measured, not assumed: `realpath` is what closes case tricks, on APFS.
+
+    A reviewer asked whether ``/ETC`` slips past a textual denylist on a
+    case-insensitive filesystem. It does not, because the filter compares the
+    CANONICAL path, and ``realpath("/ETC")`` returns the stored case
+    (``/private/etc``) — so the denylist sees ``/etc`` whatever the caller typed.
+    The counter-case that proves the comparison is not a naive lowercase match:
+    ``/TMP`` stays allowed because it canonicalizes into the explicitly excepted
+    ``/private/tmp``, not because of any case rule.
+    """
+    for sandbox in _both_sandboxes():
+        name = type(sandbox).__name__
+        assert sandbox._filter_dangerous_dirs(("/ETC::g",)) == (), name
+        assert sandbox._filter_dangerous_dirs(("/eTc/passwd::shadow",)) == (), name
+        assert sandbox._filter_dangerous_dirs(("/VAR/LOG::g",)) == (), name
+        assert sandbox._filter_dangerous_dirs(("/TMP::g",)) == ("/TMP::g",), name

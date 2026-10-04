@@ -29,6 +29,11 @@ PRE_EXEC_RECORD_TYPE = "ephemora.pre_exec.v1"
 DSSE_TYPE_EXECUTION_REPORT = "https://ephemora.dev/execution-report.v1"
 DSSE_TYPE_PRE_EXEC_RECORD = "https://ephemora.dev/pre-execution-record.v1"
 
+#: The payload types a receipt verifier may assert. Choosing one is a caller
+#: parameter; inventing a sixth is not — this is the seam where a grant envelope
+#: (audience `…/egress-grant.v1`, verified by `grant_trust`) used to be
+#: checkable as if it were an execution receipt.
+
 #: Schema tag of the replay-binding block inside a signed receipt. The tag is
 #: signed *with* the receipt, so a verifier that requires freshness can tell
 #: "this receipt predates the evidence field" apart from "this one is forged".
@@ -875,7 +880,12 @@ def dsse_sign(
     }
 
 
-def dsse_verify(envelope: Any, verifier: Callable[[bytes, bytes], bool]) -> bool:
+def dsse_verify(
+    envelope: Any,
+    verifier: Callable[[bytes, bytes], bool],
+    *,
+    expected_alg: str | None = "EdDSA",
+) -> bool:
     """Verify a DSSE v1 envelope. **Fails closed.**
 
     Per the DSSE spec, ALL listed signatures must verify (an envelope
@@ -899,12 +909,23 @@ def dsse_verify(envelope: Any, verifier: Callable[[bytes, bytes], bool]) -> bool
         for sig_entry in signatures:
             if not isinstance(sig_entry, dict) or "sig" not in sig_entry:
                 return False
+            declared = sig_entry.get("alg")
+            if declared is not None and declared != expected_alg:
+                # The label is part of what a reviewer reads off the artefact: an
+                # envelope that claims "ES256" must not pass because the caller
+                # happened to hand over an Ed25519 verifier.
+                return False
             signature = base64.b64decode(sig_entry["sig"], validate=True)
             if not bool(verifier(pae, signature)):
                 return False
     except (KeyError, TypeError, ValueError):
         return False
     return True
+
+
+_RECEIPT_PAYLOAD_TYPES = frozenset(
+    {DSSE_TYPE_EXECUTION_REPORT, DSSE_TYPE_PRE_EXEC_RECORD}
+)
 
 
 def new_execution_evidence(
@@ -945,6 +966,7 @@ def verify_execution_attestation(
     payload_type: str = DSSE_TYPE_EXECUTION_REPORT,
     max_age_seconds: float | None = None,
     now: datetime | None = None,
+    expected_alg: str = "EdDSA",
 ) -> bool:
     """Verify a signed receipt against the ``_meta.execution`` it accompanies.
 
@@ -957,6 +979,11 @@ def verify_execution_attestation(
     the host's public key to turn a self-reported ``_meta`` into a verified
     receipt.
 
+    ``payload_type`` is selectable between Cell's OWN receipt types only (execution
+    report, pre-execution record): an arbitrary URI is refused, because a caller
+    that could name any audience could present a grant envelope — signed by the
+    same operator key, for a different purpose — as a verified receipt.
+
     ``max_age_seconds`` adds a freshness requirement on top of the cryptographic
     one: the receipt must carry an :data:`EVIDENCE_SCHEMA` block whose
     ``issued_at`` is within the window (and not more than
@@ -966,6 +993,8 @@ def verify_execution_attestation(
     ``report_id`` it has already accepted.
     """
     if not isinstance(envelope, dict):
+        return False
+    if payload_type not in _RECEIPT_PAYLOAD_TYPES:
         return False
     if envelope.get("payloadType") != payload_type:
         return False
@@ -978,7 +1007,7 @@ def verify_execution_attestation(
             return False
     except (ValueError, TypeError):
         return False
-    if not dsse_verify(envelope, verifier):
+    if not dsse_verify(envelope, verifier, expected_alg=expected_alg):
         return False
     if max_age_seconds is not None:
         if not _issued_at_is_fresh(execution, max_age_seconds, now):

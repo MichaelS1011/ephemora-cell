@@ -413,7 +413,14 @@ def _grant_from_payload(payload: bytes) -> EgressGrant:
     # payload carrying extra keys (which from_document would ignore) or a
     # different number spelling would verify as a signature over something the
     # loader does not enforce.
-    if payload != canonical_bytes(grant.to_dict()):
+    try:
+        canonical_of_grant = canonical_bytes(grant.to_dict())
+    except (TypeError, ValueError) as e:
+        # A payload a Python object cannot be rebuilt from (lone surrogate, an
+        # integer beyond 2^53) is refused as a grant problem, not as an untyped
+        # ValueError escaping a caller that catches GrantTrustError.
+        raise GrantTrustError(f"grant payload cannot be reconstructed: {e}") from e
+    if payload != canonical_of_grant:
         raise GrantTrustError(
             "grant payload is not the canonical bytes of the grant it decodes to "
             "(an edited or non-canonical document)"

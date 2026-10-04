@@ -879,3 +879,33 @@ def test_trust_root_refuses_to_be_a_symlink(tmp_path, ops):
     link.symlink_to(real)
     with pytest.raises(GrantTrustError, match="unreadable"):
         GrantTrustRoot.load(link)
+
+
+def test_unreconstructable_payload_is_a_grant_refusal_not_a_valueerror(root, ops):
+    """The loader's contract is GrantTrustError for anything it refuses.
+
+    A payload carrying a lone surrogate or an integer beyond float range
+    canonicalises into a Python error rather than a comparison, and that used to
+    escape a caller that (correctly) catches only GrantTrustError.
+    """
+    from ephemora_cell.execution_report import dsse_pae
+
+    for exotic in ('{"a":"\ud800"}', '{"a":' + "9" * 40 + "}"):
+        # surrogatepass is what an unvalidated producer writes; json.loads accepts
+        # it, so the refusal has to come from the canonicalisation step.
+        payload = exotic.encode("utf-8", errors="surrogatepass")
+        signature = ops.signer()(dsse_pae(payload, GRANT_AUDIENCE))
+        envelope = {
+            "payloadType": GRANT_AUDIENCE,
+            "payload": base64.b64encode(payload).decode(),
+            "signatures": [
+                {
+                    "keyid": "ops-1",
+                    "alg": "EdDSA",
+                    "sig": base64.b64encode(signature).decode(),
+                }
+            ],
+        }
+        # signed by a trusted key, so it reaches the payload stage at all
+        with pytest.raises(GrantTrustError):
+            root.verify_envelope(envelope)

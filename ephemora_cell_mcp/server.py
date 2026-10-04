@@ -49,6 +49,7 @@ returned as ``isError: true`` results with status + message and the same
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -102,6 +103,22 @@ _NATIVE_TOOLS = (
     },
 )
 _NATIVE_NAMES = frozenset(t["name"] for t in _NATIVE_TOOLS)
+
+
+def _revoked_or_unknown(ledger, grant_id: str) -> bool | None:
+    """Revocation state, or None when the book cannot be read.
+
+    ``get-policy`` is the control plane: an unreadable ledger must not make the
+    policy read crash (that used to be one corrupt line away from taking the
+    whole surface down), it must report the uncertainty instead.
+    """
+    try:
+        return ledger.usage(grant_id).revoked_at is not None
+    except Exception as e:  # tamper, IO, permission — all mean "unknown here"
+        logging.getLogger(__name__).warning(
+            "grant %s state unreadable for get-policy: %s", grant_id, e
+        )
+        return None
 
 
 class Server:
@@ -231,9 +248,14 @@ class Server:
                     report = self.process_tool_requests()
                 except BrokenPipeError:
                     return
-                except Exception:
+                except Exception as e:
                     # Governed loading must never break the serve loop; an
                     # unevaluated request stays on disk for the next message.
+                    # It must still be LOUD here, or a broken proposal directory
+                    # reads as "the operator submitted nothing" forever.
+                    logging.getLogger(__name__).warning(
+                        "governed tool-request evaluation failed: %s", e
+                    )
                     pass
                 else:
                     # "Never silent" (ADR-006): on stdio there is no report
@@ -661,6 +683,14 @@ class Server:
                     "signatures were not checked on this path",
                 }
             )
+            grant_states = [
+                _revoked_or_unknown(ledger, grant.grant_id) for grant in grants.values()
+            ]
+            if any(state is None for state in grant_states):
+                # The control plane reports its own blindness instead of raising:
+                # one corrupt ledger line used to take `get-policy` down, which is
+                # exactly the surface an operator reaches for to inspect the damage.
+                attestation["ledger_state"] = "unreadable-for-some-grants"
             attestation["grants"] = [
                 {
                     "tool": grant.tool,
@@ -670,9 +700,9 @@ class Server:
                     "not_after": grant.not_after,
                     "max_calls": grant.max_calls,
                     "key_id": grant.key_id,
-                    "revoked": ledger.usage(grant.grant_id).revoked_at is not None,
+                    "revoked": state,
                 }
-                for grant in grants.values()
+                for grant, state in zip(grants.values(), grant_states, strict=True)
             ]
         else:
             attestation["enforced"] = "allowlist-only"
@@ -874,9 +904,12 @@ class Server:
                     "type": "text",
                     "text": json.dumps(
                         {
+                            # Host facts last, so they win: a guest printing
+                            # {"status": "ok"} on stdout used to overwrite the
+                            # host's own status inside this document.
+                            **detail,
                             "status": outcome.report.status,
                             "exit_code": result.exit_code,
-                            **detail,
                         },
                         ensure_ascii=False,
                     ),
