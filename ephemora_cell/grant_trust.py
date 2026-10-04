@@ -253,9 +253,9 @@ class GrantTrustRoot:
         if not isinstance(payload_b64, str):
             raise GrantTrustError("envelope is missing a base64 'payload'")
         try:
-            payload = base64.b64decode(payload_b64, validate=True)
+            payload = _b64_canonical(payload_b64, "envelope payload")
         except ValueError as e:
-            raise GrantTrustError(f"envelope payload is not valid base64: {e}") from e
+            raise GrantTrustError(str(e)) from e
 
         signatures = envelope.get("signatures")
         if not isinstance(signatures, list) or not signatures:
@@ -296,7 +296,7 @@ class GrantTrustRoot:
                     f"[{key.not_before}, {key.not_after})"
                 )
             try:
-                raw = base64.b64decode(entry.get("sig", ""), validate=True)
+                raw = _b64_canonical(entry.get("sig", ""), f"signature for {key_id!r}")
             except (ValueError, TypeError) as e:
                 raise GrantTrustError(
                     f"signature for key {key_id!r} is not valid base64: {e}"
@@ -328,6 +328,25 @@ class GrantTrustRoot:
                 f"(not_after={grant.not_after})"
             )
         return grant
+
+
+def _b64_canonical(text: Any, what: str) -> bytes:
+    """Decode base64 that re-encodes to exactly the same characters.
+
+    ``validate=True`` still accepts aliases (``AAH=`` decodes like ``AAE=``). A
+    verifier that accepted them would sign-check bytes with no unique textual
+    identity, so the same authority could be written two ways and content-hashing
+    an envelope would stop being reliable.
+    """
+    if not isinstance(text, str):
+        raise ValueError(f"{what} is not a base64 string")
+    try:
+        raw = base64.b64decode(text, validate=True)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"{what} is not valid base64: {e}") from e
+    if base64.b64encode(raw).decode("ascii") != text:
+        raise ValueError(f"{what} is not canonical base64 (a re-encoded alias)")
+    return raw
 
 
 def _parse_key(entry: Any, index: int) -> TrustedKey:

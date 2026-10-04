@@ -801,3 +801,27 @@ def test_signature_is_verified_before_the_payload_is_parsed(root, ops):
     envelope["signatures"][0]["sig"] = signature
     with pytest.raises(GrantTrustError, match=r"grant document is invalid"):
         root.verify_envelope(envelope)
+
+
+def test_non_canonical_base64_envelope_is_refused(root, ops):
+    """``AAH=`` decodes like ``AAE=`` under validate=True. Accepting either would
+    give one authority two textual identities, so content-hashing an envelope
+    stops being trustworthy — the loader accepts canonical base64 only."""
+    grant = _grant(not_after=_future())
+    envelope = _envelope(grant, ops)
+    entry = envelope["signatures"][0]
+    raw = base64.b64decode(entry["sig"])  # 64 bytes -> two padding chars
+    padded = base64.b64encode(raw).decode()
+    body = padded[:-2]
+    # The low bits of the last character before "==" encode nothing, so "…A=="
+    # and "…B==" are the same 64-byte signature written two ways.
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    value = alphabet.index(body[-1])
+    # Stay inside the same 16-value block: the low four bits are the padding.
+    sibling = value + 1 if value % 16 != 15 else value - 1
+    alias = body[:-1] + alphabet[sibling] + "=="
+    assert alias != padded
+    assert base64.b64decode(alias, validate=True) == raw
+    entry["sig"] = alias
+    with pytest.raises(GrantTrustError, match="canonical base64"):
+        root.verify_envelope(envelope)
