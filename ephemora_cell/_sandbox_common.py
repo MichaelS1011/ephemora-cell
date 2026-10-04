@@ -339,8 +339,11 @@ def read_capped_output(path: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
     try:
         with open(path, "rb") as f:
             raw = f.read(limit + 1)
-    except OSError:
-        return ""
+    except OSError as e:
+        # An unreadable capture is NOT "the guest printed nothing" — reporting
+        # success with an empty string is how a lost output turns into a
+        # confidently wrong record.
+        return f"[host could not read the captured output: {e}]"
     if len(raw) > limit:
         try:
             with open(path, "r+b") as f:

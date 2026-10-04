@@ -12,6 +12,7 @@ with the standard JSON-RPC error codes.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 # Package version as the server version — single source of truth lives in
@@ -104,6 +105,10 @@ def parse_line(line: str) -> dict[str, Any] | None:
             or (isinstance(id_value, (int, float)) and not isinstance(id_value, bool))
         ):
             raise InvalidRequest("id must be a string, number, or null")
+        if isinstance(id_value, float) and not math.isfinite(id_value):
+            # JSON spells NaN/Infinity but JSON-RPC ids round-trip into our
+            # response — echoing them would emit a frame strict parsers reject.
+            raise InvalidRequest("id must be a finite number")
     return message
 
 

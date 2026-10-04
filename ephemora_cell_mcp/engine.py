@@ -20,6 +20,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -30,9 +31,12 @@ from ephemora_cell import (
     WASISandbox,
     is_component_binary,
 )
+from ephemora_cell._fsutil import atomic_write_text, read_regular_nofollow
 from ephemora_cell.egress_sidecar import (
     REQUEST_FILENAME,
+    REQUEST_MAX_BYTES,
     RESPONSE_FILENAME,
+    EgressAuditEntry,
     EgressGrant,
     EgressPolicy,
     mediate,
@@ -270,8 +274,9 @@ class CellToolEngine:
         server-wide ``egress_policy`` allowlist path, and no surface at all
         means no mediation. A present-but-unreadable artifact still yields an
         audit: the mediator parses untrusted bytes fail-closed, so a malformed
-        request becomes a ``denied`` entry rather than silence — an absent file
-        is the only case that stays quiet.
+        request — or an artifact the host refuses to open — becomes a ``denied``
+        entry rather than silence. An ABSENT file is the only case that stays
+        quiet.
         """
         grant = self.egress_grants.get(tool_name)
         ledger = self.grant_ledger
@@ -282,13 +287,38 @@ class CellToolEngine:
         if policy is None or not sandbox_dir:
             return ()
         request_path = Path(sandbox_dir) / REQUEST_FILENAME
-        if not request_path.is_file():
+        if not os.path.lexists(request_path):
             return ()
         try:
-            raw = request_path.read_bytes()
+            # The artifact NAME lives in a directory the guest writes to, and WASI
+            # refuses absolute symlink targets but accepts a relative one — so
+            # ``sidecar.request.json -> ../../../../…`` is a guest-authored pointer
+            # out of the sandbox that an ordinary open() would follow. Never
+            # follow, and require the descriptor to be a regular file (ADR-013).
+            raw = read_regular_nofollow(request_path, REQUEST_MAX_BYTES)
         except OSError as e:
-            logging.getLogger(__name__).warning("egress artifact unreadable: %s", e)
-            return ()
+            # The host log gets the full path; the audit line the client reads
+            # gets the reason only. An absolute sandbox path in a tool response
+            # is host information the caller has no use for.
+            logging.getLogger(__name__).warning(
+                "egress request artifact refused at %s: %s", request_path, e
+            )
+            reason = "request artifact refused: " + (
+                getattr(e, "strerror", None) or str(e)
+            )
+            return (
+                {
+                    **asdict(
+                        EgressAuditEntry(
+                            url="<unreadable>",
+                            method="?",
+                            decision="denied",
+                            reason=reason,
+                        )
+                    ),
+                    "response": {"ok": False, "error": reason},
+                },
+            )
         if use_grant and grant is not None and ledger is not None:
             outcome = mediate_with_grant(grant, ledger, raw)
         else:
@@ -297,11 +327,16 @@ class CellToolEngine:
         # per call it does NOT survive cleanup — delivery to a follow-up run
         # is the host's job (state store or an explicit preopen), and the
         # audit + response below are what this call surfaces. The write is
-        # best-effort and never fails the run.
+        # best-effort and never fails the run — but it publishes atomically and
+        # replaces whatever name is there, so it never writes THROUGH a link the
+        # guest planted at that path.
         try:
-            (Path(sandbox_dir) / RESPONSE_FILENAME).write_text(
-                json.dumps(outcome.response_doc), encoding="utf-8"
+            atomic_write_text(
+                Path(sandbox_dir) / RESPONSE_FILENAME,
+                json.dumps(outcome.response_doc),
             )
-        except OSError:
-            pass
+        except OSError as e:
+            logging.getLogger(__name__).warning(
+                "egress response artifact not written: %s", e
+            )
         return ({**asdict(outcome.audit), "response": outcome.response_doc},)

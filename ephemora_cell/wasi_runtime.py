@@ -340,6 +340,9 @@ class ExecutionResult:
     elapsed_ms: float = 0.0
     fuel_consumed: int | None = None
     sandbox_dir: str | None = None
+    # Host-side traceback for a run that died inside the HOST (an engine bug,
+    # bad import wiring). Never surfaced to a client — `stderr` is, this is not.
+    host_traceback: str | None = None
     # S2: directories ACTUALLY preopened for this run (post-filter, per
     # ABI) — the attestation input for ExecutionReport.security_baseline.
     effective_preopens: tuple[str, ...] = ()
@@ -1120,11 +1123,13 @@ class WASISandbox:
                 status=ExecutionStatus.ERROR,
                 exit_code=exit_code,
                 stdout=stdout,
-                # N-1: keep the host traceback so intermittent failures are
-                # diagnosable from the report alone (bounded by _limit_output).
-                stderr=_limit_output(
-                    str(e) + "\n" + traceback.format_exc() + stderr_from_file
-                ),
+                # N-1 kept, with the exposure fixed: the host traceback stays
+                # diagnosable, but in its OWN field. `stderr` is what the MCP
+                # layer hands the client, and a host traceback names absolute
+                # paths, the interpreter version and the site-packages layout of
+                # the machine running the sandbox.
+                stderr=_limit_output(str(e) + "\n" + stderr_from_file),
+                host_traceback=_limit_output(traceback.format_exc(), 20000),
                 elapsed_ms=elapsed_ms,
                 sandbox_dir=sandbox_dir,
                 state_bytes=(
@@ -1293,23 +1298,37 @@ class WASISandbox:
 
     # --- P0 #3: Sandbox dir cleanup ---
 
-    def cleanup(self) -> None:
+    def cleanup(self) -> list[str]:
         """Remove the ephemeral sandbox and host-owned capture directories.
 
-        Call this after run() to clean up temporary files.
-        If a directory is None or doesn't exist, silently pass.
+        Returns the paths that SURVIVED removal — empty means the run really was
+        ephemeral. ``shutil.rmtree(..., ignore_errors=True)`` used to swallow
+        every failure here, so a directory that could not be deleted (permissions
+        after an abrupt kill, an immutable flag, a read-only mount) was reported
+        as cleaned. The product promise is "no execution state survives into the
+        next execution", so a residue is a fact callers and logs must be able to
+        see, not something to hide.
         """
+        import logging
         import shutil
 
+        leftovers: list[str] = []
         for attr in ("_sandbox_dir", "_host_dir"):
             dir_path = getattr(self, attr, None)
             if dir_path is None:
                 continue
             try:
-                shutil.rmtree(dir_path, ignore_errors=True)
-            except OSError:
-                pass  # Best effort — dir may already be gone
+                shutil.rmtree(dir_path)
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logging.getLogger(__name__).warning(
+                    "sandbox cleanup failed, residue survives at %s: %s", dir_path, e
+                )
+                if os.path.exists(dir_path):
+                    leftovers.append(str(dir_path))
             setattr(self, attr, None)
+        return leftovers
 
     @property
     def sandbox_dir(self) -> str | None:

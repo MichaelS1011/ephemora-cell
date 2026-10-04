@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import socketserver
 import sys
 import threading
+import time
 import typing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -24,6 +26,7 @@ from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 from ephemora_cell.egress_sidecar import (
     EgressPolicy,
     execute_request,
+    mediate,
     parse_request_document,
     run_sidecar_cycle,
     validate_request,
@@ -1329,3 +1332,202 @@ class TestGrantLoader:
 
         with pytest.raises(NotADirectoryError):
             load_egress_grants(tmp_path / "nope", self._StubRoot())
+
+
+# --- transport walls: a hostile or broken peer still yields an audit (2026-10-04)
+
+
+class _RawResponder(socketserver.BaseRequestHandler):
+    """Answers with raw bytes, so the peer can break the protocol on purpose."""
+
+    def handle(self):
+        try:
+            self.request.recv(65536)
+        except OSError:
+            pass
+        spec = self.server.spec  # type: ignore[attr-defined]
+        kind = spec["kind"]
+        if kind == "garbage_status":
+            self.request.sendall(b"this is not an status line\r\n\r\n")
+        elif kind == "too_many_headers":
+            self.request.sendall(
+                b"HTTP/1.1 200 OK\r\n" + b"X-A: 1\r\n" * 150 + b"\r\n{}"
+            )
+        elif kind == "trickle":
+            self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 400\r\n\r\n")
+            for _ in range(400):
+                time.sleep(0.02)  # each op is inside timeout_seconds
+                try:
+                    self.request.sendall(b"x")
+                except OSError:
+                    break
+
+
+class _RedirectRecorder(socketserver.BaseRequestHandler):
+    """Redirects /hop{n} -> /hop{n+1} forever, recording what was requested."""
+
+    def handle(self):
+        try:
+            request = self.request.recv(65536).decode("latin-1")
+        except OSError:
+            return
+        path = request.split(" ")[1] if request else "/"
+        seen: list = self.server.seen  # type: ignore[attr-defined]
+        seen.append(path)
+        try:
+            step = int(path.rsplit("/chain/", 1)[1])
+        except (ValueError, IndexError):
+            step = 0
+        stop_after = getattr(self.server, "spec", {}).get("stop_after")
+        if stop_after is not None and step >= stop_after:
+            body = json.dumps({"chain_end": step}).encode()
+            self.request.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\n\r\n".encode()
+                + body
+            )
+            return
+        next_path = f"/chain/{step + 1}"
+        self.request.sendall(
+            f"HTTP/1.1 302 Found\r\nLocation: {next_path}\r\n"
+            "Content-Length: 0\r\n\r\n".encode()
+        )
+
+
+def _raw_server(handler_class, spec=None):
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler_class)
+    server.daemon_threads = True
+    server.allow_reuse_address = True
+    server.spec = spec or {}  # type: ignore[attr-defined]
+    server.seen = []  # type: ignore[attr-defined]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, server.server_address[1]
+
+
+class TestTransportWalls:
+    """A mediated fetch that never completes must still be a DECISION.
+
+    Before this, `http.client`'s own failures (InvalidURL from a tab inside the
+    authority, a >100-header response, a junk status line) escaped `mediate()`
+    entirely — they subclass neither OSError nor ValueError — so the caller got
+    no audit line at all. And `timeout_seconds` bounded one socket operation,
+    which a server dribbling one byte every 20 ms outlives indefinitely, once
+    per hop, while pinning a host thread.
+    """
+
+    def test_junk_status_line_is_an_audited_refusal(self):
+        server, port = _raw_server(_RawResponder, {"kind": "garbage_status"})
+        try:
+            outcome = mediate(
+                _policy(port),
+                json.dumps({"url": f"http://127.0.0.1:{port}/v1/x", "method": "GET"}),
+            )
+            assert outcome.audit.decision == "denied", outcome.audit
+            assert outcome.audit.limit == "transport", outcome.audit
+        finally:
+            server.shutdown()
+
+    def test_more_than_a_hundred_headers_is_an_audited_refusal(self):
+        server, port = _raw_server(_RawResponder, {"kind": "too_many_headers"})
+        try:
+            outcome = mediate(
+                _policy(port),
+                json.dumps({"url": f"http://127.0.0.1:{port}/v1/x", "method": "GET"}),
+            )
+            assert outcome.audit.decision == "denied", outcome.audit
+            assert outcome.audit.limit == "transport", outcome.audit
+        finally:
+            server.shutdown()
+
+    def test_tab_in_the_authority_never_escapes_the_mediator(self):
+        """The allowlist may or may not match (that is the stdlib's parser), but
+        either way mediate() returns an audited result instead of raising."""
+        server, port = _raw_server(_RawResponder, {"kind": "garbage_status"})
+        try:
+            url = f"http://127.0.0.1:{port}\t/v1/x"
+            outcome = mediate(_policy(port), json.dumps({"url": url, "method": "GET"}))
+            assert outcome.audit.decision == "denied", outcome.audit
+        finally:
+            server.shutdown()
+
+    def test_wall_clock_deadline_stops_a_trickling_peer(self):
+        server, port = _raw_server(_RawResponder, {"kind": "trickle"})
+        policy = EgressPolicy(
+            allowed_endpoints=(f"http://127.0.0.1:{port}/v1",), timeout_seconds=1.0
+        )
+        try:
+            started = time.monotonic()
+            outcome = mediate(
+                policy,
+                json.dumps({"url": f"http://127.0.0.1:{port}/v1/x", "method": "GET"}),
+            )
+            elapsed = time.monotonic() - started
+            assert outcome.audit.decision == "denied", outcome.audit
+            assert outcome.audit.limit == "timeout", outcome.audit
+            assert elapsed < 6.0, f"the trickle outlived its budget: {elapsed:.1f}s"
+            assert "ok" in outcome.response_doc and not outcome.response_doc["ok"]
+        finally:
+            server.shutdown()
+
+    def test_a_short_chain_records_exactly_the_hops_it_opened(self):
+        """Positive control: when hops ARE followed, every recorded hop is one the
+        peer actually served — and the chain finishes with a body."""
+        server, port = _raw_server(_RedirectRecorder, {"stop_after": 3})
+        policy = EgressPolicy(allowed_endpoints=(f"http://127.0.0.1:{port}/chain/",))
+        try:
+            outcome = mediate(
+                policy,
+                json.dumps(
+                    {"url": f"http://127.0.0.1:{port}/chain/1", "method": "GET"}
+                ),
+            )
+            assert outcome.audit.decision == "allowed", outcome.audit
+            served = {p for p in server.seen}  # type: ignore[attr-defined]
+            recorded = {"chain/" + hop.rsplit("/", 1)[-1] for hop in outcome.audit.hops}
+            assert recorded == {"chain/2", "chain/3"}, recorded
+            assert (
+                recorded <= {p.lstrip("/") for p in served} | served
+            ), f"audit claims hops the peer never served: {recorded - served}"
+            assert outcome.response_doc["content"]["chain_end"] == 3
+        finally:
+            server.shutdown()
+
+    def test_a_hop_the_loop_limit_refused_is_not_reported_as_followed(self):
+        """The audit used to say "allowed, fetch failed" and list a final hop that
+        no socket ever opened. Refusing at the limit is a DENIAL, and it names the
+        hop it refused to dispatch."""
+        server, port = _raw_server(_RedirectRecorder)
+        policy = EgressPolicy(allowed_endpoints=(f"http://127.0.0.1:{port}/chain/",))
+        try:
+            outcome = mediate(
+                policy,
+                json.dumps(
+                    {"url": f"http://127.0.0.1:{port}/chain/1", "method": "GET"}
+                ),
+            )
+            served = [p for p in server.seen]  # type: ignore[attr-defined]
+            assert outcome.audit.decision == "denied", outcome.audit
+            assert "loop limit" in outcome.audit.reason, outcome.audit.reason
+            last_served = served[-1]
+            refused = f"/chain/{int(last_served.rsplit('/', 1)[1]) + 1}"
+            assert refused not in served, "the refused hop was dispatched anyway"
+            assert refused.rstrip("/") in outcome.audit.reason or refused in str(
+                outcome.response_doc
+            ), outcome.response_doc
+        finally:
+            server.shutdown()
+
+    def test_empty_userinfo_is_refused_not_mangled(self):
+        """`http://:@host` has a falsy username, so an earlier check passed it and
+        the wire carried `:@host` in the Host header."""
+        server, port = _raw_server(_RawResponder, {"kind": "garbage_status"})
+        policy = EgressPolicy(allowed_endpoints=(f"http://127.0.0.1:{port}/v1",))
+        try:
+            outcome = mediate(
+                policy,
+                json.dumps({"url": f"http://:@127.0.0.1:{port}/v1/x", "method": "GET"}),
+            )
+            assert outcome.audit.decision == "denied", outcome.audit
+            assert "denied by egress policy" in outcome.response_doc["error"]
+        finally:
+            server.shutdown()

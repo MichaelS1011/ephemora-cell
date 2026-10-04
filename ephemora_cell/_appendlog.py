@@ -69,9 +69,22 @@ class AppendLog:
         # O_APPEND is not decoration: without it os.write lands at the file
         # offset (0 for a freshly opened O_RDWR descriptor) and overwrites the
         # history instead of extending it.
-        if not create:
-            return os.open(str(self.path), os.O_RDONLY)
-        return os.open(str(self.path), os.O_RDWR | os.O_CREAT | os.O_APPEND)
+        #
+        # O_NOFOLLOW because these books ARE the enforcement: a ledger, a tenant
+        # budget or a chain that can be swapped for a symlink (or replaced by a
+        # rename between the check and the open) silently resets recorded calls
+        # and revocations. Refuse the link instead of writing through it.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        if create:
+            flags |= os.O_RDWR | os.O_CREAT | os.O_APPEND
+        try:
+            return os.open(str(self.path), flags)
+        except OSError as e:
+            if not getattr(os, "O_NOFOLLOW", 0) and os.path.islink(str(self.path)):
+                raise OSError(
+                    f"log path is a symlink, refusing to follow: {self.path}"
+                ) from e
+            raise
 
     def tail_line(self, fd: int) -> bytes | None:
         """Last non-empty line, read backwards from EOF. None for an empty file.
@@ -96,11 +109,19 @@ class AppendLog:
         return lines[-1]
 
     def read_lines(self) -> list[bytes]:
-        """Every non-empty line. Missing file reads as empty, never created."""
-        if not self.path.exists():
+        """Every non-empty line. Missing file reads as empty, never created.
+
+        Reads through the same no-follow descriptor the writer uses: replaying
+        the book is a security decision, not a convenience read.
+        """
+        if not os.path.lexists(self.path):
             return []
-        with self.path.open("rb") as handle:
-            return [line for line in handle if line.strip()]
+        fd = self._open(create=False)
+        try:
+            with os.fdopen(os.dup(fd), "rb") as handle:
+                return [line for line in handle if line.strip()]
+        finally:
+            os.close(fd)
 
     def read_tail(self) -> bytes | None:
         """The last record under a shared lock. Creates nothing, ever."""

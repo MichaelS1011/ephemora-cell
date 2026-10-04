@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -78,6 +79,47 @@ def atomic_write_json(path: str | Path, obj: object) -> Path:
 def atomic_copyfile(src: str | Path, dst: str | Path) -> Path:
     """Copy ``src`` → ``dst`` atomically; ``dst`` appears only complete."""
     return _atomic_write(dst, Path(src).read_bytes())
+
+
+def read_regular_nofollow(path: str | Path, max_bytes: int | None = None) -> bytes:
+    """Read a file without ever following a symlink or a special file.
+
+    Several surfaces take a path whose NAME a guest can create files under
+    (``sidecar.request.json`` in a sandbox, grant files in a grants dir, the
+    append-only books). WASI refuses an ABSOLUTE symlink target but accepts a
+    relative one, and ``../../../../`` resolves outside the sandbox the moment
+    the host opens the name with ordinary ``read_bytes()``. So the host opens
+    with ``O_NOFOLLOW``, requires the descriptor it ACTUALLY got to be a regular
+    file, and reads from that descriptor — the bytes are pinned at open, so a
+    rename race cannot move them underneath the read.
+
+    ``max_bytes`` bounds the read: a host-side parser must not be made to
+    allocate whatever a guest decided to write, and stopping at the cap is
+    cheaper than slurping the file and checking afterwards.
+
+    Raises ``OSError`` for a link, a non-regular file or an oversize file:
+    every caller has to decide what the refusal means, nobody gets a silent
+    open-through.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(path), flags)
+    try:
+        if not getattr(os, "O_NOFOLLOW", 0) and os.path.islink(str(path)):
+            raise OSError("refusing to follow a symlink")
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        limit = os.fstat(fd).st_size
+        if max_bytes is not None and limit > max_bytes:
+            raise OSError(f"file is {limit} bytes, above the {max_bytes} byte limit")
+        chunks = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    return b"".join(chunks)
 
 
 def read_stable_bytes(path: str | Path) -> bytes | None:

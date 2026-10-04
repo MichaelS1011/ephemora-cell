@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ._fsutil import atomic_write_text, read_regular_nofollow
 from .egress_sidecar import EgressGrant
 from .execution_report import canonical_bytes, dsse_pae
 from .grant_ledger import _parse_bound  # same fail-closed bound semantics
@@ -141,9 +142,14 @@ class GrantTrustRoot:
         """
         file = Path(path)
         try:
-            doc = json.loads(file.read_text(encoding="utf-8"))
-        except OSError as e:
+            # Read without following a link, from the descriptor that was
+            # checked: an anchor that can be swapped between the check and the
+            # read is not an anchor.
+            text = read_regular_nofollow(file).decode("utf-8", errors="strict")
+        except (OSError, UnicodeDecodeError) as e:
             raise GrantTrustError(f"trust root is unreadable: {file}: {e}") from e
+        try:
+            doc = json.loads(text)
         except json.JSONDecodeError as e:
             raise GrantTrustError(f"trust root is not valid JSON: {file}: {e}") from e
         if not isinstance(doc, dict):
@@ -577,7 +583,9 @@ def issue_cli(argv: list[str] | None = None) -> int:
         return 2
     text = json.dumps(envelope, indent=2, sort_keys=True)
     if args.out:
-        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        # Atomic publication: a grants directory scanned by a starting server
+        # must never see a half-written envelope under its final name.
+        atomic_write_text(args.out, text + "\n")
         print(f"wrote {args.out}")
     else:
         print(text)

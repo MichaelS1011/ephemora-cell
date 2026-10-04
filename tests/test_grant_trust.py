@@ -825,3 +825,57 @@ def test_non_canonical_base64_envelope_is_refused(root, ops):
     entry["sig"] = alias
     with pytest.raises(GrantTrustError, match="canonical base64"):
         root.verify_envelope(envelope)
+
+
+# --- the anchor and the directory it anchors must not be the same place -------
+
+
+def test_loader_refuses_a_symlinked_grant_file(tmp_path, root, ops):
+    """A grants directory is where an authority write lands. A link there must
+    not turn into a verified grant read from somewhere else."""
+    grants = tmp_path / "grants"
+    grants.mkdir()
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text(json.dumps(_envelope(_grant(not_after=_future()), ops)))
+    (grants / "weather.egress.grant.json").symlink_to(elsewhere)
+    _, errors = load_egress_grants(grants, root)
+    assert any("symbolic link" in e for e in errors), errors
+
+
+def test_loader_refuses_an_empty_grants_directory(tmp_path, root):
+    """`--egress-grants-dir` says "enforce grants". Zero grants found is a
+    misconfiguration (typo, moved directory), not an empty authority set — and
+    the loader used to report success with nothing installed."""
+    grants = tmp_path / "grants"
+    grants.mkdir()
+    _, errors = load_egress_grants(grants, root)
+    assert any("no grant files found" in e for e in errors), errors
+
+
+def test_loader_surfaces_an_unreadable_grants_directory(tmp_path, root):
+    """`Path.glob` swallows OSError and yields nothing, which the loader must not
+    mistake for "no grants to install"."""
+    import os as _os
+
+    if _os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    grants = tmp_path / "grants"
+    grants.mkdir()
+    (grants / "weather.egress.grant.json").write_text("{}")
+    _os.chmod(grants, 0)
+    try:
+        with pytest.raises(OSError, match="not readable"):
+            load_egress_grants(grants, root)
+    finally:
+        _os.chmod(grants, 0o755)
+
+
+def test_trust_root_refuses_to_be_a_symlink(tmp_path, ops):
+    """Reading the anchor through a link (or a swap race between check and open)
+    is how an out-of-band key becomes an in-band one again."""
+    real = tmp_path / "root.json"
+    real.write_text(json.dumps(_root_doc(ops.public_pem)))
+    link = tmp_path / "link-root.json"
+    link.symlink_to(real)
+    with pytest.raises(GrantTrustError, match="unreadable"):
+        GrantTrustRoot.load(link)

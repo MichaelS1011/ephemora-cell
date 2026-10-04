@@ -251,3 +251,46 @@ def test_record_call_requires_an_egress_grant(ledger):
 def test_revoke_requires_a_grant_id(ledger):
     with pytest.raises(ValueError):
         ledger.revoke("")
+
+
+# --- the book itself is part of the boundary --------------------------------
+
+
+def test_the_book_refuses_to_be_a_symlink(tmp_path):
+    """Caps and revocations live in this file. A name here that points somewhere
+    else (or that is swapped between check and open) resets the enforcement, so
+    the writer refuses to follow it rather than appending through it."""
+    real = tmp_path / "real.jsonl"
+    link = tmp_path / "grants.jsonl"
+    GrantLedger(real).record_call(_grant(max_calls=1))
+    link.symlink_to(real)
+    ledger = GrantLedger(link)
+    with pytest.raises(OSError, match="symbolic links"):
+        ledger.record_call(_grant(max_calls=1))
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def test_a_ledger_that_cannot_be_written_refuses_the_call_WITH_an_audit(tmp_path):
+    """An unreadable/unwritable book used to raise out through the mediator: the
+    fetch was denied, but no audit line and no `_meta.egress` survived, and one
+    corrupt record switched off every grant in the process. Denial is still a
+    decision, so it must be recorded as one."""
+    from ephemora_cell.egress_sidecar import mediate_with_grant
+
+    path = tmp_path / "grants.jsonl"
+    path.write_text("")
+    os.chmod(path, 0o400)
+    try:
+        ledger = GrantLedger(path)
+        outcome = mediate_with_grant(
+            _grant(max_calls=5),
+            ledger,
+            json.dumps({"url": "https://api.example.com/v1", "method": "GET"}),
+        )
+    finally:
+        os.chmod(path, 0o644)
+
+    assert outcome.audit.decision == "denied", outcome.audit
+    assert outcome.audit.limit == "ledger", outcome.audit
+    assert outcome.response_doc["ok"] is False
+    assert not outcome.response_doc.get("content"), outcome.response_doc

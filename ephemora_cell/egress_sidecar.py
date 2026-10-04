@@ -32,8 +32,10 @@ Security properties:
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import json
+import os
 import socket
 import threading
 import time
@@ -46,14 +48,31 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._fsutil import read_regular_nofollow
+
 if TYPE_CHECKING:
     from ephemora_cell.grant_ledger import GrantLedger
 
 REQUEST_FILENAME = "sidecar.request.json"
+
+#: Hard bound on the request artifact a host will read. The guest writes it into
+#: its own sandbox, and ``io_budget_bytes`` bounds the sandbox in aggregate — the
+#: parser still must not be handed an arbitrarily large document.
+REQUEST_MAX_BYTES = 1024 * 1024
 RESPONSE_FILENAME = "sidecar.response.json"
 _MAX_REQUEST_BYTES = 64 * 1024
 _ALLOWED_HEADER_NAMES = {"accept", "content-type", "user-agent"}
 _DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+class _EgressDeadline(RuntimeError):
+    """The one wall-clock budget for a mediated fetch ran out."""
+
+    def __init__(self, limit_seconds: float) -> None:
+        super().__init__(
+            f"egress deadline exceeded: the fetch did not finish within "
+            f"{limit_seconds}s of wall-clock time"
+        )
 
 
 class _SSRFBlocked(Exception):
@@ -290,8 +309,26 @@ class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
                 f"redirect ({code}) changes scheme to {newurl!r}"
             )
             return None
+        nxt = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if nxt is None:
+            return None
+        # `redirect_request` is called BEFORE the stdlib applies its own loop
+        # limits, so a returned request is still not a dispatched one: recording
+        # it here would put a hop in the audit that no socket ever opened. Mirror
+        # the same two checks (repeats per URL, total hops) and refuse on the
+        # stdlib's behalf.
+        visited = getattr(req, "redirect_dict", None)
+        if visited is not None and (
+            visited.get(newurl, 0) >= self.max_repeats
+            or len(visited) >= self.max_redirections
+        ):
+            self._trail.denied_reason = (
+                f"redirect loop limit reached at {newurl!r} "
+                f"({self.max_redirections} hops)"
+            )
+            return None
         self._trail.followed.append(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        return nxt
 
 
 @dataclass(frozen=True)
@@ -340,7 +377,10 @@ def _url_matches_allowlist(policy: EgressPolicy, url: str) -> str | None:
         return None
     if parsed.scheme not in ("https", "http"):
         return None
-    if parsed.username or parsed.password or parsed.fragment:
+    # Not `if parsed.username`: an EMPTY userinfo ("http://:@host") is falsy
+    # but is still carried in the netloc and on the wire, so the presence of
+    # the separator is what must be refused.
+    if "@" in parsed.netloc or parsed.fragment:
         return None
     if _has_dot_segment(parsed.path):
         return None
@@ -451,8 +491,73 @@ def execute_request(
                 timeout=policy.timeout_seconds,
             ) as resp,
         ):
-            body = resp.read(policy.max_response_bytes + 1)
             status = int(resp.status)
+            # ``timeout_seconds`` on open() bounds a single socket operation, not
+            # the request: a server trickling one byte every nap keeps the thread
+            # past the budget, and each of up to ten redirect hops got a fresh
+            # one. Read in chunks against ONE wall-clock deadline for the whole
+            # mediated fetch, and deliver nothing if it runs out.
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                if (time.monotonic() - started) > policy.timeout_seconds:
+                    raise _EgressDeadline(policy.timeout_seconds)
+                room = policy.max_response_bytes + 1 - total
+                # read1(): one buffer's worth, returning as soon as anything
+                # arrives. `read(n)` blocks until n bytes are in hand, which is
+                # exactly how a trickling peer outlives a per-op timeout.
+                reader = getattr(resp, "read1", None) or resp.read
+                chunk = reader(min(room, 65536))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > policy.max_response_bytes:
+                    break
+            body = b"".join(chunks)
+    except _EgressDeadline as e:
+        elapsed = (time.monotonic() - started) * 1000
+        reason = str(e)
+        return EgressResult(
+            response_doc={
+                "ok": False,
+                "error": reason,
+                "elapsed_ms": round(elapsed, 3),
+            },
+            audit=EgressAuditEntry(
+                url=request.url,
+                method=request.method,
+                decision="denied",
+                reason=reason,
+                elapsed_ms=elapsed,
+                hops=tuple(trail.attempted),
+                limit="timeout",
+            ),
+        )
+    except http.client.HTTPException as e:
+        # http.client's own failures subclass neither OSError nor ValueError, so
+        # they used to leave mediate() entirely: a tab inside the URL that the
+        # allowlist still matched (InvalidURL), a >100-header response, a junk
+        # status line. No bytes were delivered, so this is a refusal, and it is
+        # audited as one.
+        elapsed = (time.monotonic() - started) * 1000
+        reason = f"transport refused: {type(e).__name__}: {e}"
+        return EgressResult(
+            response_doc={
+                "ok": False,
+                "error": reason,
+                "elapsed_ms": round(elapsed, 3),
+            },
+            audit=EgressAuditEntry(
+                url=request.url,
+                method=request.method,
+                decision="denied",
+                reason=reason,
+                elapsed_ms=elapsed,
+                hops=tuple(trail.attempted),
+                limit="transport",
+            ),
+        )
     except _SSRFBlocked as e:
         elapsed = (time.monotonic() - started) * 1000
         reason = f"egress host blocked (SSRF): {e.reason}"
@@ -616,7 +721,25 @@ def mediate_with_grant(
             },
             audit=audit,
         )
-    decision = ledger.record_call(grant, now=now)
+    try:
+        decision = ledger.record_call(grant, now=now)
+    except (OSError, ValueError, RuntimeError) as e:
+        # The book is the enforcement. A ledger that cannot be read or written —
+        # a tampered line, an unwritable path, a vanished directory — must refuse
+        # the call WITH an audit entry, not raise past the mediator: an
+        # unhandled exception means no audit line, no ``_meta.egress`` and one
+        # corrupt record switching off every grant in the process.
+        reason = f"grant ledger unreadable, call refused: {e}"
+        return EgressResult(
+            response_doc={"ok": False, "error": reason},
+            audit=EgressAuditEntry(
+                url=request.url,
+                method=request.method,
+                decision="denied",
+                reason=reason,
+                limit="ledger",
+            ),
+        )
     if not decision.allowed:
         grant_entry = EgressAuditEntry(
             url=request.url,
@@ -634,6 +757,10 @@ def mediate_with_grant(
 
 #: Schema tag of the frozen grant envelope. A future version coexists by tag.
 GRANT_SCHEMA_VERSION = "egress-grant.v1"
+
+#: A grant file is recognised by this exact suffix — and by nothing looser, because a
+#: loader that installs authority must not be guessing which files were meant.
+GRANT_FILE_SUFFIX = ".egress.grant.json"
 
 
 @dataclass(frozen=True)
@@ -787,11 +914,33 @@ def load_egress_grants(
             )
     grants: dict[str, EgressGrant] = {}
     errors: list[str] = []
-    for file in sorted(directory.glob("*.egress.grant.json")):
+    # ``Path.glob`` swallows OSError — on an unreadable directory it yields
+    # NOTHING and reports no error, which for a loader that installs authority
+    # means a server that starts with zero grants and still attests "every grant
+    # file verified". Enumerate instead, and let the failure be seen.
+    try:
+        entries = sorted(
+            (
+                entry
+                for entry in os.scandir(directory)
+                if entry.name.endswith(GRANT_FILE_SUFFIX)
+                and len(entry.name) > len(GRANT_FILE_SUFFIX)
+            ),
+            key=lambda entry: entry.name,
+        )
+    except OSError as e:
+        raise OSError(f"grants directory is not readable: {directory}: {e}") from e
+    for entry in entries:
+        file = Path(entry.path)
         try:
-            envelope = json.loads(file.read_text(encoding="utf-8"))
+            # Never follow a link a writable-directory owner (or a guest that
+            # escaped into this path space) can plant, and accept a regular file
+            # only: the bytes that are verified must be the bytes that were read.
+            envelope = json.loads(
+                read_regular_nofollow(file).decode("utf-8", errors="strict")
+            )
             grant = trust_root.verify_envelope(envelope)
-        except (OSError, ValueError, GrantTrustError) as e:
+        except (OSError, UnicodeDecodeError, ValueError, GrantTrustError) as e:
             errors.append(f"{file.name}: {e}")
             continue
         if grant.tool in grants:
@@ -801,4 +950,9 @@ def load_egress_grants(
             )
             continue
         grants[grant.tool] = grant
+    if not entries:
+        errors.append(
+            f"{directory}: no grant files found (looked for *{GRANT_FILE_SUFFIX}) — an empty "
+            "grants directory is a misconfiguration, not an empty authority set"
+        )
     return grants, errors

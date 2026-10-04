@@ -783,3 +783,87 @@ def test_server_pooled_flag_reaches_engine(tmp_path):
     assert server.engine.pooled is True
     server_default = Server(tools_dir=tmp_path)
     assert server_default.engine.pooled is False
+
+
+def test_subprocess_survives_an_undecodable_byte():
+    """One stray byte on stdin used to kill the server outright.
+
+    A text-mode stdin under a utf-8 locale raises UnicodeDecodeError inside
+    readline(); nothing in the loop could catch it, so the process died with a
+    traceback and the responses already buffered for the client were lost. A
+    malformed message is a JSON-RPC error, not a crash.
+    """
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "ephemora_cell_mcp", "--tools-dir", str(PACKAGE_TOOLS)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(REPO_ROOT),
+        env=env,
+    )
+    payload = (
+        b'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}\n'
+        b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n'
+        b"\xff"
+        b"X\n"
+        b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n'
+    )
+    stdout, stderr = proc.communicate(payload, timeout=60)
+    replies = [
+        json.loads(line) for line in stdout.decode().splitlines() if line.strip()
+    ]
+    ids = [reply.get("id") for reply in replies]
+    assert 1 in ids, (ids, stderr.decode()[:400])
+    assert 2 in ids, (
+        "the byte after the malformed message was lost — the server must answer "
+        "-32700 and keep serving"
+    )
+    assert all(
+        "error" not in r or r["error"]["code"] != -32603 for r in replies
+    ), replies
+    if proc.returncode != 0:
+        pytest.fail(f"server died on undecodable input (rc={proc.returncode})")
+
+
+def test_host_traceback_never_reaches_the_client():
+    """Guest failures are reported; the HOST's stack is not.
+
+    A module that fails to instantiate used to put `traceback.format_exc()` into
+    `stderr`, and `stderr` is what the error response embeds — absolute paths,
+    the interpreter layout and the site-packages tree of the machine running the
+    sandbox, handed to whoever called the tool.
+    """
+    from ephemora_cell import ExecutionResult, ExecutionStatus
+    from ephemora_cell.execution_report import ExecutionReport
+    from ephemora_cell_mcp.engine import CellOutcome
+
+    host_frames = (
+        "Traceback (most recent call last):\n"
+        '  File "/Users/operator/.venv/lib/python3.12/site-packages/'
+        'ephemora_cell/wasi_runtime.py", line 900, in run\n'
+        "TypeError: bad import wiring"
+    )
+    outcome = CellOutcome(
+        result=ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            exit_code=1,
+            stdout="",
+            stderr="TypeError: bad import wiring",
+            sandbox_dir=None,
+            host_traceback=host_frames,
+        ),
+        report=ExecutionReport(status="error", exit_code=1, elapsed_ms=1.0),
+        egress=(),
+    )
+    transport = MemoryTransport([])
+    server = Server(tools_dir=str(PACKAGE_TOOLS), transport=transport)
+    message = server._build_call_result(outcome, tool="echo")
+
+    assert message["isError"] is True
+    body = json.dumps(message)
+    assert "Traceback" not in body, body[:300]
+    assert "site-packages" not in body, body[:300]
+    assert "/Users/operator" not in body
+    # The detail still exists for the operator side of the boundary.
+    assert outcome.result.host_traceback.startswith("Traceback")

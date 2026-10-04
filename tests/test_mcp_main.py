@@ -229,6 +229,33 @@ def test_trust_root_inside_the_grants_directory_refuses_startup(tmp_path, capsys
     assert _RecordingServer.instances == []
 
 
+def test_empty_grants_dir_refuses_startup(tmp_path, capsys):
+    """`--egress-grants-dir` means "install these authorities". A directory that
+    yields none — a typo, a moved path, a rename that ate the only grant — must
+    not start a server that then attests its grants were verified."""
+    grants_dir, trust_file, _grant = _grant_setup(tmp_path)
+    # The operator's one grant file leaves the directory (rename, not deletion:
+    # this is exactly how a deploy goes wrong).
+    (grants_dir / "echo.egress.grant.json").rename(tmp_path / "elsewhere.json")
+
+    code = main(
+        [
+            "--tools-dir",
+            str(tmp_path),
+            "--egress-grants-dir",
+            str(grants_dir),
+            "--egress-trust",
+            str(trust_file),
+            "--grant-ledger",
+            str(tmp_path / "gr.jsonl"),
+        ]
+    )
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "no grant files found" in err, err
+    assert _RecordingServer.instances == []
+
+
 def test_grants_dir_without_a_ledger_is_a_clean_error(tmp_path, capsys):
     grants_dir, trust_file, _grant = _grant_setup(tmp_path)
     code = main(
