@@ -257,6 +257,25 @@ process, hard kill). Confirmation artifacts (2026-09-25): a version-floor
 test pins the engine at `>= 43.0.1` so the "contains the fixes" claim
 cannot silently regress; the memory64 opt-in and the unselectable Winch
 backend are asserted alongside (proposal-policy table above).
+
+**Evidence fixtures.** The dated measurements below name guest binaries under
+`benchmarks/`. The WASI 0.2 probe binaries (`benchmarks/component_probes/*.wasm`)
+are build artifacts and are deliberately NOT committed — `.gitignore` excludes
+`*.wasm` and carries no exception for that directory, so a clone does not contain
+them. Each one the evidence cites is therefore identified by the sha256 pinned in
+`benchmarks/component_probes/fixtures.json`, together with its source crate, build
+command and the date it was measured; `benchmarks/component_probes/rebuild.sh`
+rebuilds from source into `.rebuilt/` (never over the pinned bytes unless
+`--install`) and fails on drift, and `tests/test_component_probe_fixtures.py`
+gates the manifest against the sources, the citations and the wording of the
+scripts. Those hashes say WHICH bytes a measurement ran on, not that any toolchain
+reproduces them — a rebuild that differs is a different experiment, so the
+measurement has to be re-run and re-dated rather than the hash quietly replaced.
+CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
+`wasm32-wasip2` + `wasm-tools`). The committed fixtures elsewhere
+(`tests/fixtures/`, `benchmarks/workloads/`, `ephemora_cell_mcp/tools/`,
+`examples/`) are tracked files, and those citations are to bytes in the clone.
+
 - **GHSA-x84v-gj2h-g759** (WASIp3 streams, CVSS 6.9 — added 2026-09-25):
   guest-controlled-size host heap allocation when writing to WASIp3
   streams; affects wasmtime 46.0.0–46.0.2 and 47.0.0–47.0.3, patched in
@@ -372,8 +391,8 @@ range. Triage per advisory:
   `_meta.egress`. Off by default. The `--egress-allow` path enforces the
   endpoint/method allowlist only. A grant's expiry, usage cap and revocation are
   enforced through a `GrantLedger`, reachable from the CLI with
-  `--egress-grants-dir DIR --grant-ledger PATH` (loaded fail-closed by
-  `egress_sidecar.load_egress_grants`; `egress_sidecar.mediate_with_grant`,
+  `--egress-trust ROOT --egress-grants-dir DIR --grant-ledger PATH` (loaded
+  fail-closed and authenticated by `egress_sidecar.load_egress_grants`; `egress_sidecar.mediate_with_grant`,
   `ephemora_cell/grant_ledger.py`, ADR-013): cap inclusive, decided and charged
   in one critical section, and a ledger-less grant fails closed at construction
   rather than silently downgrading. DNS-rebinding is closed at resolve time (Prio
@@ -391,10 +410,23 @@ range. Triage per advisory:
   shows `connect()` only ever receives the vetted address (one resolution per
   hop). Cap and revocation are additionally tested under 20 simultaneous
   mediated calls: exactly `max_calls` fetches leave the process, and no call line
-  can be booked after a revoke line. Still open: verifying a grant's Ed25519
-  signature on a startup path (the CLI loader trusts the file it reads). The no-socket
+  can be booked after a revoke line. Grants are now AUTHENTICATED before anything
+  is enforced: `--egress-grants-dir` requires `--egress-trust`, an
+  operator-maintained trust root that lives OUTSIDE the grants directory
+  (`ephemora_cell/grant_trust.py`, ADR-013). Each file must be a DSSE v1 envelope
+  over the grant's canonical bytes, signed by a key the root names, for the grant
+  audience `https://ephemora.dev/egress-grant.v1`; a missing or unknown signature,
+  a retired key, a key outside its own validity window, an algorithm the root does
+  not name, an edited payload, a `key_id` that diverges from the document, or an
+  already-expired grant refuses startup — the same all-or-nothing rule as a
+  malformed grant set, because a half-loaded authority set would enforce some caps
+  and silently ignore others. An unsigned legacy document is refused too: there is
+  no downgrade path. What this does NOT do is distribute the root: where that file
+  comes from, and which issuer keys a caller trusts for receipts, stay the
+  operator's trust channel (ADR-013 Roadmap). The no-socket
   boundary stays the enforced guarantee. Pinned in `tests/test_surface_audit.py`,
-  `tests/test_grant_ledger.py`, `TestEngineGrantEnforcement`, `TestSSRFGuard`,
+  `tests/test_grant_ledger.py`, `tests/test_grant_trust.py`,
+  `TestEngineGrantEnforcement`, `TestSSRFGuard`,
   `TestSSRFAdversarialFamilies`, `TestResolvePinningTOCTOU` and
   `TestGrantConcurrency`
   (structural: the linker construction site never calls `add_wasi_http`;

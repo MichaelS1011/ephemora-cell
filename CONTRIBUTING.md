@@ -116,7 +116,10 @@ its license is compatible and note it in the PR.
    security audit, latest evidence dates, tests-passing badge)
 3. Tag the release with an ANNOTATED tag (`git tag -a v<version> -m "v<version>"`) — the tag IS a version source (all release tags are annotated)
 4. `python scripts/check_version_sync.py` must exit 0 (CI enforces this
-   in the `security` job — a push with drifted sources fails there)
+   in the `security` job — a push with drifted sources fails there). The guard
+   treats a bump commit whose sources all agree but whose tag does not exist yet
+   as a release in progress (WARNING, exit 0); once the tag is pushed the same
+   run is a hard equality check, and a version LOWER than the newest tag fails.
 5. Build, upload to PyPI, publish the GitHub release
 6. Smoke-test: fresh venv, `pip install ephemora-cell==<version>`,
    `ephemora-cell --version` reports `<version>` (console script — the package has no `__main__`)

@@ -111,9 +111,15 @@ older than the window, or one more than 60 s into the future all fail closed —
 while a valid signature over an old receipt still verifies without the argument,
 because the age requirement belongs to the caller, not to the format.
 
-Honest limits this does NOT remove: **the caller must dedupe `report_id`** — we
-sign a nonce but keep no server-side seen-list (that would be the append-only
-book's job, and this path stays stateless), and **the trust root remains an
-operator decision**. A report without a signer never receives `evidence`, so its
+Honest limits this does NOT remove, stated as the division of labour it is:
+**Cell proves uniqueness; the verifier decides whether it has been seen before.**
+We sign a nonce and keep no server-side seen-list — a seen-list would be an
+append-only book, and this path stays stateless: **the evidence persists, the
+execution state does not.** Deduping `report_id` across presentations is the
+caller's check, and *which* issuer keys to trust stays an operator decision (the
+grant side got a shipped answer to exactly that question in
+[ADR-013](ADR-013-egress-host-mediation-and-grant-form.md): an out-of-artefact
+trust root; receipts still read the operator's public key however the deployment
+distributes it). A report without a signer never receives `evidence`, so its
 bytes and `_meta` are identical to before; `get-policy` discloses the schema
 under `receipt_signing.evidence`.

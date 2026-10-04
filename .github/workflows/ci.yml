@@ -173,7 +173,7 @@ jobs:
         with:
           fetch-depth: 0 # version-sync guard needs the tags
 
-      - name: Version-sync guard (four sources + latest tag must agree)
+      - name: Version-sync guard (sources must agree; newest tag may lag the bump by design)
         run: python scripts/check_version_sync.py
 
       - name: Set up Python 3.12

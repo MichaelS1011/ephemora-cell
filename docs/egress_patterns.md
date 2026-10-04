@@ -11,10 +11,13 @@ default. The `--egress-allow` path enforces the endpoint/method allowlist only;
 a grant's `EgressGrant` expiry/usage/revocation fields are enforced once a
 `GrantLedger` is wired to the engine (`ephemora_cell/grant_ledger.py`,
 `egress_sidecar.mediate_with_grant`) — cap inclusive and charged in one critical
-`egress_sidecar.mediate_with_grant`) — cap inclusive and charged in one critical
 section, revocation effective at the next call. It is reachable from the shipped
-CLI (`--egress-grants-dir DIR --grant-ledger PATH`), which loads grants
-fail-closed but does not verify their signature. DNS-rebinding is closed at
+CLI (`--egress-trust ROOT --egress-grants-dir DIR --grant-ledger PATH`), which
+loads grants fail-closed AND authenticates them: every file must be a DSSE v1
+envelope over the grant's canonical bytes, signed by a key named in a trust root
+that lives OUTSIDE the grants directory (`ephemora_cell/grant_trust.py`). An
+unsigned, tampered, foreign-signed or expired grant refuses startup — a key that
+travels with the artefact proves nothing about it. DNS-rebinding is closed at
 resolve time — a hostname that resolves only to private/link-local space is
 refused, validate-and-connect in one step (IP-literal entries are operator
 intent). That filter only means anything if the address it checked is the
@@ -23,8 +26,7 @@ with `http_proxy` in the environment urllib resolves the PROXY host and never
 the URL host, which would vet an unrelated address and hand the real resolution
 to a third party — the opener is built with `ProxyHandler({})` and goes direct.
 An operator who wants proxied egress has to configure that deliberately; it must
-not arrive through the shell. Still open: verifying a grant's signature on a
-startup path.
+not arrive through the shell.
 
 ## Why this catalog exists
 
@@ -201,8 +203,60 @@ not with the isolation; the response artifact is versioned in machine-readable f
 lack validation/audit/budget — P1 is W1/W2's idea with W3's discipline, implementable
 without the namespace lever (ADR-002).
 
-## P2 — WASI 0.3 outlook
+## P1.1 — Making a grant an authority: the trust root runbook
 
+A grant decides which origin a tool may reach, for how long and how often, so the
+file that carries it must not be writable authority. The rule
+`ephemora_cell/grant_trust.py` encodes: **a key delivered together with the
+artefact proves nothing about the artefact.** The trusted keys therefore live in
+a separate operator-maintained file, passed by path, never inside the grants
+directory.
+
+```json
+{
+  "trust_root_version": "egress-trust-root.v1",
+  "audience": "https://ephemora.dev/egress-grant.v1",
+  "keys": [
+    {"key_id": "ops-1", "alg": "EdDSA", "public_key_pem": "-----BEGIN PUBLIC KEY-----\n…",
+     "status": "active", "not_before": null, "not_after": null, "replaced_by": "ops-2"},
+    {"key_id": "ops-2", "alg": "EdDSA", "public_key_pem": "-----BEGIN PUBLIC KEY-----\n…",
+     "status": "transition"}
+  ]
+}
+```
+
+Issuing a grant (the signing key stays with the issuer, never in the grants dir):
+
+```bash
+python -m ephemora_cell.grant_trust \
+    --grant weather.grant.json --key ops-1.pem --key-id ops-1 \
+    --out grants/weather.egress.grant.json
+ephemora-cell-mcp --tools-dir tools \
+    --egress-trust /etc/ephemora/egress-trust.json \
+    --egress-grants-dir grants --grant-ledger var/egress-ledger.jsonl
+```
+
+`--egress-trust` is required whenever `--egress-grants-dir` is given (exit 2,
+before a server exists), and the whole directory is all-or-nothing: one unsigned,
+tampered, foreign-signed, retired-key or already-expired grant refuses startup
+rather than loading the rest. The root is validated at load — version, audience,
+duplicate `key_id`, unknown status or algorithm, a `replaced_by` that names no key
+or names itself, unparseable PEM, a key outside its own window — and only its
+SUMMARY (key ids, statuses, windows, no key material) reaches `_meta.egress` and
+`get-policy`. Rotation is the sequence the root records: sign with `ops-1`
+(`active`), publish `ops-2` and move `ops-1` to `transition` so old grants still
+load while new ones are issued by `ops-2`, then mark `ops-1` `retired` — at which
+point every grant it signed stops loading. Verification is refused for an
+algorithm the root does not name, and `EdDSA`/Ed25519 comes from the optional
+`tools-signing` extra: without it a deployment gets an actionable error at
+startup, never a silently unverified grant.
+
+What this does NOT do: distribute the root for you (config management is the
+operator's trust channel), revoke a single grant by key (marking a key `retired`
+refuses everything it signed), or schedule rotation. See
+[ADR-013](decisions/ADR-013-egress-host-mediation-and-grant-form.md).
+
+## P2 — WASI 0.3 outlook
 - WASI 0.3 (2026-06-11) brings native async/streams for **Components** — relevant for
   state handling, not for sockets.
 - Sockets/HTTP remain separate proposal tracks and are not stably bound in wasmtime-py.

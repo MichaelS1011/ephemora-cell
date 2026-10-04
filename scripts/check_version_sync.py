@@ -4,10 +4,10 @@
 The 1.0.4.1 release introduced single-source versioning across four
 files after the 1.0.3 wheel drifted (serverInfo said 1.0.1, ``--version``
 said 1.0.3). This guard makes that invariant machine-checked, not
-remembered: every source must carry the SAME version, and that version
-must equal the newest ``v*`` git tag — so ``main`` can never sit on an
-older version string than the release next to it (the exact divergence
-an external review flagged as the repo's worst hygiene risk).
+remembered: every source must carry the SAME version, and that version must be
+the newest ``v*`` git tag or the release about to be tagged — so ``main`` can
+never sit on an older version string than the release next to it (the exact
+divergence an external review flagged as the repo's worst hygiene risk).
 
 Sources checked:
   1. pyproject.toml                 -> [project] version
@@ -16,8 +16,13 @@ Sources checked:
   4. server.json                    -> top-level version AND
                                        packages[].version (MCP Registry)
 
-Exit 0 = all five strings identical and equal to the latest v*-tag.
-Exit 1 = any drift (message names every disagreeing source).
+Exit 0 = every source carries the SAME version, and that version is either the
+newest ``v*`` tag or a HIGHER one (the bump commit exists before its tag — the
+documented release order is bump -> gate -> CI -> tag, so this is the state of a
+release in progress and prints a WARNING).
+Exit 1 = sources disagree with each other, or they are LOWER than the newest
+reachable tag (``main`` sitting behind its own release — the drift this guard was
+built for).
 """
 
 from __future__ import annotations
@@ -106,6 +111,14 @@ def _latest_tag() -> str:
     return tag[1:] if tag.startswith("v") else tag
 
 
+def _as_tuple(version: str) -> tuple[int, ...] | None:
+    """Numeric dotted version for ordering, or None if it is not one."""
+    parts = version.split(".")
+    if not parts or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
 def main() -> int:
     sources: dict[str, str] = {"pyproject.toml": _pyproject_version()}
     sources["ephemora_cell/__init__.py"] = _module_version("ephemora_cell/__init__.py")
@@ -118,20 +131,45 @@ def main() -> int:
         sources[f"server.json (packages[{i}])"] = v
 
     latest_tag = _latest_tag()
-    sources["latest git tag"] = latest_tag
 
-    values = set(sources.values())
-    print(f"Version-sync check ({len(sources)} sources):")
+    print(f"Version-sync check ({len(sources)} sources + latest tag):")
     for name, value in sources.items():
         print(f"  {value:<10} {name}")
+    print(f"  {latest_tag:<10} latest git tag")
+
+    values = set(sources.values())
     if len(values) != 1:
         print(
             "FAIL: version drift — every source must carry the SAME "
             "version (bump all four files together, then re-tag)"
         )
         return 1
-    print(f"OK: all sources in sync at {values.pop()}")
-    return 0
+    version = values.pop()
+
+    if version == latest_tag:
+        print(f"OK: all sources in sync at {version}, equal to the newest tag")
+        return 0
+
+    repo_parts, tag_parts = _as_tuple(version), _as_tuple(latest_tag)
+    if repo_parts is not None and tag_parts is not None and repo_parts > tag_parts:
+        # The documented release order is bump -> gate -> CI -> tag, so the
+        # commit that carries the new version is by definition ahead of the
+        # tag that names it. Intra-repo agreement stays hard; only the
+        # tag-equality check is relaxed here, and it closes itself the moment
+        # the tag exists.
+        print(
+            f"WARNING: release in progress — sources at {version}, newest tag is "
+            f"v{latest_tag}. The sources themselves agree, which is what this "
+            "commit can be checked for; re-run after tagging v{version} and this "
+            "becomes a hard equality check.".format(version=version)
+        )
+        return 0
+
+    print(
+        f"FAIL: sources carry {version} but the newest reachable tag is "
+        f"v{latest_tag} — main sits on an older version than its own release"
+    )
+    return 1
 
 
 if __name__ == "__main__":
