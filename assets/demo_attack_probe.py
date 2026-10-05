@@ -1,7 +1,7 @@
 """Live-measure the 8 attack vectors inside a stock Docker container.
 
-Left column of the "Same Attack. Different Boundary." demo. Nothing is
-hardcoded: each vector runs `docker run --rm python:3.12-slim` and the
+First column of the boundary matrix (stock Docker · hardened Docker · Cell ·
+gVisor). Nothing is hardcoded: each vector runs `docker run --rm python:3.12-slim` and the
 measured exit code decides ALLOWED vs BLOCKED. Reuses the docker run pattern
 from competitive_benchmark.py; the question here is per-vector success, not
 cold-start timing, so the probe bodies differ.

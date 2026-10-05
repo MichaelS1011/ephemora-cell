@@ -1,6 +1,6 @@
 """Live-measure the 8 attack vectors inside a HARDENED Docker container.
 
-Middle column of the "Same Attack. Different Boundary." matrix: identical
+Second column of the boundary matrix: identical
 guest bodies to assets/demo_attack_probe.py (imported, not copied — the
 bodies must never drift), identical measurement rule: the measured exit code
 decides ALLOWED vs BLOCKED. The only variable is the host-side flag set.

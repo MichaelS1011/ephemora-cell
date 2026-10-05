@@ -1,7 +1,7 @@
 """Live-measure the 8 attack vectors inside a gVisor (runsc) container.
 
-Fourth boundary column of the "Same Attack. Different Boundary." matrix:
-identical guest bodies to assets/demo_attack_probe.py (imported, not
+Fourth column of the boundary matrix: identical guest bodies to
+assets/demo_attack_probe.py (imported, not
 copied — the bodies must never drift), identical measurement rule: the
 measured exit code decides ALLOWED vs BLOCKED. The only variable is the
 runtime: stock Docker runs runc, this probe runs gVisor's userspace
