@@ -1069,8 +1069,13 @@ class WASISandbox:
             )
 
         except Exception as e:
-            if os.environ.get("CELL_DEBUG_TRACEBACK"):  # debug branch only
-                traceback.print_exc()
+            if os.environ.get("CELL_DEBUG_TB_FILE"):  # debug branch only
+                with open(os.environ["CELL_DEBUG_TB_FILE"], "a") as _tbh:
+                    _tbh.write(
+                        f"TEST: {os.environ.get('PYTEST_CURRENT_TEST', '?')}\n"
+                        + traceback.format_exc()
+                        + "\n"
+                    )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             exit_code = 1
             exit_match = re.search(r"exit status (\d+)", str(e))

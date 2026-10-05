@@ -444,10 +444,15 @@ class ComponentSandbox:
                 effective_preopens=effective_preopens,
             )
         except Exception as exc:
-            if os.environ.get("CELL_DEBUG_TRACEBACK"):  # debug branch only
+            if os.environ.get("CELL_DEBUG_TB_FILE"):  # debug branch only
                 import traceback
 
-                traceback.print_exc()
+                with open(os.environ["CELL_DEBUG_TB_FILE"], "a") as _tbh:
+                    _tbh.write(
+                        f"TEST: {os.environ.get('PYTEST_CURRENT_TEST', '?')}\n"
+                        + traceback.format_exc()
+                        + "\n"
+                    )
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 exit_code=1,
