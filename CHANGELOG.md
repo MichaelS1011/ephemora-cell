@@ -613,7 +613,7 @@ how the engine consumed the day's grant objects.
 
 ### Tests
 
-- 32 gates for the three post-review decisions plus the round that audited them:
+- 31 gates for the three post-review decisions plus the round that audited them:
   `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — pre-initialize
   `tools/list`/`tools/call` refused with `-32600` and, proved separately, without
   reaching the engine; unknown method is a lifecycle error before the handshake and
@@ -621,7 +621,7 @@ how the engine consumed the day's grant objects.
   a request naming a HANDSHAKE-era version in `_meta` does NOT buy the exemption; an
   unsupported version still answered `-32022`; second `initialize` refused;
   pre-handshake notifications still silent; normal service after the handshake),
-  `TestEngineGrantEnforcement` in `tests/test_egress_sidecar.py` (7 additions —
+  `TestEngineGrantEnforcement` in `tests/test_egress_sidecar.py` (8 additions —
   a redirect hop outside the ceiling is denied with `limit: "server-policy"` and the
   excluded path is never served, with a positive control that a hop INSIDE the
   ceiling still fetches; the server-wide byte cap beats a grant's default envelope;
@@ -635,7 +635,9 @@ how the engine consumed the day's grant objects.
   must be recognised as a checkout or the repository-inspection modules go silent in
   CI, a fixture-carrying sdist must NOT be, an export without `.git` must be,
   `MANIFEST.in` may not start shipping either marker, and every skip-list name must
-  exist).
+  exist). The seventh finding's own gate — `test_a_grant_authorizes_the_tool_its_payload_names`
+  (counted in the eight above) — is a separate Security bullet below, and the
+  `io_cpu_seconds` reporting gate is one more in Changed.
 - `tests/test_execution_invariants.py` (4) — the product promise as four named
   gates: `test_ephemeral_invariant`, `test_stateless_invariant`,
   `test_capability_invariant`, `test_verifiable_execution_invariant`. Written

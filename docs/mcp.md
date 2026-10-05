@@ -124,6 +124,13 @@ The last one returns:
   a dual-era client to send it *before* deciding whether to initialize, so
   gating the probe would hide the server's era. Neither gate is a security
   control: no capability a client can claim adds or removes authority here.
+- **Where `_meta` is read** — the server takes request metadata from
+  `params._meta`, the location the specification's own `tools/call` example uses
+  (`_meta` belongs to the params object). A `_meta` placed at the request ROOT is
+  not consulted: such a request is classified by what it does not say (no version →
+  handshake-era traffic), so it would have to initialize first rather than be served
+  statelessly. That is a compatibility boundary, not an authority one — nothing a
+  client can declare moves what it may run.
 - **No MRTR** — the stateless revision's Multi Round-Trip Requests pattern
   applies to server-initiated requests (sampling, elicitation, roots).
   This server issues none of those (they are deprecated in `2026-07-28`),
