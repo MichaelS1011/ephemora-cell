@@ -46,11 +46,83 @@ same eight intents twice (`benchmarks/gvisor_docker_probe.py`), landing
 implements `execve`/`fork`/`socket` in its userspace kernel), not that anything reached the
 host — gVisor's wall is host-facing, and this comparison says nothing about ranking it.
 
-Layer model used in the README table: **Layer 1** = WASI surface (no exec/fork/socket
-entry points in Preview 1), **Layer 2** = sandbox policy always on (preopen deny,
-dangerous-dir filter, import traps, `wasm_threads=False`, `allow_env`), **Layer 3** =
-OS process wall via `run_isolated()`/`--isolated` — the mitigation layer for engine
-0-days (see [SECURITY.md](../SECURITY.md), engine advisories).
+Layer model used in the results table below: **Layer 1** = WASI surface (no
+exec/fork/socket entry points in Preview 1), **Layer 2** = sandbox policy that
+is always on (preopen default-deny, dangerous-dir filter, sync-call traps,
+`wasm_threads=False`, `allow_env` — with `max_wasm_bytes` and `allow_fsync`
+the two operator-widenable values, both attested in the signed baseline so an
+opened run never reads like a closed one), **Layer 3** = OS process wall via
+`run_isolated()`/`--isolated` (rlimits + hard kill) — the mitigation layer for
+engine 0-days (see [SECURITY.md](../SECURITY.md), engine advisories).
+
+## The eight intents × three boundaries — measured results
+
+The README carries the summary and the link; this is the results table
+itself, with its definition, its provenance and its reproduce commands.
+
+> **What `ALLOWED` means in this table:** the tested guest primitive remains
+> available *inside* that sandbox. It does not mean host escape, and the table
+> is not a ranking of the boundaries. `BLOCKED` means the intent could not be
+> carried out at all from inside the guest.
+
+| Attack class | Docker | Docker (hardened¹) | Ephemora-cell | Layer |
+|---|---|---|---|---|
+| Shell (`os.system`) / fork | ALLOWED | ALLOWED | **BLOCKED** — APIs don't exist in WASI | 1 |
+| Network sockets | ALLOWED | ALLOWED — creation needs no capability | **BLOCKED** — APIs don't exist in WASI | 1 |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — `fd_sync`/`fd_datasync`/`fd_psync` refused at the call (`allow_fsync` opts out) | 2 |
+| Host filesystem (`/etc/passwd`) | ALLOWED | ALLOWED — the container's own file | **BLOCKED** — preopen default-deny | 2 |
+| Symlink escape | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — dangerous directory filter | 2 |
+| Multi-threading | ALLOWED | ALLOWED | **BLOCKED** — `wasm_threads=False` | 2 |
+| Environment access | ALLOWED | ALLOWED | **BLOCKED** — controlled via `allow_env` | 2 |
+
+**Result: 8/8 blocked on Cell** — live-verified, default configuration, WASI
+Preview1 path ([`benchmarks/verify_8_vectors.py`](../benchmarks/verify_8_vectors.py));
+both Docker baselines are measured live per run, never hardcoded. The guest
+receives only the capabilities explicitly made available to it, and the
+measurement rule is the same on every side of the table: the exit code decides
+(see [How the 8/8 is measured](#how-the-88-is-measured--probe-equivalence-detail)).
+
+A fourth boundary was measured the same way: **gVisor** (`runsc`, pinned
+release, run twice in CI for determinism) lands **8/8 ALLOWED** in the sense
+defined above — the guest keeps the Linux ABI inside gVisor's userspace
+kernel, so the primitives stay available to guest code while the host stays
+walled off. Expectation matrix pre-declared in
+[`benchmarks/gvisor_docker_probe.py`](../benchmarks/gvisor_docker_probe.py);
+raw evidence `benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json`,
+committed from the `gvisor-boundary` CI job.
+
+¹ Hardened = exactly these flags — tell us which to add: `--network none
+--read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64
+--user 65534:65534`, image pinned by digest. Docker's default seccomp profile
+is active in **both** Docker columns (recorded in the `seccomp` field of both
+probe JSONs). Both hardened blocks are `--read-only` file-system effects — the
+flags wall the container *off*, not the guest *in*: socket creation, the
+container's own `/etc/passwd`, fork, threading and environment stay available
+to the guest.
+
+**Two platforms, identical results.** macOS arm64 (2026-09-18,
+`benchmarks/results/2026-09-18/`) and DGX Spark GB10 (2026-09-20,
+`benchmarks/results/2026-09-20/02_docker_attack_probe-dgx-aarch64.json` ·
+`01_hardened_docker_attack_probe-dgx-aarch64.json` ·
+`10_cell_8vector_verify-dgx-aarch64.json`): stock 0/8 blocked, hardened 2/8
+blocked with the same two intents blocked (`fsync`, symlink creation), Cell
+8/8.
+
+**The WASI 0.2 component path is a separate boundary and does not carry the
+sync blockade today** — measured, not inferred:
+`python benchmarks/component_sync_probe.py` runs a real wasip2 guest whose
+`wasi:filesystem/types` sync calls both complete into the host once a
+directory is granted, while the default component run gets no preopen at all,
+so the surface needs an operator grant first. Detail and code reference:
+[SECURITY.md](../SECURITY.md), "Sync refusal (P1 #12)".
+
+Reproduce:
+
+```bash
+python assets/demo_attack_probe.py          # stock Docker    ->  0/8 blocked
+python benchmarks/hardened_docker_probe.py  # hardened Docker ->  2/8 blocked
+python benchmarks/verify_8_vectors.py       # Ephemora-cell   ->  8/8 blocked
+```
 
 ## arXiv 2509.11242 — Tested Attack Surface
 
@@ -60,7 +132,7 @@ We evaluated 11 exploitation strategies from [arXiv 2509.11242](https://arxiv.or
 |-----------|--------|--------|
 | CPU-DoS (infinite loop) | ⚠️ Within Budget | Fuel metering caps computation; set `max_fuel` conservatively |
 | Disk-DoS (large writes) | ⚠️ Bounded | I/O costs minimal fuel (~1.18MB at default 1M fuel) — always capped by the 10 KB output budget (ENOSPC) |
-| fsync / fdatasync | ✅ Blocked | Import-layer rejection at WASI layer |
+| fsync / fdatasync | ✅ Blocked | Refused at the **call** — `fd_sync`/`fd_datasync`/`fd_psync` trap unless `allow_fsync` opts out; importing them stays legal by design |
 | Inode exhaustion | ✅ Blocked | Preopen-deny + sandbox dir isolation |
 | `/dev/random` read | ✅ Blocked | Preopen-deny blocks `/dev` |
 | `/dev/ptmx` exhaustion | ✅ Blocked | Preopen-deny blocks `/dev` |
@@ -164,8 +236,8 @@ flowchart TB
 ## How the 8/8 is measured — probe equivalence detail
 
 Measurement environment and the probe-by-probe equivalence between the
-Docker probe body and the Cell WASM guest (moved from the README; the
-README keeps the measured result table):
+Docker probe body and the Cell WASM guest. The results the method produces are
+in [The eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results):
 
 - **Environment:** MacBook Pro M5, macOS arm64, wasmtime 47.0.1,
   Docker 28.5.1
@@ -189,7 +261,7 @@ README keeps the measured result table):
 | 1 | shell | `os.system('id …') == 0` | no exec/system entry point in the WASI import surface (live scan) |
 | 2 | fork | `os.fork()` | no fork/vfork in the import surface (live scan) |
 | 3 | socket | `socket.socket(…)` | no socket/sock_\* in the import surface (live scan) |
-| 4 | fsync | open + write + `os.fsync` | module imports `fd_psync` → trapped by the sandbox |
+| 4 | fsync | open + write + `os.fsync` | module calls `fd_sync`/`fd_datasync`/`fd_psync` through a real fd → each traps (importing them is legal by design) |
 | 5 | host FS | `open('/etc/passwd').read()` | `path_open('/etc/passwd')` with no preopen |
 | 6 | symlink escape | `os.symlink` + `realpath` outside | `path_open` through a symlink out of a preopened dir (control: real file opens errno 0) |
 | 7 | threading | `threading.Thread(…).start()` | shared-memory module rejected (`wasm_threads=False`) |
@@ -210,7 +282,7 @@ row is measured, the raw evidence is committed, and each run is reproducible:
 |---|---|---|---|---|
 | 1 | [MCP CVE replays](../benchmarks/mcp_cve_replay.py) | Real exploit paths of two patched CVEs are denied at the engine level; governed loading fails closed on a tampered payload — also verified on WASI 0.2 components, with a **measured call-time socket denial** | Pinned vulnerable reference server vs Cell, random marker tokens, positive controls on both sides | `python benchmarks/mcp_cve_replay.py` |
 | 2 | [SandboxEscapeBench-18 mapping](../benchmarks/sandbox_escape_18.py) | 18 container/K8s escape scenarios mapped to WASM: **8 execution-tested and denied, 10 not expressible** on the WASI surface | Structural mapping + live attempts, granted-preopen positive control | `python benchmarks/sandbox_escape_18.py` |
-| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (matrix in [README](../README.md#security)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
+| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (results table above: [The eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
 | 4 | [Official WASI conformance](../conformance/README.md) | 72 pass / 1 documented xfail / 0 fail against the pinned upstream suite — re-run weekly in CI (weekly ubuntu runs land 71–72 on varying fs tests; a documented runner quirk, not a Cell defect) | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
 | 5 | [2026 probe classes](../benchmarks/probe_classes_2026.py) | The CVE-2026-47261 companion FS vectors (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
 | 6 | [Cross-architecture determinism](comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |

@@ -7,6 +7,15 @@ sandbox: every test either passes, is a documented by-design deviation
 (`expectations.toml`), or is excluded by the runner because Cell does not
 declare that WASI version (preview 3).
 
+**Honest scope.** This is standards conformance, not a security
+certification: it measures whether Cell speaks WASI the way the spec says,
+and no third party certifies Cell. What makes it evidence rather than a claim
+is the pinned upstream commit, the committed per-date result JSON, and the
+weekly CI re-run that surfaces drift within a week. The security posture of
+the same sandbox is argued separately — see
+[docs/security_posture.md](../docs/security_posture.md) and
+[SECURITY.md](../SECURITY.md).
+
 ## Core spec suite (W3C Wasm 3.0 era)
 
 `conformance/run_core_spec.py` runs the **official WebAssembly core spec
