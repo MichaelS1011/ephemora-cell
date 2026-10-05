@@ -263,9 +263,9 @@ Scale check: the one-liner path sustains **~3M executions/hour** per core (n=500
 
 **Where to next:** agent/tool isolation → [MCP Integration](#mcp-integration) (3-line setup) · CI gating for untrusted PRs → [AI Agent Integration](#ai-agent-integration) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
 
-![Ephemora-cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
+![Terminal demo: install of 1.1.0 from PyPI, a sandboxed run, its JSON report naming the boundary it ran under, a fuel bomb stopped at its 100-unit budget, the live 8-vector check with its positive controls, and a signed record whose verification flips to False after one edited field](assets/demo.gif)
 
-*Real CLI session: install, first run, `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, an attack module blocked at the WASI import layer. Every frame reproducible from a clone.*
+*Real CLI session — every line is verbatim output of the command printed above it. Install is the 1.1.0 wheel from PyPI; the `examples/` and `benchmarks/` paths are a clone of the repo, and the last scene needs the optional `tools-signing` extra installed just before it. The arc is what one execution is today: fresh run → the boundary it got (fuel, memory limit, preopens, `allow_fsync: false`) → a runaway module stopped at exactly 100 of 100 units → capability and access denials measured against the live runtime, positive controls included → signed evidence that detects a single rewritten field. Wall-clock and throughput are deliberately not in the frames: they are platform-dependent, and a demo that shows them ages into a false claim.*
 
 ### The devtools loop for agent tools
 
