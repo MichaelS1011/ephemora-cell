@@ -616,8 +616,8 @@ how the engine consumed the day's grant objects.
   re-measurement at this commit is **753 passed, 136 skipped, 0 errors**, with the
   native linux/amd64 control run at 763/127/0 — and measured again two commits
   later, where a quiet host takes the clean room to **770 passed / 138 skipped / 0
-  failures** while a loaded host produces isolated-run failures from the same
-  watchdog. The leg is therefore reported with its conditions, not as a constant. The one remaining container failure is
+  failures** (`7f9e860`) and a loaded host to 772 / 138 with one isolated-run failure
+  (`3e3d32c`) from the same watchdog. The leg is therefore reported with its conditions, not as a constant. The one remaining container failure is
   `test_100_parallel_runs_no_fd_exhaustion`, which passes natively and fails only
   under amd64-on-arm64 QEMU emulation: the `io_cpu_seconds` watchdog charges the
   emulated worker's interpreter+wasmtime startup (~0.25 s) to the guest, so 5 of 100

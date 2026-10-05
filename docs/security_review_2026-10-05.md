@@ -133,9 +133,11 @@ always present in a clone or a source export), `tests/test_checkout_skip_policy.
 errors** in the container with a native control run at 763/127/0 — itself a
 figure that needed re-measuring, see below.
 
-**The container leg, measured twice more since:** at `7f9e860` on a quiet host the
+**The container leg, measured three more times since:** at `7f9e860` on a quiet host the
 clean room is **fully green — 770 passed / 138 skipped / 0 failures, 0 errors**
-(exit 0). Under concurrent host load the same tree reported two failures
+(exit 0); at `3e3d32c` (this branch's final measured state) the same leg reports
+**772 passed / 138 skipped / 0 errors** with **one** failure on a host running other
+work in parallel. Under heavier load the same tree reported two failures
 (`test_100_parallel_runs_no_fd_exhaustion` and `test_run_isolated_component`), and
 both passed when run standalone in the same container and natively (5.88 s). So the
 earlier sentence "exactly one failure, QEMU-only" was too narrow: what is actually
