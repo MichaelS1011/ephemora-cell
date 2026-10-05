@@ -25,14 +25,18 @@ count.
 .venv/bin/python conformance/run_core_spec.py   # requires wast2json (wabt)
 ```
 
-Latest run (2026-09-18, pinned `b464a4cd100d`, 257 files / ~36k commands,
+Latest run (2026-09-19, pinned `b464a4cd100d`, 257 files / ~36k commands,
 macOS arm64, wasmtime 47.0.1): **31,931 pass** — 3,282 classified
 deviations/limitations, 684 text-format skips, 46 documented binding-level
-NaN-bit remainder; zero unexpected sandbox-policy failures.
+NaN-bit remainder; zero unexpected sandbox-policy failures. Evidence:
+`conformance/results/core_spec_2026-09-19.json` (`date: 2026-09-19`).
 
 ## WASI suite
 
-## Run
+The rest of this file is the preview-1 wasi-testsuite run: the orchestrator, the
+runtime adapter, the by-design deviation list and the runner-instability note.
+
+### Run
 
 ```bash
 .venv/bin/python conformance/run_wasi_testsuite.py
@@ -50,7 +54,7 @@ Latest run (2026-09-14, pinned `609c44613995`, macOS arm64, wasmtime 47.0.1,
 ephemora-cell 1.0.1): **72 pass, 1 xfail (documented), 0 fail**; 55 preview-3
 tests skipped (Cell declares preview 1 only).
 
-## Adapter
+### Adapter
 
 `adapters/ephemora_cell.py` maps every test onto the real CLI execution
 path — conformance exercises the shipped command, not a private shortcut:

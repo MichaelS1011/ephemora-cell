@@ -79,10 +79,10 @@ AI Agent / Application
 
 <p align="center">
   <a href="https://registry.modelcontextprotocol.io/v0/servers?search=ephemora-cell-mcp">
-    <img src="https://img.shields.io/badge/MCP-Registry-blue" alt="Listed in the official MCP Registry">
+    <img src="https://img.shields.io/badge/MCP-Registry-blue" alt="Listed in the official MCP Registry (newest published entry: 1.0.4.3)">
   </a>
   <a href="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell">
-    <img src="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg" alt="Glama grade: tool definitions A, maintenance A, 3 tools">
+    <img src="https://glama.ai/mcp/servers/MichaelS1011/ephemora-cell/badges/score.svg" alt="Glama classification — read it from the live badge">
   </a>
 </p>
 
@@ -112,9 +112,10 @@ What the 1.1 boundary actually enforces, each of it behind a named test (see
 [SECURITY.md](SECURITY.md) for the claims and their limits):
 
 * **Capability, not convention.** A run sees only what it was granted: preopens are
-  revalidated at grant time, the guest never gets sockets, and the host does not
-  follow a file name the guest could have created (`O_NOFOLLOW` + regular-file check
-  + atomic publication on every shared path).
+  revalidated at grant time, no guest network connection succeeds by default (Preview1
+  exposes no socket API; on the WASI 0.2 path `connect` is denied at call time), and the
+  host does not follow guest-writable names — host-side artifact reads use `O_NOFOLLOW`
+  plus descriptor-level regular-file validation, and shared-path publication is atomic.
 * **Authenticated grants with real limits.** Egress is host-mediated after the run.
   Each tool's grant must be a DSSE envelope signed by a key in an operator trust root
   kept outside the grants directory, and its window, call cap and revocation are
@@ -156,7 +157,7 @@ Wasmtime:            Ephemora-cell:
 
 Ephemora-cell is not trying to replace general-purpose containers or full development VMs. It targets a narrower execution path: high-frequency, untrusted agent and MCP workloads that benefit from a small capability surface, explicit resource accounting, and sub-millisecond warm sandbox execution. For agent infrastructure, this means Cell can act as a lightweight execution backend beneath an existing harness rather than requiring a new agent framework. The intended trade-off is explicit: less generality than a full Linux sandbox, in exchange for a smaller execution surface, tighter capability control, and lower per-call overhead.
 
-**The problem this answers:** AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe: *how do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?* Raw runtimes leave that boundary to you. Cell **is** that boundary.
+**The problem this answers:** AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe: *how do you let an agent execute untrusted code without giving that code ambient access by default to your host, your credentials, your network or unlimited compute?* Raw runtimes leave that boundary to you. Cell **is** that boundary — an operator can still grant a capability explicitly, and every grant shows up in the run's own record.
 
 Agent-generated code is different from application code: it can be buggy, computationally unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries, not document them. Every Cell run does:
 
@@ -193,7 +194,9 @@ HOST
 GUEST / UNTRUSTED CODE
 ```
 
-By default: **no network · no arbitrary filesystem access · no process spawning · no unrestricted environment access** — and **bounded CPU/fuel, memory, execution time and output**.
+By default the guest gets **no ambient access**: no network, no arbitrary filesystem, no
+process spawning, no unrestricted environment — and **bounded CPU/fuel, memory, execution
+time and output**. Granting any of those is an explicit, recorded host decision.
 
 **Security is never opt-in.** Every execution — in-process or isolated — runs under enforced limits (CPU fuel, memory, wall-clock time, output caps — always on; the guest cannot reach them off and the caller sets their size, not their existence). Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load) and `allow_fsync` (whether WASI sync calls are permitted) — both attested in the signed baseline, both off-by-default-widened-in-no-profile. The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. The in-process path stays for modules you build and trust. The enforced defaults:
 
@@ -257,6 +260,15 @@ ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --isolated --json
 
 Same from Python — every result carries status, cost and captured output (see [API & CLI](#api--cli)):
 
+```python
+from ephemora_cell import run_wasm
+
+result = run_wasm("examples/fuel_bomb.wasm", max_fuel=100)
+result.status           # <ExecutionStatus.FUEL_EXHAUSTED: 'fuel_exhausted'>
+result.fuel_consumed    # 100 — the budget, not an estimate
+result.stdout           # '' — captured output, capped at 10 KB
+```
+
 **Time to value:** no policy file, no access rules, no container to provision — one `pip install` and you are running untrusted WASM under a hard fuel + memory boundary at **~0.5 ms warm** (the same call took a stock `docker run` ~186 ms to start; measured macOS M5 n=100, `benchmarks/results/2026-09-14/competitive_benchmark.json`, DGX numbers in `benchmarks/results/2026-09-20/`).
 
 Scale check: the one-liner path sustains **~3M executions/hour** per core (n=500, `hello.wasm`, Mac M5 — regenerate with the snippet in [docs/recipes.md](docs/recipes.md)); the pooled hot-loop path reaches **~5.5M/hour**.
@@ -278,11 +290,11 @@ The same commands are a development loop — edit, run, read the receipt — wit
 | `ephemora-cell inspect tool.wasm` | Imports, exports, memory — what a module wants, before you run it |
 | `ephemora-cell benchmark tool.wasm` | Cold/warm latency and fuel spread while you iterate |
 
-Failures come back **graded, not crashing**: an infinite loop returns `status: "fuel_exhausted"` with its receipt, a memory hog `memory_exceeded`, a crash a non-zero exit code — the same statuses the [auto-grader](examples/auto_grader.py) and the CI test-bench job consume. A misbehaving tool never takes your terminal with it.
+Failures come back **graded, not crashing**: an infinite loop returns `status: "fuel_exhausted"` with its receipt, a memory hog `memory_exceeded`, a crash a non-zero exit code — the same statuses the [auto-grader](examples/auto_grader.py) and the CI test-bench job consume. For untrusted guests, use the isolated path: execution failures stay contained to a disposable worker with OS-level limits and a hard termination.
 
 ## MCP Integration
 
-Listed in the official MCP Registry (`io.github.MichaelS1011/ephemora-cell-mcp`, stdio via PyPI) and graded on Glama (tool definitions A, maintenance A, 3 tools — Glama's live classifier; see the hero badges above). The call flow is the hero diagram above: the agent's tool call enters the stdio server, the tool runs inside the Cell, and the result comes back with its execution record.
+Listed in the official MCP Registry as `io.github.MichaelS1011/ephemora-cell-mcp` (stdio via PyPI). The registry's newest published entry is **1.0.4.3**: the 1.1.0 metadata is prepared in [`server.json`](server.json) and validated, and publishing it still waits on publisher authorization (the registry login is an interactive device flow). Glama indexes the same server — its grade is a live classification, so read it from the badge above rather than from a sentence here. The call flow is the hero diagram above: the agent's tool call enters the stdio server, the tool runs inside the Cell, and the result comes back with its execution record.
 
 ```bash
 pip install ephemora-cell
@@ -294,7 +306,7 @@ code --add-mcp '{"name":"Ephemora Cell","command":"ephemora-cell-mcp"}'
 
 Ask your agent for the current time: the answer comes from the bundled `clock` tool — a WASM module reading only the WASI real-time clock — and the call report shows exactly what that answer cost.
 
-**Runs entirely on your machine — with any MCP client and any model, including local ones.** The MCP server is a plain stdio process installed from PyPI: no API key, no cloud account, and tools execute offline inside the WASM sandbox (no network unless you explicitly allow it host-side). Point Claude Desktop, VS Code/Copilot, Codex, LM Studio or your local-model stack of choice at it — the sandbox side never leaves your hardware. How much the agent gets out of the tools then depends on your client and model's tool-calling ability; the sandbox itself adds no requirements beyond a local machine.
+**Runs entirely on your machine — with any MCP client and any model, including local ones.** The MCP server is a plain stdio process installed from PyPI: Ephemora-cell itself requires no API key and no cloud account, and tools execute offline inside the WASM sandbox (no network unless you explicitly allow it host-side). Requirements of the selected MCP client or model provider are independent of Cell. Point Claude Desktop, VS Code/Copilot, Codex, LM Studio or your local-model stack of choice at it — the sandbox side never leaves your hardware. How much the agent gets out of the tools then depends on your client and model's tool-calling ability; the sandbox itself adds no requirements beyond a local machine.
 
 **What you get:**
 
@@ -450,7 +462,7 @@ Rows marked ❌ in-process are *documented-trusted*: the knob is honored as a de
 
 **What we do not compare — and why.** Prompt-injection suites (garak, InjecAgent) test the model and agent layer, not the execution boundary — out of scope for an execution sandbox. Cloud sandbox providers are cited from third-party sources with their source status; third-party numbers never appear in the same table as our measured cells. Startup and throughput benchmarks live in [docs/performance.md](docs/performance.md) with their scope caveats.
 
-The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)) — measured against three boundaries, same intents, same measurement rule (exit code decides, nothing hardcoded):
+The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)) — measured against three boundaries, same intents, same measurement rule (exit code decides, nothing hardcoded). **What `ALLOWED` means here:** the tested guest primitive remains available *inside* that sandbox — it does not mean host escape, and it is not a ranking of the boundaries.
 
 | Attack class | Docker | Docker (hardened¹) | Ephemora-cell | Layer |
 |---|---|---|---|---|
@@ -470,7 +482,7 @@ The boundary is three layers, and the table measures them separately:
 
 **Result: 8/8 attack vectors blocked (live-verified, default configuration, WASI Preview1 path); both Docker baselines are measured live per run — never hardcoded.** The WASI 0.2 component path is a separate boundary and does not carry the sync blockade today — measured, not asserted: `python benchmarks/component_sync_probe.py` shows both `wasi:filesystem/types` sync calls completing into the host when a directory is granted, while the default component run gets no preopen, so the surface needs an operator grant first ([SECURITY.md](SECURITY.md)).
 
-For context, the same eight intents were measured against **gVisor** (`runsc`, pinned release, executed in CI twice for determinism): 8/8 ALLOWED. gVisor walls the host off from the container, but the guest keeps the Linux ABI — so the same primitives stay available to guest code. Expectation matrix pre-declared in [`benchmarks/gvisor_docker_probe.py`](benchmarks/gvisor_docker_probe.py); raw evidence: `benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json` (committed from the `gvisor-boundary` CI job).
+For context, the same eight intents were measured against **gVisor** (`runsc`, pinned release, executed in CI twice for determinism): 8/8 ALLOWED — in the sense defined above, *the guest primitive is still available to guest code*, not that anything reached the host. gVisor walls the host off from the container, but the guest keeps the Linux ABI, so the same primitives stay available inside it. Expectation matrix pre-declared in [`benchmarks/gvisor_docker_probe.py`](benchmarks/gvisor_docker_probe.py); raw evidence: `benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json` (committed from the `gvisor-boundary` CI job).
 
 ¹ Hardened = exactly these flags — tell us which to add: `--network none --read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534` (image pinned by digest; Docker's default seccomp profile is active in **both** columns). Both hardened blocks are `--read-only` file-system effects — the flags wall the container *off*, not the guest *in*: socket creation, the container's own `/etc/passwd`, fork, threading and environment stay available to the guest.
 
@@ -591,7 +603,7 @@ ephemora-cell ledger    Verify a run chain: linkage and order, and what it canno
 
 **Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It holds no state you are meant to come back to: name-value state is a bounded, per-session convenience (`max_state_entries` · bytes per value · per-session budget), not storage, and authority never survives a run.
 
-Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Do not use Cell for long-running I/O-heavy services — that is what the `--isolated` subprocess wall or a microVM is for (see [docs/performance.md](docs/performance.md) for the measured third-party comparison).
+Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Cell is optimized for bounded executions, not long-running service workloads — for full Linux service semantics, use an appropriate container or microVM boundary (see [docs/performance.md](docs/performance.md) for the measured third-party comparison).
 
 What each enforced control does **not** claim — every row is an honest boundary, tested at the boundary:
 
@@ -600,7 +612,7 @@ What each enforced control does **not** claim — every row is an honest boundar
 | Memory cap (128 MB) | guest cannot exceed the configured heap | correct guest behavior — a bug inside the budget is the guest's bug |
 | Fuel budget | no unbounded CPU burn; execution stops at the limit | malware detection — code with hostile intent that stays within budget runs fine; nothing inspects what the module *means* |
 | Wall-clock timeout | no runaway execution; epoch interruption fires | that the app logic is correct or fast |
-| Network denial (no socket APIs) | no sockets, no outbound connections by the guest | safe behavior *within* granted capabilities — exfiltration via allowed channels (e.g. writing secrets to a granted preopen) remains the integrator's concern ([SECURITY.md](SECURITY.md)) |
+| Network denial (no socket API by default) | no guest connection succeeds by default — Preview1 exposes no socket API, the WASI 0.2 path denies `connect` at call time | safe behavior *within* granted capabilities — exfiltration via allowed channels (e.g. writing secrets to a granted preopen) remains the integrator's concern ([SECURITY.md](SECURITY.md)) |
 | Filesystem capability control (preopen only, default deny) | file access limited to explicitly mounted dirs | full VM semantics — mounted-path content is exactly what the integrator chose to expose |
 | Output caps (10 KB) | captured output is bounded; unbounded prints cannot fill the host disk | that truncated output is complete — inspect `result.stdout` and the record |
 

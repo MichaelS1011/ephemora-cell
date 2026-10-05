@@ -270,22 +270,33 @@ except the same two SSRF cases — the standalone build does not reproduce it ei
    today (verified against both binaries), but the gate is not reproducible by
    construction. Pinning it changes CI, so it is the operator's call rather than a
    silent edit during a freeze.
-10. **The passing count is host-dependent, the collection is not.**
-    contended host can therefore refuse a legitimate run.** The
-    watchdog compares absolute `getrusage(RUSAGE_SELF)`; the report's
-    `io_cpu_used_seconds` is a delta from process start. The message now quotes the
-    compared value, so the two no longer contradict each other, but the underlying
-    choice — should a guest be charged for the interpreter and engine it made the
-    host load? — is an enforcement-semantics decision, not a message fix, and the
-    release does not make it. Measured consequence: 100 parallel isolated runs pass
-    natively (0.01 s guest CPU, 12 ms) and fail 4-6 of 100 under amd64-under-QEMU
-    emulation, where startup alone costs 0.4-1.8 s.
-9. **`io_cpu_seconds` counts the whole worker process, startup included — and a Of the 4
+9. **`io_cpu_seconds` counts the whole worker process, startup included — and a
+   contended host can therefore refuse a legitimate run.** The
+   watchdog compares absolute `getrusage(RUSAGE_SELF)`; the report's
+   `io_cpu_used_seconds` is a delta from process start. The message now quotes the
+   compared value, so the two no longer contradict each other, but the underlying
+   choice — should a guest be charged for the interpreter and engine it made the
+   host load? — is an enforcement-semantics decision, not a message fix, and the
+   release does not make it. Measured consequence: 100 parallel isolated runs pass
+   natively (0.01 s guest CPU, 12 ms) and fail 4-6 of 100 under amd64-under-QEMU
+   emulation, where startup alone costs 0.4-1.8 s.
+10. **The passing count is host-dependent, the collection is not.** Of the 4
    toolchain skips in `tests/test_builder.py`, three run because a toolchain is
    missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
    host the same commit reports 953 passed / 3 skipped. `check_test_count.py`
    hard-checks collection (956) and the documented pair, so a host with a different
    toolchain mix shows up as a strict-mode badge mismatch rather than a silent lie.
+
+   **Correction to this item, measured 2026-10-05 — the record above stands as it
+   was written, this is what the follow-up found:** the zig-free half is wrong. The
+   skip pair swaps and the totals do not move. Re-measured on this host with `zig`
+   masked out of `PATH` and the rest of the toolchain intact, `tests/test_builder.py`
+   reports **20 passed / 4 skipped with zig present** (the `.zig` *guidance* test
+   skips, `tests/test_builder.py:337`) and **20 passed / 4 skipped without zig** (the
+   `.zig` build-and-run test skips, `tests/test_builder.py:232`) — a different test
+   carries the fourth skip, which is what `README.md` states. What this item got
+   right and still holds: the guard pins the *collection*, so a host with a different
+   toolchain mix surfaces as a strict-mode mismatch rather than a silent lie.
 
 ## What a signature means here (stated once, in three answers)
 

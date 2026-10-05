@@ -10,9 +10,9 @@ Detail page for [README.md](../README.md#security). Policy and reporting: [SECUR
 | Memory-DoS | ✅ | `Store.set_limits` enforced (default 128MB; `Config.memory_max_bytes` is a no-op in wasmtime-py 47) |
 | Preopen-DoS | ✅ | 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, etc.) |
 | Thread-DoS | ✅ | Single-thread only (`wasm_threads = False`) |
-| fsync | ✅ | Blocked at WASI import layer — `fd_psync` → trap |
+| fsync | ✅ | Refused at the **call** — `fd_sync`/`fd_datasync`/`fd_psync` trap unless the caller opts in with `allow_fsync`. Importing them stays legal by design (Zig emits `fd_sync`, CPython emits `fd_datasync` in every binary), so only the call can be refused; `--profile interpreter` sets the opt-in |
 | I/O-DoS | ⚠️ Path-dependent | Host syscalls bypass fuel metering — guest output capped at 10 KB (ENOSPC); sandbox-dir writes walled by `io_budget_bytes` (both paths); the `io_cpu_seconds` CPU wall is enforced in the **subprocess path only** (default in-process is documented-trusted — see the execution-path matrix in [SECURITY.md](../SECURITY.md)) |
-| Network | ✅ | No socket imports available (WASI Preview1, no network) |
+| Network | ✅ | No guest connection succeeds by default: WASI Preview1 exposes no socket API, and on the WASI 0.2 component path `wasi:sockets` is linked but `connect` is denied at call time (measured — `benchmarks/mcp_cve_replay.py`, component run) |
 
 ## 8/8 attack vectors — verification method
 
@@ -36,9 +36,15 @@ guest. The hardening flags wall the container *off* from the host; the guest pri
 live inside the container world and remain available. Evidence:
 `benchmarks/results/2026-09-18/01_hardened_docker_attack_probe.json` (expectation matrix
 with documented same-day correction, positive control, digest) — probe:
-`benchmarks/hardened_docker_probe.py`. gVisor is not measurable on this host (Docker
-Desktop provides no runsc runtime); it stays an open baseline rather than an estimated
-number.
+`benchmarks/hardened_docker_probe.py`. gVisor was initially not measurable on this host
+(Docker Desktop provides no `runsc` runtime) and was recorded as an open baseline; it has
+since been measured in CI: the `gvisor-boundary` job installs pinned `runsc` and runs the
+same eight intents twice (`benchmarks/gvisor_docker_probe.py`), landing
+`benchmarks/results/2026-09-19/08_gvisor_docker_attack_probe.json` — `measured: true`,
+`runsc version release-20260914.0`, **8/8 ALLOWED**, expectation matrix matched 8/8.
+`ALLOWED` there means the guest primitive remains available *inside* the sandbox (gVisor
+implements `execve`/`fork`/`socket` in its userspace kernel), not that anything reached the
+host — gVisor's wall is host-facing, and this comparison says nothing about ranking it.
 
 Layer model used in the README table: **Layer 1** = WASI surface (no exec/fork/socket
 entry points in Preview 1), **Layer 2** = sandbox policy always on (preopen deny,
