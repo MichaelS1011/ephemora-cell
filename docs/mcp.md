@@ -138,6 +138,13 @@ The last one returns:
 
 Both eras are served concurrently on the same stdio process; a client
 picks its era by how it opens (`server/discover` probe or `initialize`).
+Neither era is verified against a hand-written client only: the CI job
+`mcp-sdk-interop` installs the **official MCP Python SDK** and drives the
+shipped server over stdio both ways — a normal `initialize()` handshake
+session and a stateless `2026-07-28` session that never sends `initialize`
+([`integration/test_mcp_sdk_client.py`](../integration/test_mcp_sdk_client.py)).
+The job is one of the six legs the `release-gate` aggregate requires, so a
+regression against the reference client turns the branch gate red.
 
 #### Updating a running server (schema drift)
 
