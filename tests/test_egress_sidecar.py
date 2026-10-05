@@ -643,6 +643,108 @@ class TestEngineGrantEnforcement:
         finally:
             server.shutdown()
 
+    def test_a_redirect_hop_must_also_clear_the_server_wide_allowlist(self, tmp_path):
+        """The ceiling is a scope over EVERY hop, not a check on one URL.
+
+        A grant that names the host and a `--egress-allow` that names one prefix
+        are different scopes. Validating only the request the guest wrote left an
+        open redirect as the escape: the origin answers 302 to a sibling prefix the
+        operator excluded, and the mediated fetch walks there while the audit still
+        says "allowed". The hop is revalidated against the ceiling now, and the
+        refusal names it.
+        """
+        from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            _route(
+                port, "/public/x", ("redirect", f"http://127.0.0.1:{port}/admin/keys")
+            )
+            ledger = self._ledger(tmp_path)
+            grant = EgressGrant(
+                grant_id="g-hop",
+                tool="t",
+                allowed_endpoints=(f"http://127.0.0.1:{port}/",),
+                max_calls=5,
+                not_after="2099-01-01T00:00:00Z",
+            )
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/public",)
+                ),
+                egress_grants={"t": grant},
+                grant_ledger=ledger,
+            )
+            d = _artifact_dir(tmp_path / "hop", f"http://127.0.0.1:{port}/public/x")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied", audit
+            assert audit["limit"] == "server-policy", audit
+            # ONE served path: the excluded prefix was never asked for.
+            assert _RoutingHandler.hits.get(port) == 1, _RoutingHandler.hits
+        finally:
+            server.shutdown()
+
+    def test_a_hop_inside_the_ceiling_still_fetches(self, tmp_path):
+        """Positive control for the hop check: the same redirect, with a ceiling
+        that covers the target, must still deliver."""
+        from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            _route(port, "/public/x", ("redirect", f"http://127.0.0.1:{port}/public/y"))
+            grant = EgressGrant(
+                grant_id="g-hop-ok",
+                tool="t",
+                allowed_endpoints=(f"http://127.0.0.1:{port}/",),
+                max_calls=5,
+                not_after="2099-01-01T00:00:00Z",
+            )
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/public",)
+                ),
+                egress_grants={"t": grant},
+                grant_ledger=self._ledger(tmp_path),
+            )
+            d = _artifact_dir(tmp_path / "hop-ok", f"http://127.0.0.1:{port}/public/x")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed", audit
+            assert audit["hops"] == (f"http://127.0.0.1:{port}/public/y",), audit
+        finally:
+            server.shutdown()
+
+    def test_the_server_wide_resource_caps_narrow_a_grant_too(self, tmp_path):
+        """A grant carries endpoints and methods — not a byte or time budget.
+
+        `EgressGrant.policy()` rebuilds an `EgressPolicy`, which defaults to 64 KiB
+        and 10 s, so taking the envelope from the grant silently DISCARDED the
+        operator's `--egress-max-response-bytes`/`--egress-timeout`: a signed
+        document widened the resource profile even while the endpoint scope was
+        intersected. The strictest value of the two now wins.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            _route(port, "/v1/big", ("json", {"pad": "x" * 8192}))
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
+                    max_response_bytes=256,
+                ),
+                egress_grants={"t": self._grant(port, max_calls=5)},
+                grant_ledger=self._ledger(tmp_path),
+            )
+            d = _artifact_dir(tmp_path / "big", f"http://127.0.0.1:{port}/v1/big")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed", audit
+            assert audit["bytes"] <= 256, f"delivered {audit['bytes']} bytes"
+        finally:
+            server.shutdown()
+
     def test_a_grant_only_deployment_keeps_the_grant_as_full_authority(self, tmp_path):
         """No `--egress-allow`, no ceiling: the grant alone decides (documented
         posture of a grant-only deployment — the intersection must not invent
@@ -714,6 +816,94 @@ class TestEngineGrantEnforcement:
 
         with pytest.raises(ValueError, match="grants_required"):
             CellToolEngine(grants_required=True)
+
+    def test_the_construction_guard_demands_BOTH_grants_and_ledger(self, tmp_path):
+        """`grants_required` with a ledger and NO grants built fine and then denied
+        every call — while `get-policy` had nothing to disclose, because the
+        attestation block only exists when grants exist. A flag that changes
+        behaviour nothing can see is not a posture, so the guard requires both."""
+        from ephemora_cell.grant_ledger import GrantLedger
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        with pytest.raises(ValueError, match="grants_required"):
+            CellToolEngine(
+                grants_required=True, grant_ledger=GrantLedger(tmp_path / "b.jsonl")
+            )
+        # Grants without a ledger were already refused; the message is the OTHER
+        # guard's, so assert only that construction fails.
+        with pytest.raises(ValueError):
+            CellToolEngine(grants_required=True, egress_grants={"t": self._grant(8080)})
+        # The valid triple builds.
+        CellToolEngine(
+            egress_grants={"t": self._grant(8080)},
+            grant_ledger=GrantLedger(tmp_path / "ok.jsonl"),
+            grants_required=True,
+        )
+
+    def test_an_out_of_range_port_is_a_denial_not_a_crash(self):
+        """`urlsplit` succeeds on `host:70000`; accessing `.port` is what raises.
+
+        That read sat OUTSIDE the guard, so an allowlisted host plus a guest-chosen
+        absurd port escaped `validate_request` entirely: no audit entry, no
+        `_meta.egress`, a JSON-RPC -32603 — a guest-steered silence in the one
+        place the design promises every decision is recorded.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy, validate_request
+
+        policy = EgressPolicy(allowed_endpoints=("http://127.0.0.1:8080/v1",))
+        entry = validate_request(policy, _request("http://127.0.0.1:8080:70000/v1"))
+        assert entry.decision == "denied"
+        assert entry.limit is None or entry.limit != "crash"
+
+    def test_a_grant_path_denies_the_same_absurd_port(self, tmp_path):
+        """Same wall on the grant path, end to end through the engine."""
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"t": self._grant(port, max_calls=5)},
+                grant_ledger=self._ledger(tmp_path),
+            )
+            d = _artifact_dir(tmp_path / "port", f"http://127.0.0.1:{port}:70000/v1")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied", audit
+            assert self._ledger(tmp_path).usage("g-eng").calls == 0
+        finally:
+            server.shutdown()
+
+    def test_strict_mode_stays_silent_when_the_guest_asks_for_nothing(self, tmp_path):
+        """An ungranted tool that wrote no request artifact has not attempted
+        egress, so it must not grow an `_meta.egress` — the mediation surface says
+        "no artifact, no mediation" for every other mode, and the strict flag may
+        not change what a run REPORTS, only what it may reach."""
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"other": self._grant(port)},
+                grant_ledger=self._ledger(tmp_path),
+                grants_required=True,
+            )
+            empty = tmp_path / "no-artifact"
+            empty.mkdir()
+            assert eng._mediate_egress(str(empty), "t") == ()
+            # ... and once the guest DOES ask, the strict denial is audited.
+            d = _artifact_dir(tmp_path / "asks", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied"
+            assert audit["limit"] == "grant-required", audit
+        finally:
+            server.shutdown()
 
     def test_revocation_refuses_without_touching_the_booked_count(self, tmp_path):
         from ephemora_cell_mcp.engine import CellToolEngine

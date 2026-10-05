@@ -604,6 +604,33 @@ class TestHandshakeOrder:
         )
         assert after["error"]["code"] == -32601
 
+    def test_a_legacy_version_in_meta_does_not_buy_a_handshake_free_call(
+        self, server_with
+    ):
+        """The exemption is the revision's, not the JSON key's.
+
+        2026-07-28 defines the per-request-metadata model for that revision AND
+        later; a request that names a HANDSHAKE-era version in `_meta` is asking to
+        be served under the revisions that make initialization the first
+        interaction. Keying the exemption on the mere presence of `_meta` left that
+        door open — the malicious-client case, spelled out in JSON.
+        """
+        legacy = {protocol.META_PROTOCOL_VERSION: "2025-03-26"}
+        call = {
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "tools/call",
+            "params": {"name": "echo", "arguments": {"x": 1}, "_meta": legacy},
+        }
+        server, transport = server_with(handshake=False, inbox=[call])
+        (refused,) = _reply(server, transport)
+        assert refused["error"]["code"] == -32600, refused
+        # After the handshake the same request is legitimate legacy traffic: the
+        # gate is about ORDER, not about banning metadata.
+        server.handle_message(INITIALIZE)
+        (served,) = server.handle_message(call)
+        assert "result" in served, served
+
     def test_serving_continues_normally_after_the_handshake(self, server_with):
         server, transport = server_with(
             handshake=False,

@@ -450,7 +450,18 @@ class Server:
         client must still be able to reach: the error a modern client gets is
         part of how it identifies the server's era.
         """
-        return protocol.META_PROTOCOL_VERSION in self._request_meta(message)
+        meta = self._request_meta(message)
+        if protocol.META_PROTOCOL_VERSION not in meta:
+            return False
+        # Naming a HANDSHAKE-era version is not opting into the stateless model —
+        # 2026-07-28 defines per-request metadata for that revision AND LATER — so
+        # a request that declares e.g. 2025-03-26 in `_meta` still owes the
+        # handshake. Anything unsupported stays exempt and keeps answering -32022,
+        # because that error is how a modern client identifies this server's era.
+        return (
+            meta[protocol.META_PROTOCOL_VERSION]
+            not in protocol.LEGACY_PROTOCOL_VERSIONS
+        )
 
     def _check_request_version(self, message: dict[str, Any]) -> None:
         """Validate the per-request protocol version (2026-07-28 stateless).

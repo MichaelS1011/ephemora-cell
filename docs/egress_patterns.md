@@ -247,15 +247,21 @@ ephemora-cell-mcp --tools-dir tools \
 Two scopes are enforced on top of each other, and the server never lets a caller
 guess which is which:
 
-- **The grant is a narrowing, not a widening.** With `--egress-allow` set, every
-  mediated request is validated against the grant AND the server-wide list first —
-  an endpoint that only the grant allows is denied (`limit: "server-policy"`) and
-  spends no grant slot. Without a server-wide list the grant alone decides.
-  `get-policy` says which case is live as `grant_scope`.
+- **The grant is a narrowing, not a widening — per hop and per byte.** With
+  `--egress-allow` set, every mediated request is validated against the grant AND the
+  server-wide list first, and so is every redirect hop the origin answers with: an
+  endpoint that only the grant allows is denied (`limit: "server-policy"`) and spends
+  no grant slot. The resource envelope is the strictest of the two, because a grant
+  carries endpoints and methods only — without this its byte and time limits are the
+  defaults of the policy object, and an operator's `--egress-max-response-bytes`
+  would silently become 64 KiB whenever a grant exists. Without a server-wide list
+  the grant alone decides. `get-policy` says which case is live as `grant_scope`.
 - **A tool with no grant file falls back to the allowlist alone** — allowlist, no
   window, no cap, no ledger. `--egress-grants-required` denies that fallback
-  (`limit: "grant-required"`), and needs `--egress-grants-dir` and `--grant-ledger`
-  with it (exit 2 otherwise). The posture is disclosed as `ungranted_tools`, so
+  (`limit: "grant-required"`), needs both `--egress-grants-dir` and `--grant-ledger`
+  with it (exit 2 otherwise, and the engine refuses to build without either half),
+  and denies only once the guest actually wrote a request artifact — a tool that
+  attempted no egress reports no egress, in either posture. The posture is disclosed as `ungranted_tools`, so
   "we run the strict form" is a claim a caller can check instead of infer.
 
 `--egress-trust` is required whenever `--egress-grants-dir` is given (exit 2,

@@ -89,7 +89,7 @@ The last one returns:
 | `notifications/initialized` | Accepted silently (no response, per JSON-RPC notifications) |
 | `tools/list` | Tools discovered in the registry, as MCP `{name, description, inputSchema}`; modern-era responses additionally carry `resultType`, `ttlMs`, `cacheScope` and `_meta.serverInfo` |
 | `tools/call` | Runs the tool's WASM module; result `content[0].text` is the guest's stdout JSON; `_meta.execution` carries the `ExecutionReport` |
-| `tools/list`, `tools/call` before `initialize` | `-32600`, and no WASM runs — handshake-era traffic must open the session first (see below). A request that names its own version in `params._meta` is never affected. Before the handshake this covers **any** method other than `initialize` and `server/discover`, so an unknown method is `-32600` there rather than `-32601` |
+| `tools/list`, `tools/call` before `initialize` | `-32600`, and no WASM runs — handshake-era traffic must open the session first (see below). A request whose `params._meta` names a stateless-era version (`2026-07-28` or later) is never affected; naming a handshake-era version there still owes the handshake. Before the handshake this covers **any** method other than `initialize` and `server/discover`, so an unknown method is `-32600` there rather than `-32601` |
 | anything else | JSON-RPC error `-32601` (method not found) |
 
 ### Protocol versions & stateless operation (2026-07-28)
@@ -101,7 +101,9 @@ The last one returns:
   carries `"io.modelcontextprotocol/protocolVersion": "2026-07-28"` (plus
   the required `io.modelcontextprotocol/clientCapabilities`) is served
   statelessly: no `initialize` handshake, no session — every request
-  stands alone. Results gain `resultType: "complete"` and
+  stands alone. Naming a *handshake-era* version there does not buy the exemption:
+  the stateless model belongs to `2026-07-28` and later, so such a request still
+  owes the handshake. Results gain `resultType: "complete"` and
   `_meta["io.modelcontextprotocol/serverInfo"]`; `tools/list` additionally
   carries the CacheableResult freshness hint (`ttlMs`: 3,600,000 static /
   60,000 with governed loading, `cacheScope: "private"`). An unsupported

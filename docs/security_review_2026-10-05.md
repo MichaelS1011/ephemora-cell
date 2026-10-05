@@ -52,8 +52,14 @@ refused by the denylist. After shipping the fixtures (`MANIFEST.in`), resolving 
 tool directory from the imported package, and moving fixtures to a temp root:
 **803 passed / 102 skipped / 0 failed** as root on linux/amd64, with the
 repository-inspection modules skipped by name and stated reason rather than
-failing. `tests/conftest.py` records the rule: the suite is written for a
-checkout; what can run from an installed artifact does, and what cannot says why.
+failing — **superseded below**: re-measuring this at the next commit showed the
+fixture shipping had disabled those very skips, so the 803/102/0 line described a
+tree that could not have produced it. See "A second red-team pass".
+
+`tests/conftest.py` records the rule that survived the correction: the suite is
+written for a checkout; what can run from an installed artifact does, and what
+cannot says why — and the check that tells the two apart must not be satisfiable
+by anything the distribution ships.
 
 Two **lane claims that measurement refuted**, kept here because the reviewer is
 owed the correction, not silence: the case-variant preopen bypass (`/ETC`) is
@@ -72,9 +78,9 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA: **929 passed / 4 skipped (933 collected)**, 90 % statement
-coverage; minimal install without `cryptography`: 824 passed / 66 skipped
-(890 collected), 81 %.
+Suite on this SHA: **937 passed / 4 skipped (941 collected)**, 90 % statement
+coverage; minimal install without `cryptography`: 832 passed / 66 skipped
+(898 collected), 81 %.
 
 ## Closed after the review by operator decision
 
@@ -85,12 +91,12 @@ red (degradation, not coverage):
 
 | Decision | Semantics now | Gate | Red when the enforcement is removed |
 |---|---|---|---|
-| **D2** — grant scope | A signed grant is intersected with `--egress-allow`: the ceiling is validated **before** the ledger charges, so a granted endpoint outside the operator's list is denied (`limit: "server-policy"`) and spends no slot. With no server-wide list the grant is the whole authority | `TestEngineGrantEnforcement.test_a_grant_never_widens_the_server_wide_allowlist` (+ its positive control) | 1 test |
-| **D1** — ungranted tools | `--egress-grants-required` denies mediation for a tool with no grant (`limit: "grant-required"`) instead of falling back to the allowlist; default stays off, and `get-policy` discloses the live posture as `ungranted_tools`. Constructing an engine with the flag and no grants raises | `test_grants_required_denies_an_ungranted_tool_without_falling_back`, `…_still_mediates_a_granted_tool`, `TestGrantScopeDisclosure` (4), `TestGrantsRequiredFlag` (3 CLI) | 1 test + 1 construction error |
-| **D3** — handshake order | A handshake-era request before `initialize` is `-32600` before the engine is reached; a second `initialize` on the same process too; `server/discover` and version-carrying (`_meta`) stateless requests stay reachable | `tests/test_mcp_adapter.py::TestHandshakeOrder` (10) | 4 + 1 tests |
+| **D2** — grant scope | A signed grant is intersected with `--egress-allow`: the ceiling is validated **before** the ledger charges, so a granted endpoint outside the operator's list is denied (`limit: "server-policy"`) and spends no slot. With no server-wide list the grant alone decides | `TestEngineGrantEnforcement.test_a_grant_never_widens_the_server_wide_allowlist` (+ its positive control) | 1 test |
+| **D1** — ungranted tools | `--egress-grants-required` denies mediation for a tool with no grant (`limit: "grant-required"`) instead of falling back to the allowlist; default stays off, and `get-policy` discloses the live posture as `ungranted_tools` | `test_grants_required_denies_an_ungranted_tool_without_falling_back`, `…_still_mediates_a_granted_tool`, `TestGrantScopeDisclosure` (4), `TestGrantsRequiredFlag` (3 CLI) | 1 test |
+| **D3** — handshake order | A handshake-era request before `initialize` is `-32600` before the engine is reached; a second `initialize` on the same process too; `server/discover` and version-carrying (`_meta`) stateless requests stay reachable | `tests/test_mcp_adapter.py::TestHandshakeOrder` (11) | 4 + 1 tests |
 
 D3 was checked against the specification rather than against habit: the legacy
-revisions make initialization "the first interaction" and say other requests
+revisions make initialization the first interaction and say other requests
 "are not possible until initialization has completed" (2025-03-26), while
 `2026-07-28` states "There is no negotiation handshake" and serves a
 version-carrying request independently — so a blanket gate would have broken
@@ -99,6 +105,38 @@ hidden the era probe the spec tells a dual-era client to send first. No current
 revision (2024-11-05 → 2026-07-28) prescribes an error code for the
 pre-initialize case, and none addresses a repeated `initialize`; `-32600` and
 the refusal are this server's documented choices.
+
+## A second red-team pass, against the code that had just landed
+
+Six findings, all of them in the D1/D2/D3 code and none of them disputed — the
+point of running the lane again immediately was to catch exactly this: a gate
+that is real in its own test and incomplete in the path around it.
+
+| # | Finding | Sev | Closure | Gate (red when the fix is reverted) |
+|---|---|---|---|---|
+| 1 | The ceiling was checked for the URL the guest wrote, but `execute_request` handed the redirect revalidator the **grant** policy alone: a `302` into a sibling prefix the operator excluded was fetched, audit reading `allowed, fetched, status 200` (2 served paths measured) | P1 | every hop revalidated against grant AND ceiling; ceiling refusal audited `limit: "server-policy"` | 1 (`test_a_redirect_hop_must_also_clear_the_server_wide_allowlist`) + positive control that an in-ceiling hop still fetches |
+| 2 | `EgressGrant.policy()` is rebuilt from endpoints+methods, so byte/time limits came from the dataclass defaults — an operator `--egress-max-response-bytes 256` was replaced by 64 KiB whenever a grant existed (8 203 bytes delivered) | P1 | strictest of grant/ceiling wins, including the ceiling's resolver | 1 (`test_the_server_wide_resource_caps_narrow_a_grant_too`) |
+| 3 | `SplitResult.port` validates lazily and was read OUTSIDE the guard: `http://allowlisted-host:70000/…` raised past `validate_request` and past the mediator into a -32603 with no audit entry and no `_meta.egress` | P2 | whole match guarded; absurd port is an audited denial | 2 (policy path + grant path) |
+| 4 | The handshake exemption keyed on the presence of `params._meta`, so a request naming a HANDSHAKE-era version there was served `tools/call` before `initialize` — the malicious-client case, re-opened by my own gate | P2 | exemption only for versions that are not handshake-era; unsupported still answers -32022 | 1 (`test_a_legacy_version_in_meta_does_not_buy_a_handshake_free_call`) |
+| 5 | `CellToolEngine(grants_required=True, grant_ledger=…)` built with no grants, denied every call, and `get-policy` reported `mediation: disabled` — a posture nothing could observe | P2 | guard demands grants AND a ledger | 2 |
+| 6 | The strict-mode denial returned before the request-artifact check, so an ungranted tool that attempted no egress grew an `_meta.egress` | P2 | denial issued after the artifact exists | 2 (silent without artifact, audited with) |
+
+Also fixed by this round outside the egress surface: the checkout detector in
+`tests/conftest.py` was made TRUE by the fixtures the previous commit started
+shipping, so an unpacked sdist ran the repository-inspection modules and
+produced 16 failures + 4 errors where this document had recorded **803 passed /
+102 skipped / 0 failed** — a number that could not have come from that tree. The
+predicate now keys on `docs/` + `scripts/` (never shipped by a distribution,
+always present in a clone or a source export), `tests/test_checkout_skip_policy.py`
+(5) pins both halves, and the re-measurement is **753 passed / 136 skipped / 0
+errors** in the container with a native control run at 763/127/0. The single
+remaining container failure is `test_100_parallel_runs_no_fd_exhaustion`: it
+passes natively (macOS 3/3, native linux/amd64) and fails only under
+amd64-under-QEMU emulation, because the `io_cpu_seconds` watchdog charges the
+emulated worker's interpreter+wasmtime startup (~0.25 s) against a 2.0 s budget
+while the guest itself needs 12 ms natively. Recorded as an emulation artefact
+plus an open accounting question (absolute vs delta worker CPU), not as a passed
+gate and not as a product defect.
 
 ## Not closed (deliberate, and the reason)
 

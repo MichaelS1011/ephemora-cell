@@ -278,6 +278,9 @@ class _RedirectTrail:
         self.attempted: list[str] = []
         self.followed: list[str] = []
         self.denied_reason: str | None = None
+        # Which wall stopped the chain. Only the server-wide ceiling names one
+        # today; a grant-policy refusal keeps the historical unlabelled shape.
+        self.denied_limit: str | None = None
 
 
 class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -290,11 +293,22 @@ class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
     link-local metadata interface while our audit entry still reported
     "allowed". Refusing here is the minimal correct fix: return None and the
     stdlib raises HTTPError instead of dispatching the new request.
+
+    ``ceiling`` is the server-wide policy of a grant-mediated fetch (ADR-013): the
+    grant may be broader in PATH than ``--egress-allow``, so a hop has to clear
+    both, or one 302 from the origin walks out of the operator's scope while the
+    entry still reads "allowed".
     """
 
-    def __init__(self, policy: EgressPolicy, trail: _RedirectTrail) -> None:
+    def __init__(
+        self,
+        policy: EgressPolicy,
+        trail: _RedirectTrail,
+        ceiling: EgressPolicy | None = None,
+    ) -> None:
         self._policy = policy
         self._trail = trail
+        self._ceiling = ceiling
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         self._trail.attempted.append(newurl)
@@ -302,6 +316,14 @@ class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
             self._trail.denied_reason = (
                 f"redirect ({code}) to {newurl!r} is not on the egress allowlist"
             )
+            return None
+        if self._ceiling is not None and (
+            _url_matches_allowlist(self._ceiling, newurl) is None
+        ):
+            self._trail.denied_reason = (
+                f"redirect ({code}) to {newurl!r} leaves the server-wide allowlist"
+            )
+            self._trail.denied_limit = "server-policy"
             return None
         origin_scheme = urllib.parse.urlsplit(req.full_url).scheme
         if urllib.parse.urlsplit(newurl).scheme != origin_scheme:
@@ -370,7 +392,14 @@ def parse_request_document(raw: bytes | str) -> EgressRequest:
 
 
 def _url_matches_allowlist(policy: EgressPolicy, url: str) -> str | None:
-    """Return the matching endpoint entry, or None (fail closed)."""
+    """Return the matching endpoint entry, or None (fail closed).
+
+    The whole parse is guarded, not just `urlsplit`: `SplitResult.port` validates
+    LAZILY, so a guest-chosen `http://allowlisted-host:70000/…` split fine and then
+    raised on the port read — outside the guard, past `validate_request`, out of the
+    mediator, and into a JSON-RPC -32603 with no audit entry and no `_meta.egress`.
+    An absurd port is a refusal to be recorded, not a crash path.
+    """
     try:
         parsed = urllib.parse.urlsplit(url)
     except ValueError:
@@ -385,16 +414,19 @@ def _url_matches_allowlist(policy: EgressPolicy, url: str) -> str | None:
     if _has_dot_segment(parsed.path):
         return None
     path = parsed.path or "/"
-    for endpoint in policy.allowed_endpoints:
-        entry = urllib.parse.urlsplit(endpoint)
-        if (
-            parsed.scheme == entry.scheme
-            and parsed.hostname == entry.hostname
-            and (parsed.port or _DEFAULT_PORTS[parsed.scheme])
-            == (entry.port or _DEFAULT_PORTS[entry.scheme])
-            and _path_allowed(path, entry.path)
-        ):
-            return endpoint
+    try:
+        request_port = parsed.port or _DEFAULT_PORTS[parsed.scheme]
+        for endpoint in policy.allowed_endpoints:
+            entry = urllib.parse.urlsplit(endpoint)
+            if (
+                parsed.scheme == entry.scheme
+                and parsed.hostname == entry.hostname
+                and request_port == (entry.port or _DEFAULT_PORTS[entry.scheme])
+                and _path_allowed(path, entry.path)
+            ):
+                return endpoint
+    except ValueError:
+        return None
     return None
 
 
@@ -443,10 +475,29 @@ def validate_request(policy: EgressPolicy, request: EgressRequest) -> EgressAudi
 
 
 def execute_request(
-    policy: EgressPolicy, request: EgressRequest, *, audit: EgressAuditEntry
+    policy: EgressPolicy,
+    request: EgressRequest,
+    *,
+    audit: EgressAuditEntry,
+    ceiling: EgressPolicy | None = None,
 ) -> EgressResult:
-    """Execute an already-validated request (host-side, trusted context)."""
+    """Execute an already-validated request (host-side, trusted context).
+
+    ``ceiling`` (ADR-013) is the server-wide policy behind a grant-mediated fetch.
+    It is not decoration: a grant's own ``EgressPolicy`` is rebuilt from
+    endpoints + methods, so its byte and time limits are the DATACLASS DEFAULTS —
+    without the ceiling here an operator's ``--egress-max-response-bytes`` was
+    silently replaced by 64 KiB the moment a grant existed. The strictest value of
+    the two wins, and every redirect hop has to clear the ceiling too.
+    """
     started = time.monotonic()
+    max_response_bytes = policy.max_response_bytes
+    timeout_seconds = policy.timeout_seconds
+    resolver = policy.resolver
+    if ceiling is not None:
+        max_response_bytes = min(max_response_bytes, ceiling.max_response_bytes)
+        timeout_seconds = min(timeout_seconds, ceiling.timeout_seconds)
+        resolver = resolver or ceiling.resolver
     trail = _RedirectTrail()
     # A custom opener, not urlopen: the default one follows redirects without
     # asking the policy. Only http/https can be reached at all — the allowlist
@@ -465,10 +516,10 @@ def execute_request(
     # from the ambient environment.
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
-        _RevalidatingRedirectHandler(policy, trail),
+        _RevalidatingRedirectHandler(policy, trail, ceiling=ceiling),
     )
     _install_getaddrinfo_guard()
-    resolver = policy.resolver or _real_getaddrinfo
+    resolver = resolver or _real_getaddrinfo
     try:
         req = urllib.request.Request(
             request.url,
@@ -488,7 +539,7 @@ def execute_request(
                 # pinned to http/https by _url_matches_allowlist (request) and the
                 # redirect revalidator (every hop); no file:/ftp: path reaches here.
                 req,
-                timeout=policy.timeout_seconds,
+                timeout=timeout_seconds,
             ) as resp,
         ):
             status = int(resp.status)
@@ -500,9 +551,9 @@ def execute_request(
             chunks: list[bytes] = []
             total = 0
             while True:
-                if (time.monotonic() - started) > policy.timeout_seconds:
-                    raise _EgressDeadline(policy.timeout_seconds)
-                room = policy.max_response_bytes + 1 - total
+                if (time.monotonic() - started) > timeout_seconds:
+                    raise _EgressDeadline(timeout_seconds)
+                room = max_response_bytes + 1 - total
                 # read1(): one buffer's worth, returning as soon as anything
                 # arrives. `read(n)` blocks until n bytes are in hand, which is
                 # exactly how a trickling peer outlives a per-op timeout.
@@ -512,7 +563,7 @@ def execute_request(
                     break
                 chunks.append(chunk)
                 total += len(chunk)
-                if total > policy.max_response_bytes:
+                if total > max_response_bytes:
                     break
             body = b"".join(chunks)
     except _EgressDeadline as e:
@@ -594,6 +645,7 @@ def execute_request(
                     reason=trail.denied_reason,
                     elapsed_ms=elapsed,
                     hops=tuple(trail.attempted),
+                    limit=trail.denied_limit,
                 ),
             )
         entry = EgressAuditEntry(
@@ -613,9 +665,9 @@ def execute_request(
             audit=entry,
         )
     elapsed = (time.monotonic() - started) * 1000
-    truncated = len(body) > policy.max_response_bytes
+    truncated = len(body) > max_response_bytes
     if truncated:
-        body = body[: policy.max_response_bytes]
+        body = body[:max_response_bytes]
     entry = EgressAuditEntry(
         url=request.url,
         method=request.method,
@@ -784,7 +836,7 @@ def mediate_with_grant(
             response_doc={"ok": False, "error": f"egress grant: {decision.reason}"},
             audit=grant_entry,
         )
-    return execute_request(policy, request, audit=audit)
+    return execute_request(policy, request, audit=audit, ceiling=ceiling)
 
 
 #: Schema tag of the frozen grant envelope. A future version coexists by tag.

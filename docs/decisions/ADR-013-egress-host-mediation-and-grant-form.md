@@ -245,19 +245,32 @@
 The three open semantics listed in the review were decided rather than assumed,
 and each is now enforced, disclosed and gated:
 
-1. **A grant NARROWS, it does not enlarge.** `mediate_with_grant` takes the
-   server-wide policy as a `ceiling` and validates the request against grant AND
-   ceiling, ceiling first, before the ledger charges — an endpoint outside
-   `--egress-allow` is denied with `limit: "server-policy"` and spends no slot.
-   An embedder that passes no `egress_policy` has no ceiling, and `grant_scope`
-   says `"the grant is the whole authority for its tool"` rather than letting
+1. **A grant NARROWS, it does not enlarge** — and the narrowing covers the whole
+   fetch, not one URL. `mediate_with_grant` takes the server-wide policy as a
+   `ceiling` and validates the request against grant AND ceiling, ceiling first,
+   before the ledger charges — an endpoint outside `--egress-allow` is denied with
+   `limit: "server-policy"` and spends no slot. A second red-team pass the same day
+   found the two places where "the ceiling" had been read too narrowly, and both are
+   closed: every redirect hop is revalidated against the ceiling as well (a `302`
+   into a sibling prefix the operator excluded used to be fetched with an audit
+   reading "allowed"), and the resource envelope takes the strictest of grant and
+   ceiling, because `EgressGrant.policy()` is rebuilt from endpoints + methods and
+   its byte/time fields are therefore dataclass DEFAULTS — an operator's
+   `--egress-max-response-bytes` had been silently replaced by 64 KiB whenever a
+   grant existed (measured: 8 203 bytes against a 256-byte ceiling). An embedder that
+   passes no `egress_policy` has no ceiling, and `grant_scope` says
+   `"the grant is the whole authority for its tool"` rather than letting
    "ledger-backed" imply a bound.
 2. **Ungranted tools: fallback stays the default, denial is a flag.**
    `--egress-grants-required` (engine kwarg `grants_required`) denies mediation
    for a tool with no signed grant — `limit: "grant-required"`, audited like any
    other denial — instead of serving it under the allowlist alone. Constructing
-   an engine with the flag and no grants is an error, and the CLI refuses the
-   flag without `--egress-grants-dir`/`--grant-ledger` at exit 2. It is opt-in
+   an engine with the flag and no grants-and-ledger pair is an error at
+   construction — the guard demands BOTH, because a flag that denies every call while
+   `get-policy` reports `mediation: disabled` is a posture nothing can observe — and
+   the CLI refuses the flag without `--egress-grants-dir`/`--grant-ledger` at exit 2.
+   The denial is also issued only after the guest wrote a request artifact, so the
+   flag changes what may be reached, never what a run reports. It is opt-in
    because flipping the default would change what a partially configured
    deployment does; `ungranted_tools` on `get-policy` states which of the two is
    live, so the posture is never something a caller has to infer.
@@ -266,7 +279,11 @@ and each is now enforced, disclosed and gated:
    engine is reached, and so is a second `initialize` on the same process.
    Requests that name their own protocol version in `params._meta` are exempt
    because `2026-07-28` has no handshake, and `server/discover` is exempt because
-   the spec tells a dual-era client to probe with it first. No revision defines
+   the spec tells a dual-era client to probe with it first. The exemption belongs to
+   the REVISION, not to the JSON key: naming a handshake-era version there (2025-03-26
+   was served that way for one review round) still owes the handshake, while an
+   unsupported version stays exempt so the caller still receives the -32022 that
+   identifies the era. No revision defines
    an error code for either case, so `-32600` and the refusal are recorded here
    as this server's choices. Nothing in Cell derives authority from the
    handshake, so this is conformance rather than a control — and gates
@@ -384,8 +401,25 @@ startup path is now real too.
   `TestGrantsRequiredFlag` in `tests/test_mcp_main.py` (3 — the flag refuses
   startup without `--egress-grants-dir` and without `--grant-ledger`, and reaches
   the engine the server is built with, default `False` asserted too), and
-  `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (10 — `tools/call` and
+  `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — `tools/call` and
   `tools/list` refused before `initialize` with no WASM run, the stateless
   `_meta` path and `server/discover` unaffected, an unsupported version still
-  answered `-32022`, a second `initialize` refused, a pre-handshake notification
-  still silent, and normal service after the handshake).
+  answered `-32022`, a `_meta` naming a HANDSHAKE-era version refused, a second
+  `initialize` refused, an unknown method answered by ORDER before lookup, a
+  pre-handshake notification still silent, and normal service after the handshake).
+- **Second red-team pass on that same code (2026-10-05, six findings closed):**
+  per-hop ceiling revalidation and the strictest-wins envelope in
+  `ephemora_cell/egress_sidecar.py` (`_RevalidatingRedirectHandler(…, ceiling=…)`,
+  `execute_request(…, ceiling=…)`, guarded `SplitResult.port` read in
+  `_url_matches_allowlist`), the BOTH-grants-and-ledger construction guard and the
+  artifact-ordered strict denial in `ephemora_cell_mcp/engine.py`, and the
+  stateless-revision-only exemption in `ephemora_cell_mcp/server.py`
+  (`_request_is_stateless`). Tests added for exactly these:
+  `test_a_redirect_hop_must_also_clear_the_server_wide_allowlist` (+ in-ceiling
+  positive control), `test_the_server_wide_resource_caps_narrow_a_grant_too`,
+  `test_an_out_of_range_port_is_a_denial_not_a_crash` +
+  `test_a_grant_path_denies_the_same_absurd_port`,
+  `test_a_legacy_version_in_meta_does_not_buy_a_handshake_free_call`,
+  `test_the_construction_guard_demands_BOTH_grants_and_ledger`,
+  `test_strict_mode_stays_silent_when_the_guest_asks_for_nothing`. Each was proved
+  red by reverting its own fix (1 / 1 / 2 / 1 / 2 / 2 tests).

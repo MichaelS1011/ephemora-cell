@@ -120,7 +120,38 @@ weaker.
   validation guard could never fire — it was nested inside the `if
   args.egress_grants_dir:` branch whose condition it negated. It now runs before
   that branch and exits 2.
-- **The artefact's own claims now bind verification.** Three pins, all
+- **The ceiling was a fence around one URL, not around the fetch.** A
+  red-team pass against the code that had just landed found both halves of that
+  sentence. (a) The ceiling was validated for the URL the guest wrote, while
+  `execute_request` handed the redirect revalidator the GRANT policy alone — so an
+  origin answering `302` to a sibling prefix the operator had deliberately left out
+  of `--egress-allow` was fetched, audit reading `allowed, fetched, status 200`.
+  Measured before the fix: 2 served paths for one mediated request. Every hop is
+  revalidated against both now, and a hop refused by the ceiling is audited as
+  `limit: "server-policy"`. (b) `EgressGrant.policy()` is rebuilt from endpoints and
+  methods, so its byte and time limits were the *dataclass defaults* — an operator's
+  `--egress-max-response-bytes 256` was silently replaced by 64 KiB the moment a
+  grant existed (measured: 8 203 bytes delivered against a 256-byte ceiling). The
+  strictest of the two now wins, including the ceiling's resolver. A signed
+  document may narrow the endpoint scope; it may not lift a resource envelope.
+- **Three smaller fail-open and disclosure paths, same pass.** `SplitResult.port`
+  validates lazily, so `http://allowlisted-host:70000/…` split fine and then raised
+  OUTSIDE the guard — past `validate_request`, past the mediator, into a JSON-RPC
+  -32603 with no audit entry and no `_meta.egress`: a guest-steered silence in the
+  one place the design promises a recorded decision. The handshake exemption keyed
+  on the presence of `params._meta` rather than on its value, so a client naming a
+  HANDSHAKE-era version there (`2025-03-26`) was served `tools/call` before
+  `initialize` — the exact malicious-client case the gate was built for;
+  per-request metadata is the `2026-07-28` model, so a legacy version no longer buys
+  the exemption (unsupported versions keep answering -32022, which is how a modern
+  client identifies the era). And `CellToolEngine(grants_required=True,
+  grant_ledger=…)` built with NO grants, denied every call, and left `get-policy`
+  reporting `mediation: disabled` — a posture nothing could see; the guard now
+  demands grants AND a ledger. Strict-mode denial also moved AFTER the
+  request-artifact check, so an ungranted tool that attempted no egress no longer
+  grows an `_meta.egress`: the flag changes what may be reached, not what a run
+  reports.
+ Three pins, all
   fail-closed: a DSSE signature entry that DECLARES an `alg` is checked against
   the expected algorithm (Ed25519 bytes labelled `ES256` used to verify happily as
   long as the caller supplied the right key, which is how an algorithm claim on an
@@ -235,12 +266,15 @@ Sensitivity — every one of these is a gate, not documentation, and each was
 proved by deleting the enforcement and counting what went red: reverting the
 no-follow read, the wall-clock deadline or the byte stdin turns the matching
 graders red; removing the `ceiling` argument costs exactly
-`test_a_grant_never_widens_the_server_wide_allowlist`; neutering the
-`grants_required` denial costs
-`test_grants_required_denies_an_ungranted_tool_without_falling_back`; disabling
-the pre-initialize gate costs 4 tests (both refusals, the "no WASM ran" proof and
-the lifecycle-vs-lookup distinction) and disabling the duplicate-`initialize`
-refusal costs 1.
+`test_a_grant_never_widens_the_server_wide_allowlist`; the per-hop ceiling check
+costs `test_a_redirect_hop_must_also_clear_the_server_wide_allowlist` (1) and the
+strictest-wins envelope costs
+`test_the_server_wide_resource_caps_narrow_a_grant_too` (1); neutering the
+`grants_required` denial costs 2 (its own test plus "no egress attempted, no
+`_meta.egress`"), its construction guard 2; moving the port read back outside the
+guard costs 2; disabling the pre-initialize gate costs 4 tests (both refusals, the
+"no WASM ran" proof and the lifecycle-vs-lookup distinction), the
+duplicate-`initialize` refusal 1, and the stateless-revision-only exemption 1.
 
 ### Added
 
@@ -521,6 +555,18 @@ refusal costs 1.
   installed ONLY the sdist: **803 passed, 102 skipped, 0 failed**, against
   901/4/0 from a checkout — the difference is the repo-inspection modules and the
   environment gates (missing toolchains, root ignoring file permissions).
+  **That container number could not have been produced by the tree it described**,
+  and re-measuring it is what said so: shipping `tests/fixtures/*.wasm` made the
+  checkout detector in `tests/conftest.py` answer TRUE inside an unpacked sdist, so
+  the repository-inspection modules were never skipped. The predicate now keys on
+  `docs/` + `scripts/` — directories a Python distribution never ships — and the
+  re-measurement at this commit is **753 passed, 136 skipped, 0 errors**, with the
+  native linux/amd64 control run at 763/127/0. The one remaining container failure is
+  `test_100_parallel_runs_no_fd_exhaustion`, which passes natively and fails only
+  under amd64-on-arm64 QEMU emulation: the `io_cpu_seconds` watchdog charges the
+  emulated worker's interpreter+wasmtime startup (~0.25 s) to the guest, so 5 of 100
+  runs tripped a 2.0 s limit that the same runs clear in 12 ms natively. Recorded as
+  an emulation artefact and an open accounting question, not as a passed gate.
 - **Test fixtures stopped pretending `$HOME` is grant-safe.** Six modules created
   their "grant-safe" scratch directory under `Path.home()`, which passes on a
   laptop and fails in a container: `HOME=/root`, `/root` is a blocked canonical
@@ -536,22 +582,29 @@ refusal costs 1.
 
 ### Tests
 
-- 23 gates for the three post-review decisions: `TestHandshakeOrder` in
-  `tests/test_mcp_adapter.py` (9 — pre-initialize `tools/list`/`tools/call` refused
-  with `-32600` and, proved separately, without reaching the engine; the stateless
-  `_meta` path and the `server/discover` probe served; an unsupported version still
-  answered `-32022` rather than masked by the gate; second `initialize` refused;
+- 31 gates for the three post-review decisions plus the round that audited them:
+  `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — pre-initialize
+  `tools/list`/`tools/call` refused with `-32600` and, proved separately, without
+  reaching the engine; unknown method is a lifecycle error before the handshake and
+  `-32601` after; the stateless `_meta` path and the `server/discover` probe served;
+  a request naming a HANDSHAKE-era version in `_meta` does NOT buy the exemption; an
+  unsupported version still answered `-32022`; second `initialize` refused;
   pre-handshake notifications still silent; normal service after the handshake),
-  `TestGrantScopeDisclosure` (4 — both `grant_scope` strings, both
+  `TestEngineGrantEnforcement` in `tests/test_egress_sidecar.py` (7 additions —
+  a redirect hop outside the ceiling is denied with `limit: "server-policy"` and the
+  excluded path is never served, with a positive control that a hop INSIDE the
+  ceiling still fetches; the server-wide byte cap beats a grant's default envelope;
+  an out-of-range port is an audited denial on both the policy and the grant path;
+  the construction guard demands grants AND a ledger; strict mode stays silent when
+  the guest attempted no egress and denies audited when it did),
+  `TestGrantScopeDisclosure` (4 — both `grant_scope` strings and both
   `ungranted_tools` strings), `TestGrantsRequiredFlag` in `tests/test_mcp_main.py`
-  (3 — the two startup refusals and the flag reaching the engine the server is
-  built with, default `False` asserted in the same test), and
-  `TestEngineGrantEnforcement` in `tests/test_egress_sidecar.py` (6 — a grant
-  outside the server-wide allowlist denied with no slot spent, the intersection
-  positive control, a grant-only deployment keeping full authority, strict mode
-  denying an ungranted tool and still mediating a granted one, and the
-  construction error). Writing the CLI gate is what exposed that the flag's own
-  validation guard could never fire.
+  (3 — the two startup refusals and the flag reaching the engine, default `False`
+  asserted in the same test), and `tests/test_checkout_skip_policy.py` (5 — this run
+  must be recognised as a checkout or the repository-inspection modules go silent in
+  CI, a fixture-carrying sdist must NOT be, an export without `.git` must be,
+  `MANIFEST.in` may not start shipping either marker, and every skip-list name must
+  exist).
 - `tests/test_execution_invariants.py` (4) — the product promise as four named
   gates: `test_ephemeral_invariant`, `test_stateless_invariant`,
   `test_capability_invariant`, `test_verifiable_execution_invariant`. Written

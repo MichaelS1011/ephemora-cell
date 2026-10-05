@@ -286,7 +286,11 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   reads/writes now go through `O_NOFOLLOW` + a regular-file check on the
   descriptor actually obtained + atomic publication; refusals are audited and
   carry no absolute host path; the request document is bounded (1 MiB) at the
-  read. The same rule covers grant files, the trust root, and the append-only
+  read. `SplitResult.port` validates lazily, so a guest-chosen
+  `http://allowlisted-host:70000/…` split fine and raised on the port read — outside
+  the guard, past the mediator, into a JSON-RPC -32603 with no audit entry and no
+  `_meta.egress`; the whole match is guarded now, because a refusal that leaves no
+  trace is a fail-open. The same rule covers grant files, the trust root, and the append-only
   books — a swappable ledger silently resets caps, windows and revocations — and
   an unreadable ledger now refuses the **call with an audit line** instead of
   raising past the mediator (`limit: "ledger"`).
@@ -304,19 +308,28 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   carried (one read holding two messages used to answer only the first), and
   non-finite request ids are refused because `json.loads` accepts `NaN` and the
   echoed id produced a frame strict parsers reject.
-- **Grant authority is an intersection, and the strict posture is a flag
-  (2026-10-05).** A signed grant narrows what a tool may reach; it no longer
-  widens it. `mediate_with_grant` validates the request against the grant AND
-  against the server-wide `--egress-allow` ceiling before anything is charged,
-  so an endpoint outside the operator's list is denied with `limit:
-  "server-policy"` and spends no grant slot — a grant that was broader than the
-  allowlist used to be the whole authority for its tool. `get-policy` discloses
-  which scope is live (`grant_scope`). Separately, `--egress-grants-required`
-  flips the ungranted-tool case from fallback to denial (`limit:
-  "grant-required"`, disclosed as `ungranted_tools`): off by default, so a tool
-  with no grant file is still mediated by the allowlist alone (allowlist, no
-  window, no cap, no ledger) and renaming or deleting one grant file still
-  downgrades that one tool.
+- **Grant authority is an intersection — per hop and per byte, not per URL
+  (2026-10-05).** A signed grant narrows what a tool may reach; it no longer widens
+  it. `mediate_with_grant` validates the request against the grant AND against the
+  server-wide `--egress-allow` ceiling before anything is charged, so an endpoint
+  outside the operator's list is denied with `limit: "server-policy"` and spends no
+  grant slot — a grant that was broader than the allowlist used to be the whole
+  authority for its tool. The check is not a one-URL fence: every redirect hop is
+  revalidated against the ceiling too (an origin answering `302` into a prefix the
+  operator had excluded was the escape a red-team pass found in this code the day it
+  landed), and the resource envelope takes the STRICTEST of the two — a grant's
+  `EgressPolicy` is rebuilt from endpoints and methods, so without that its byte and
+  time limits were the dataclass defaults (measured: 8 203 bytes delivered against a
+  256-byte ceiling). `get-policy` discloses which scope is live (`grant_scope`).
+  Separately, `--egress-grants-required` flips the ungranted-tool case from fallback
+  to denial (`limit: "grant-required"`, disclosed as `ungranted_tools`): off by
+  default, so a tool with no grant file is still mediated by the allowlist alone
+  (allowlist, no window, no cap, no ledger) and renaming or deleting one grant file
+  still downgrades that one tool. The flag requires grants AND a ledger at
+  construction — a posture that denies every call while `get-policy` reports
+  `mediation: disabled` is worse than no posture — and its denial is issued only
+  after the guest actually wrote a request artifact, so it changes what may be
+  reached, not what a run reports.
 - **The MCP handshake is ordered, and that is conformance, not authority
   (2026-10-05).** A handshake-era request (one that names no protocol version
   in `params._meta`) is refused with `-32600` before `initialize` and on a
@@ -324,7 +337,10 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   (`tests/test_mcp_adapter.py::TestHandshakeOrder`). The stateless `2026-07-28`
   path is deliberately exempt — that revision has no handshake — as is
   `server/discover`, the probe a dual-era client sends before it knows whether
-  to initialize. No client capability adds or removes authority in this server,
+  to initialize. The exemption is the revision's, not the JSON key's: naming a
+  HANDSHAKE-era version in `params._meta` does not buy a handshake-free
+  `tools/call` (it was served that way for one review round), while an unsupported
+  version stays exempt so the caller still gets the -32022 that identifies the era. No client capability adds or removes authority in this server,
   so nothing a caller can claim through the handshake changes what it may run.
 - **The artefact cannot out-argue its own claims.** A declared `alg` on a
   signature is checked against the expected algorithm, and the receipt verifier

@@ -163,13 +163,11 @@ class CellToolEngine:
         # because the fallback is what existing deployments configured; with it
         # off, renaming or deleting one grant file quietly removes one cap.
         self.grants_required = grants_required
-        if (
-            self.grants_required
-            and not self.egress_grants
-            and self.grant_ledger is None
+        if self.grants_required and (
+            not self.egress_grants or self.grant_ledger is None
         ):
             raise ValueError(
-                "grants_required is meaningful only with grants and a ledger — "
+                "grants_required is meaningful only with grants AND a ledger — "
                 "set --egress-grants-dir and --grant-ledger as well"
             )
         if self.egress_grants and self.grant_ledger is None:
@@ -297,10 +295,22 @@ class CellToolEngine:
         """
         grant = self.egress_grants.get(tool_name)
         ledger = self.grant_ledger
+        use_grant = grant is not None and ledger is not None
+        policy: EgressPolicy | None = (
+            grant.policy() if grant and use_grant else self.egress_policy
+        )
+        if policy is None or not sandbox_dir:
+            return ()
+        request_path = Path(sandbox_dir) / REQUEST_FILENAME
+        if not os.path.lexists(request_path):
+            return ()
+        # Strict posture, checked AFTER the surface exists: a tool with no signed
+        # grant that DID ask for egress is denied here rather than mediated on the
+        # allowlist. A tool that asked for nothing keeps reporting no egress in
+        # either mode — the flag changes what may be reached, not what a run says.
         if grant is None and self.grants_required:
-            # The strict mode's whole point: no grant, no egress — not even
-            # through the operator's own allowlist. Audited, because a denial
-            # that leaves no trace is indistinguishable from a missing feature.
+            # Audited, because a denial that leaves no trace is indistinguishable
+            # from a missing feature.
             return (
                 {
                     **asdict(
@@ -318,15 +328,6 @@ class CellToolEngine:
                     "response": {"ok": False, "error": "no grant for this tool"},
                 },
             )
-        use_grant = grant is not None and ledger is not None
-        policy: EgressPolicy | None = (
-            grant.policy() if grant and use_grant else self.egress_policy
-        )
-        if policy is None or not sandbox_dir:
-            return ()
-        request_path = Path(sandbox_dir) / REQUEST_FILENAME
-        if not os.path.lexists(request_path):
-            return ()
         try:
             # The artifact NAME lives in a directory the guest writes to, and WASI
             # refuses absolute symlink targets but accepts a relative one — so

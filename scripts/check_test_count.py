@@ -216,6 +216,16 @@ def main() -> int:
             '"Testing & Verification" section (passing = collected - skipped)'
         ),
     )
+    # The canonical-number sentence is the one a reader trusts when the badge is
+    # stale, so it is checked too — and it was the sentence that drifted while the
+    # badge and the freshness block were re-stamped around it.
+    _hard_claim(
+        r"one canonical number\.\*+\s+\d+\s*/\s*\d+\s+\((\d+)\s+collected\)",
+        readme,
+        'README.md "one canonical number"',
+        collected,
+        fix_hint="update the 'N/M (C collected)' canonical-number sentence in README.md",
+    )
     _passing_skipped(
         r"(\d+)\s+CI-enforced\s+tests\s+\((\d+)\s+skipped\)",
         comparison,
