@@ -10,7 +10,7 @@ Detail page for [README.md](../README.md#security). Policy and reporting: [SECUR
 | Memory-DoS | ✅ | `Store.set_limits` enforced (default 128MB; `Config.memory_max_bytes` is a no-op in wasmtime-py 47) |
 | Preopen-DoS | ✅ | 14 dangerous dirs blocked (`/dev`, `/proc`, `/sys`, etc.) |
 | Thread-DoS | ✅ | Single-thread only (`wasm_threads = False`) |
-| fsync | ✅ | Refused at the **call** — `fd_sync`/`fd_datasync`/`fd_psync` trap unless the caller opts in with `allow_fsync`. Importing them stays legal by design (Zig emits `fd_sync`, CPython emits `fd_datasync` in every binary), so only the call can be refused; `--profile interpreter` sets the opt-in |
+| fsync | ✅ | Refused at the **call** — `fd_sync`/`fd_datasync`/`fd_psync` trap unless the caller opts in with `allow_fsync`. Importing them stays legal by design (Zig emits `fd_sync`, CPython emits `fd_datasync` in every binary), so only the call can be refused; **no shipped profile turns it on** — `interpreter` widens module size, memory, fuel, wall-clock and the worker CPU wall, not this rule |
 | I/O-DoS | ⚠️ Path-dependent | Host syscalls bypass fuel metering — guest output capped at 10 KB (ENOSPC); sandbox-dir writes walled by `io_budget_bytes` (both paths); the `io_cpu_seconds` CPU wall is enforced in the **subprocess path only** (default in-process is documented-trusted — see the execution-path matrix in [SECURITY.md](../SECURITY.md)) |
 | Network | ✅ | No guest connection succeeds by default: WASI Preview1 exposes no socket API, and on the WASI 0.2 component path `wasi:sockets` is linked but `connect` is denied at call time (measured — `benchmarks/mcp_cve_replay.py`, component run) |
 
@@ -128,26 +128,37 @@ research line (self-propagating agent payloads via persistent storage).
 
 ## The WASI sandbox surface, visually
 
-The README states the boundary in prose; this is the same statement as
-a diagram (the enforced meters wrap the capability-based syscall
-surface, and everything outside it is blocked by design):
+The enforced meters wrap the capability surface, and what the guest was
+never granted is not there to reach. Two rules the picture keeps:
+
+* **No numbers.** The memory and output caps are host-set defaults that the
+  profiles widen, and a number drawn in a diagram reads as a ceiling the
+  product does not have. The measured values with their conditions are in
+  [SECURITY.md](../SECURITY.md) and [performance.md](performance.md).
+* **Both shipped ABI paths, stated apart.** Preview1 has no socket entry
+  point at all; the WASI 0.2 component path links `wasi:sockets` and refuses
+  `connect` at call time. Collapsing those into "no network" would describe
+  one of the two paths.
 
 ```mermaid
 flowchart TB
-    guest["Guest WASM Module<br/>(isolated)"]
-    subgraph sandbox["WASI Sandbox — capability-based isolation"]
-        fuel["Fuel Meter<br/>~13 fuel/iteration"]
-        mem["Memory Limit<br/>128 MB max"]
-        timeout["Timeout Guard<br/>epoch interruption"]
-        syscalls["WASI Preview1 — capability-based,<br/>preopened dirs only<br/>fd_read · fd_write · path_open · clock_time_get<br/>proc_exit · environ_get · random_get"]
+    guest["Guest WASM Module<br/>(one execution)"]
+    subgraph surface["Capability surface — the guest sees only what the host granted"]
+        p1["WASI Preview1 (shipped default)<br/>preopened dirs only:<br/>fd_read · fd_write · path_open · clock_time_get<br/>proc_exit · environ_get · random_get<br/>no exec, no fork, no socket entry point"]
+        p2["WASI 0.2 components (opt-in per call)<br/>sockets exist as an API —<br/>connect refused at call time,<br/>and a default run gets no preopen"]
     end
-    blocked["Blocked by design:<br/>exec · fork · socket · /dev · /proc · /sys · threads"]
-
-    guest --> syscalls
-    fuel -.-> sandbox
-    mem -.-> sandbox
-    timeout -.-> sandbox
-    sandbox -.-> blocked
+    subgraph meters["Enforced per run — the caller sizes them, the guest cannot switch them off"]
+        fuel["Fuel meter<br/>instruction-counted budget"]
+        mem["Memory limit<br/>bounded, host-set default"]
+        timeout["Timeout guard<br/>epoch interruption"]
+        walls["Output cap · I/O walls<br/>dangerous dirs refused (/dev · /proc · /sys)<br/>threads off in the engine config"]
+    end
+    guest --> p1
+    guest --> p2
+    fuel -.-> surface
+    mem -.-> surface
+    timeout -.-> surface
+    walls -.-> surface
 ```
 
 ## How the 8/8 is measured — probe equivalence detail
