@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -94,7 +94,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -182,7 +182,7 @@ jobs:
         run: python scripts/check_version_sync.py
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -229,7 +229,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -260,7 +260,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -277,10 +277,19 @@ jobs:
         # coverage — the test jobs own that).
         run: python -m pytest integration/test_mcp_sdk_client.py -v --tb=short -o addopts=""
 
-  # Stable gate name for branch protection. The matrix legs are `test (ubuntu-latest,
-  # 3.10)` … and those strings change whenever the matrix does, which silently
-  # un-required them; this job's name does not. `if: always()` so it reports even
-  # when a leg fails — and then fails itself, naming the legs that did.
+  # The required status check on `main` is this job's name, and it is configured:
+  # `required_status_checks.contexts == ["release-gate"]`, `strict: true`,
+  # `enforce_admins: true` (read back from the API after setting it, not assumed).
+  # It is an aggregate, not one of the matrix legs, on purpose: before this job
+  # existed `main` had no required check at all (`contexts: []`), so nothing gated
+  # a red commit, and a leg name like `test (ubuntu-latest, 3.10)` would have to be
+  # re-registered every time the matrix changes. `if: always()` makes it report
+  # even when a leg fails, and then it fails itself, naming the count and states.
+  # Measured, not inferred: the check also gates a DIRECT push. Pushing this very
+  # commit to `main` was refused with `GH006 … Required status check "release-gate"
+  # is expected` — a commit whose required checks have not reported cannot become
+  # `main` at all. The practical consequence for a solo repository is that work
+  # lands through a branch and a pull request, which is the point of the rule.
   release-gate:
     runs-on: ubuntu-latest
     needs: [test, coverage, build-recipes, security, test-bench, mcp-sdk-interop]

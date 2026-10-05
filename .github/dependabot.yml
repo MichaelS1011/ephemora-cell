@@ -12,11 +12,14 @@ updates:
       time: "04:00"
       timezone: "Europe/Berlin"
     open-pull-requests-limit: 5
-    # wasmtime is pinned exactly in requirements.txt and the pin is a security
-    # property (patch-level CVE state is checked by scripts/check_wasmtime_patch.py);
-    # a bump there is a reviewed decision, not an automated PR.
-    ignore:
-      - dependency-name: "wasmtime"
+    # No `ignore` for wasmtime on purpose. An ignore rule would suppress Dependabot
+    # for that name, and whether it also suppresses the security side is not
+    # documented in a source we could read as text today (docs.github.com serves
+    # this page only as a JS app) — so this file does not rest on it. A wasmtime
+    # bump stays a reviewed decision anyway: nothing here auto-merges, no
+    # merge-confidence or auto-merge rule is configured, and
+    # `scripts/check_wasmtime_patch.py` is the place that records which patch
+    # releases of the binding exist and why the pin is exactly 47.0.1.
     groups:
       python-dev:
         patterns:
@@ -38,3 +41,15 @@ updates:
     # Actions are referenced by full commit SHA here, so an update PR changes the
     # commit and the `# vN` comment together; the comment is documentation, the
     # SHA is what runs.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    # The base image is pinned by digest with the human-readable tag in a comment;
+    # this ecosystem is what lets that digest be moved deliberately instead of
+    # frozen until someone remembers. A refresh should re-check the tag/digest pair
+    # (the curl for `Docker-Content-Digest` is written next to the FROM line).

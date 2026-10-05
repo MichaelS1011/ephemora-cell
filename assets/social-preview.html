@@ -9,7 +9,7 @@
   }
   .topbar {
     display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 30px;
   }
   .eyebrow {
     color: #4a9eff; font-size: 26px; font-weight: 700; letter-spacing: 5px;
@@ -21,32 +21,33 @@
   }
   .pill i { font-style: normal; padding: 10px 14px; background: #12261a; color: #7ee2a8; }
   .pill b { font-style: normal; padding: 10px 14px; background: #238636; color: #ffffff; }
-  .cols { display: flex; gap: 46px; flex: 1; min-height: 0; }
-  .left { flex: 1.32; display: flex; flex-direction: column; }
-  h1 { font-size: 48px; line-height: 1.1; font-weight: 800; margin-bottom: 16px; }
+  .cols { display: flex; gap: 46px; flex: 1; min-height: 0; align-items: center; }
+  .left { flex: 0.88; display: flex; flex-direction: column; }
+  h1 { font-size: 76px; line-height: 1.04; font-weight: 800; letter-spacing: -1px; }
   h1 .dim { color: #4a9eff; }
-  .rule { width: 200px; height: 5px; background: #4a9eff; margin-bottom: 14px; }
-  .sub { font-size: 21px; line-height: 1.3; color: #b6c2cf; margin-bottom: 22px;
-         white-space: nowrap; }
-  .stats { display: flex; gap: 44px; margin-bottom: 24px; }
-  .stat b { display: block; font-size: 44px; font-weight: 800; color: #ffffff; line-height: 1; }
-  .stat span {
-    display: block; margin-top: 8px; font-size: 17px; line-height: 1.25;
-    color: #7d8590; font-weight: 600;
+  .rule { width: 200px; height: 5px; background: #4a9eff; margin: 20px 0 18px; }
+  .sub { font-size: 23px; line-height: 1.42; color: #b6c2cf; }
+  .flow {
+    display: flex; flex-wrap: nowrap; gap: 10px; align-items: center;
+    justify-content: center; margin: 4px 0 0; font-size: 20px; font-weight: 700;
   }
-  .proof { display: flex; flex-direction: column; gap: 12px; }
-  .proof div { font-size: 22px; line-height: 1.3; color: #b6c2cf; white-space: nowrap; }
-  .proof .tick { color: #3fb950; font-weight: 800; }
+  .flow span {
+    border: 1px solid #30363d; border-radius: 999px; padding: 7px 16px;
+    background: #161b22; color: #e6edf3;
+  }
+  .flow i { font-style: normal; color: #4a9eff; font-size: 22px; }
   .right { flex: 1; display: flex; flex-direction: column; justify-content: center;
            gap: 26px; }
   .term {
     background: #161b22; border: 1px solid #30363d; border-radius: 12px;
     padding: 22px 24px; font-family: "SF Mono", Menlo, monospace;
-    font-size: 21px; line-height: 1.85; white-space: nowrap;
+    font-size: 21px; line-height: 1.6; white-space: nowrap;
   }
   .term .p { color: #3fb950; }
   .term .c { color: #8b949e; }
   .term .o { color: #e6edf3; }
+  .term .r { color: #f85149; }
+  .term .g { color: #3fb950; }
   .cta {
     background: #12261a; border: 2px solid #238636; border-radius: 12px;
     padding: 20px 24px; font-family: "SF Mono", Menlo, monospace;
@@ -55,41 +56,40 @@
   }
   .cta .p { color: #3fb950; }
   .foot {
-    border-top: 1px solid #30363d; margin-top: 22px; padding-top: 16px;
+    border-top: 1px solid #30363d; margin-top: 26px; padding-top: 16px;
     display: flex; justify-content: space-between; align-items: baseline;
     font-size: 20px; color: #7d8590;
   }
   .foot .url { color: #4a9eff; font-weight: 700; font-size: 22px; }
 </style></head><body>
   <div class="topbar">
-    <div class="eyebrow">EPHEMORA CELL</div>
-    <div class="pill"><i>released</i><b>v1.0.5 &middot; on PyPI</b></div>
+    <div class="eyebrow">EXECUTION BOUNDARY</div>
+    <div class="pill"><i>source-available</i><b>BUSL-1.1</b></div>
   </div>
   <div class="cols">
     <div class="left">
-      <h1>Deterministic execution<br>for <span class="dim">untrusted</span> AI-generated code.</h1>
+      <h1>Ephemora<span class="dim">-cell</span></h1>
       <div class="rule"></div>
-      <div class="sub">Bounded, measured, reproducible &mdash; not &ldquo;isolated and hoped for&rdquo;.</div>
-      <div class="stats">
-        <div class="stat"><b>589</b><span>tests passing</span></div>
-        <div class="stat"><b>87%</b><span>coverage</span></div>
-        <div class="stat"><b>8/8</b><span>attack vectors blocked<br>macOS arm64 + DGX aarch64</span></div>
-      </div>
-      <div class="proof">
-        <div><span class="tick">&#10003;</span> <b>~0.5 ms warm</b> &middot; no network &middot; WASI-P1 conformant</div>
-      </div>
+      <div class="sub">Ephemeral, stateless, capability-bound execution<br>
+        for untrusted AI and agent-generated code.</div>
     </div>
     <div class="right">
       <div class="term">
-        <span class="c">$</span> <span class="o">ephemora-cell run untrusted.wasm</span><br>
-        <span class="p">&#10003;</span> <span class="o">stopped at exactly 100/100 fuel</span><br>
-        <span class="p">&#10003;</span> <span class="o">record signed &middot; DSSE v1 + JWS</span>
+        <span class="c">$</span> <span class="o">ephemora-cell run examples/fuel_bomb.wasm --json</span><br>
+        <span class="r">&nbsp;&nbsp;"status": "fuel_exhausted",</span><br>
+        <span class="o">&nbsp;&nbsp;"fuel_utilization": 1.0,</span><br>
+        <span class="c">$</span> <span class="o">python examples/signed_record_demo.py</span><br>
+        <span class="g">verify(intact): True</span><br>
+        <span class="r">verify(tampered): False</span>
       </div>
       <div class="cta"><span class="p">$</span> pip install ephemora-cell</div>
     </div>
   </div>
+  <div class="flow">
+    <span>create</span><i>&rarr;</i><span>constrain</span><i>&rarr;</i><span>execute</span><i>&rarr;</i><span>prove</span><i>&rarr;</i><span>destroy</span>
+  </div>
   <div class="foot">
     <div class="url">github.com/MichaelS1011/ephemora-cell</div>
-    <div>MCP Registry listed &middot; BUSL-1.1 (source-available) &middot; Python 3.10+ &middot; macOS &amp; Linux</div>
+    <div>WASM/WASI &middot; MCP &middot; Signed execution evidence</div>
   </div>
 </body></html>
