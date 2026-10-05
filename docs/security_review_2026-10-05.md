@@ -78,8 +78,8 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA: **939 passed / 4 skipped (943 collected)**, 90 % statement
-coverage; minimal install without `cryptography`: 834 passed / 66 skipped
+Suite on this SHA (`0712875`, re-verified clean clone): **939 passed / 4 skipped (943 collected)**, 89.9 % statement
+coverage (the README badge shows the rounded 90 %); minimal install in a checkout without `cryptography`: 834 passed / 66 skipped
 (900 collected), 81 %.
 
 ## Closed after the review by operator decision
