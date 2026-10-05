@@ -1,6 +1,6 @@
 # Recipes
 
-Additional usage recipes beyond the [README](../README.md#use-cases) examples.
+Additional usage recipes beyond the [README](../README.md#api-cli-and-integrations) examples.
 
 ## Choosing preopen directories (`allow_dirs`)
 

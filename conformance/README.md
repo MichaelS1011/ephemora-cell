@@ -7,6 +7,15 @@ sandbox: every test either passes, is a documented by-design deviation
 (`expectations.toml`), or is excluded by the runner because Cell does not
 declare that WASI version (preview 3).
 
+**Honest scope.** This is standards conformance, not a security
+certification: it measures whether Cell speaks WASI the way the spec says,
+and no third party certifies Cell. What makes it evidence rather than a claim
+is the pinned upstream commit, the committed per-date result JSON, and the
+weekly CI re-run that surfaces drift within a week. The security posture of
+the same sandbox is argued separately — see
+[docs/security_posture.md](../docs/security_posture.md) and
+[SECURITY.md](../SECURITY.md).
+
 ## Core spec suite (W3C Wasm 3.0 era)
 
 `conformance/run_core_spec.py` runs the **official WebAssembly core spec
@@ -25,14 +34,18 @@ count.
 .venv/bin/python conformance/run_core_spec.py   # requires wast2json (wabt)
 ```
 
-Latest run (2026-09-18, pinned `b464a4cd100d`, 257 files / ~36k commands,
+Latest run (2026-09-19, pinned `b464a4cd100d`, 257 files / ~36k commands,
 macOS arm64, wasmtime 47.0.1): **31,931 pass** — 3,282 classified
 deviations/limitations, 684 text-format skips, 46 documented binding-level
-NaN-bit remainder; zero unexpected sandbox-policy failures.
+NaN-bit remainder; zero unexpected sandbox-policy failures. Evidence:
+`conformance/results/core_spec_2026-09-19.json` (`date: 2026-09-19`).
 
 ## WASI suite
 
-## Run
+The rest of this file is the preview-1 wasi-testsuite run: the orchestrator, the
+runtime adapter, the by-design deviation list and the runner-instability note.
+
+### Run
 
 ```bash
 .venv/bin/python conformance/run_wasi_testsuite.py
@@ -50,7 +63,7 @@ Latest run (2026-09-14, pinned `609c44613995`, macOS arm64, wasmtime 47.0.1,
 ephemora-cell 1.0.1): **72 pass, 1 xfail (documented), 0 fail**; 55 preview-3
 tests skipped (Cell declares preview 1 only).
 
-## Adapter
+### Adapter
 
 `adapters/ephemora_cell.py` maps every test onto the real CLI execution
 path — conformance exercises the shipped command, not a private shortcut:
