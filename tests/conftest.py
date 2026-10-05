@@ -43,6 +43,9 @@ CHECKOUT_ONLY_MODULES = frozenset(
         "test_tool_signing.py",
         "test_component_probe_fixtures.py",
         "test_cli.py",
+        # ... and so is the guard that keeps this list honest: it reads
+        # MANIFEST.in and the directory shape of the repository.
+        "test_checkout_skip_policy.py",
     }
 )
 
