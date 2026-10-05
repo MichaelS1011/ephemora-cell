@@ -4,7 +4,7 @@
   "generated_at": "2026-09-10T19:26:49Z",
   "provenance": {
     "measured_against": "Ephemora Enterprise (proprietary execution pipeline)",
-    "note": "Sanitized public copy of the Enterprise evidence bundle. Enforcement internals (module identifiers, exit-code fingerprints, capability configuration) are redacted and intentionally omitted. The open-source Cell shares the WASI runtime design but was NOT scored by this run.",
+    "note": "Sanitized public copy of the Enterprise evidence bundle. Enforcement internals (module identifiers, exit-code fingerprints, capability configuration) are redacted and intentionally omitted. The source-available Cell shares the WASI runtime design but was NOT scored by this run.",
     "redaction": [
       "module identifiers and internal exit-code fingerprints",
       "capability configuration and manifest mechanics",
