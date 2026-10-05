@@ -215,9 +215,9 @@ self-validation. Scores are CoreMark's self-timed "Iterations/Sec":
 | wasm3 (external control, interpreter) | 5,566 (−89.92% vs bare) | 5,747 (−88.24% vs bare) |
 
 Read as facts, not a ranking: on this workload the engine choice spans a ~9–12×
-range depending on platform, the Cell sandbox layer costs 8.6–10.0% over the
-bare engine on the same machine, and instruction-level fuel metering a further
-12.5–14.7%. External engines are context, not competitors measured by Cell's
+range depending on platform, the Cell sandbox layer costs 8.6% (macOS arm64) to
+9.9% (DGX Spark GB10) over the bare engine on the same machine, and
+instruction-level fuel metering a further 12.6–14.7%. External engines are context, not competitors measured by Cell's
 API; wasmer requires `--enable-tail-call` (the build ships the upstream
 Lime1+tail-call feature set). Evidence with verbatim commands, versions and
 per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`.
