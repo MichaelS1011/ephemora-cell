@@ -107,7 +107,9 @@ exhausts any budget on any platform, which is what makes the assertion stable.
 ## See also
 
 - [README.md](../README.md) — the library, the CLI, the MCP server
-- [SECURITY.md](../SECURITY.md) — what each control guarantees and what it
+- [SECURITY.md](../SECURITY.md) — what each control enforces and what it
   explicitly does not
 - [docs/recipes.md](../docs/recipes.md) — CI gating, FastAPI, serverless,
   air-gapped validation
+- [LICENSE](../LICENSE) — BUSL-1.1, no warranty. The Action enforces the limits
+  this file documents and is provided on an "AS IS" basis.

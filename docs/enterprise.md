@@ -45,6 +45,14 @@ enterprise conversation makes sense:
 The enterprise edition exists for exactly this layer — built on Cell's
 isolation primitives, not around them.
 
+## No certification, no warranty
+
+Cell's evidence is standards conformance against upstream suites and red-team
+measurement we ran ourselves — not a certification, and no third party certifies
+Cell. Nothing in this document is a warranty: the Licensed Work is provided on
+an "AS IS" basis ([LICENSE](../LICENSE)), and a commercial licence for
+production use is an agreement with the Licensor, Michael Soppa.
+
 ## Contact
 
 - **Enterprise inquiries:** [LinkedIn — Michael Soppa](https://www.linkedin.com/in/michael-soppa)
