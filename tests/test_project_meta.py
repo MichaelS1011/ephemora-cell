@@ -76,12 +76,16 @@ def test_root_license_is_busl_1_1_with_all_parameters():
 
 
 def test_pyproject_declares_busl_license():
-    """pyproject.toml [project] license field is BUSL-1.1 (text-level
+    """pyproject.toml declares BUSL-1.1 as a PEP 639 SPDX expression (text-level
     check — no tomllib dependency on Python 3.10)."""
     text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
     assert (
-        'license = {text = "BUSL-1.1"}' in text
-    ), 'pyproject.toml must declare license = {text = "BUSL-1.1"}'
+        'license = "BUSL-1.1"' in text
+    ), 'pyproject.toml must declare license = "BUSL-1.1"'
+    # The expression supersedes License classifiers, and setuptools >=77 refuses
+    # to build a project that sets both. BUSL-1.1 is not OSI-approved, so the
+    # expression is the whole machine-readable claim.
+    assert "License ::" not in text, "remove the License classifier"
 
 
 def test_changelog_list_structure_is_intact():
