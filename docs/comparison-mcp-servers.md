@@ -6,6 +6,8 @@
 > re-counted against primary sources 2026-10-03: mcp.run/turboMCP, E2B,
 > Wassette, the MCP spec + registry posture and a new head-to-head section on
 > `astrid-runtime/astrid` (§4.3); §4.1's framing corrected the same day.
+> 2026-10-05: the §2 header's pre-release Cell version label removed — no
+> benchmark artifact preserves it, and no version is inferred retroactively.
 > **The §2 table remains a dated 2026-08-20 snapshot — it was not re-run on
 > 2026-10-03**, and its measured values are unchanged; only the Wassette
 > footnote carries the new date.
@@ -45,12 +47,14 @@ WASI Preview1 guests and a per-call cost receipt returned to the caller.
 
 ## 2. Local benchmarks (2026-08-20, macOS 26.5.1, Apple arm64)
 
-Node v22.23.1 · Python 3.14.3 · ephemora-cell-mcp 0.1.0 (Cell 2.1.1, wasmtime 47.0.1).
+Node v22.23.1 · Python 3.14.3 · ephemora-cell-mcp 0.1.0 · wasmtime 47.0.1.
 3 runs per candidate, median. Method: NDJSON over stdin, `time.perf_counter`,
 peak RSS via `ru_maxrss`; SDK values via the official MCP Python SDK 2.0.
 **Provenance:** the whole table is a dated, one-time snapshot from 2026-08-20
-taken with the method above. No single generator script reproduces it end to end
-and it is not tagged `measured: true`; treat every figure as reported, not
+taken with the method above. The Cell package version was not independently
+preserved in the benchmark artifact; no version is inferred retroactively. No
+single generator script reproduces it end to end and it is not tagged
+`measured: true`; treat every figure as reported, not
 re-runnable. Determinism, fuel, and SDK interop (see directly below) are the parts
 with checked-in, re-runnable evidence. Values may shift on other machines/builds.
 
@@ -310,7 +314,7 @@ the measurements in §2, §4.1, §4.2 and §5.
 | Network model | Host calls only. File paths, network hosts and tools are signed ed25519 grants — principal-bound, time-limited, globally revocable (documented, not run locally here) | No network in the guest (call-time socket denial measured, §4 item 1). Egress is host-mediated after the run (`--egress-allow`), allowlist + redirect/resolve-time SSRF revalidation; the 1.1.0 line (cut 2026-10-05, not yet published on PyPI) adds per-tool **signed-grant envelopes** whose time-limit, usage cap and revocation are enforced by a `GrantLedger` (ADR-013, fail-closed) — matching astrid's grant SHAPE on the local build path, and the grant is now AUTHENTICATED on load — a DSSE envelope signed by a key in an operator trust root kept outside the grants directory (`grant_trust.py`, ADR-013) — while revocation stays per next-call, not in-flight |
 | Evidence: per call vs. history | **History:** signed, hash-chained audit chain — every entry seals the hash of its predecessor, JSONL, one chain per principal, independently verifiable. **Per call:** no instruction or cost figure returned to the caller, consistent with the ledger's documented "no read/deny path yet" | **Per call:** `_meta.execution` cost receipt on every response, RFC 8785-canonicalizable and sign-ready (§4.1). **History:** none in the released 1.0.5 — receipts are not hash-linked there, so reordering or dropping them is not detectable from Cell's own output. The 1.1.0 line (not yet published on PyPI) adds `LedgerEntry` (ADR-011): a signed JSONL chain over both records of every run, linkage verifiable without a key |
 | Embedding / footprint | `brew install astrid` or `cargo install` (Rust 1.95+); filesystem access mounts through macOS FSKit (macOS 26+, signed app plus extension approval) or Linux FUSE; Windows is tested in CI but explicitly absent from the release archives. No footprint measured here | `pip install ephemora-cell`: 2 distributions, 36.2 MB site-packages, 52.3 MB peak RSS, importable as a library (§2, §4.2); no daemon, no FUSE/FSKit mount and no Node in the documented install path |
-| Maturity / reach | 10 279 stars, 141 forks, 25 watchers, 240 open issues, 889 PRs; repo created 2026-02-15, org `astrid-runtime` since 2026-07-10, last push 2026-10-03; release v2026.9.4 (2026-09-20); primary author Joshua J. Bouw with 698 of roughly 735 commits, company @unicitynetwork ("Unicity Labs": org since 2024-10, 80 public repos, 23 253 followers) | 46 stars (2026-10-03); release line 1.0.5 in `pyproject.toml`, `serverInfo` 0.1.0 in the dated §2 and §5.4 runs; suite measured 2026-10-04: 808 collected / 804 passing / 4 skipped |
+| Maturity / reach | 10 279 stars, 141 forks, 25 watchers, 240 open issues, 889 PRs; repo created 2026-02-15, org `astrid-runtime` since 2026-07-10, last push 2026-10-03; release v2026.9.4 (2026-09-20); primary author Joshua J. Bouw with 698 of roughly 735 commits, company @unicitynetwork ("Unicity Labs": org since 2024-10, 80 public repos, 23 253 followers) | 46 stars (2026-10-03); sources at 1.1.0 in `pyproject.toml` and `server.json`, with 1.0.5 still the newest published on PyPI; `serverInfo` 0.1.0 in the dated §2 and §5.4 runs; suite measured on the 2026-10-05 release gate: 956 collected / 952 passing / 4 skipped |
 | License | Dual "MIT OR Apache-2.0" ("at your option"), copyright "Joshua J. Bouw and Unicity Labs" | BUSL-1.1 (`LICENSE`), source-available rather than OSI-open, change date four years per version |
 
 **Where astrid is ahead.** It is a multi-principal platform: aggregation and

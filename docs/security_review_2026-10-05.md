@@ -169,6 +169,22 @@ specification's own `tools/call` example uses), and the append-log's no-`O_NOFOL
 fallback was dead code — opening a symlink on such a platform does not raise, so a
 check sitting in `except OSError` never ran. It is a pre-open check now.
 
+The final one came from the operator reading the release docs rather than from an
+agent: §2 of `docs/comparison-mcp-servers.md` attributed its 2026-08-20 benchmark to
+"Cell 2.1.1". Nothing supports that label. The pre-squash history that could have
+placed it is gone, no 2026-08-20 artifact is checked in (the earliest results dir is
+2026-08-25), and the one version record near that date — `11_sbom_audit.json` — lists
+`ephemora-cell 2.1.0`, a different number. So the label was removed rather than
+reinterpreted: rewriting it as 1.1.0 would have dated the table to a build it was
+never run on. `benchmarks/pocs/limits_poc/README.md` carried the same string in its
+own dated header and got the same treatment; the raw SBOM artifact was left exactly as
+recorded. The comparison doc now states the rule where the table is: the Cell version
+was not independently preserved, and no version is inferred retroactively. The
+adjacent maturity row was fixed in the same commit for the same class of reason — it
+still asserted "release line 1.0.5 in `pyproject.toml`", a present-tense claim that
+had been false since the 1.1.0 bump, and it carried a stale suite figure that the
+count guard does not see because that row uses no guarded phrasing.
+
 ## Not closed (deliberate, and the reason)
 
 1. **Key status is a startup property** — a key retired mid-run keeps the grants

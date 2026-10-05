@@ -1,6 +1,10 @@
 # Limits enforcement (Engine + MCP channel)
 
-> Measured 2026-08-20 · macOS 26.5.1 arm64 · wasmtime 47.0.1 · ephemora-cell 2.1.1
+> Measured 2026-08-20 · macOS 26.5.1 arm64 · wasmtime 47.0.1
+
+No Cell package version is claimed for this run: the number recorded next to the
+measurement belonged to a pre-release line that matches no published tag, and the
+artifact does not preserve one independently.
 
 Proves the Cell enforces its three resource limits **deterministically**,
 both through the Engine (`WASISandbox`) and through the MCP channel
