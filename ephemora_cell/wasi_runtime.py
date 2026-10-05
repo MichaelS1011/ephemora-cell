@@ -1069,6 +1069,8 @@ class WASISandbox:
             )
 
         except Exception as e:
+            if os.environ.get("CELL_DEBUG_TRACEBACK"):  # debug branch only
+                traceback.print_exc()
             elapsed_ms = (time.monotonic() - start_time) * 1000
             exit_code = 1
             exit_match = re.search(r"exit status (\d+)", str(e))

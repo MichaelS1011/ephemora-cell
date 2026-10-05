@@ -444,6 +444,10 @@ class ComponentSandbox:
                 effective_preopens=effective_preopens,
             )
         except Exception as exc:
+            if os.environ.get("CELL_DEBUG_TRACEBACK"):  # debug branch only
+                import traceback
+
+                traceback.print_exc()
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 exit_code=1,
