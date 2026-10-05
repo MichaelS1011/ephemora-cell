@@ -18,7 +18,7 @@ No execution state or authority is inherited implicitly. Explicit, bounded, host
 named state is a separate capability the host configures on purpose — a per-session
 convenience with its own entry and byte caps, not execution persistence and not storage.
 
-Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads** — the flow is `AI Agent / Application → Tool / Plugin / MCP → Ephemora-cell (capabilities · resource budgets · WASI sandbox · execution record) → WASM module`, drawn in the hero picture below.
+Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads** — the integration path is `AI Agent / Application → Tool / Plugin / MCP → Ephemora-cell → WASM module`. The picture below draws one execution of it: what the boundary grants, what it denies by default, and what survives.
 
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/"><img src="https://img.shields.io/pypi/v/ephemora-cell" alt="PyPI"></a>
@@ -57,7 +57,7 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
-    <img src="assets/hero-light.svg" alt="AI Agent → Ephemora-cell enforcement stack → bounded result">
+    <img src="assets/hero-light.svg" alt="One execution: an agent hands untrusted code to the Ephemora-cell capability boundary, which grants explicit capabilities and budgets, denies network and process access by default, and returns a bounded result with a signed record while the execution state is destroyed — create, constrain, execute, prove, destroy">
   </picture>
 </p>
 
@@ -492,9 +492,7 @@ For context, the same eight intents were measured against **gVisor** (`runsc`, p
 
 ¹ Hardened = exactly these flags — tell us which to add: `--network none --read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534` (image pinned by digest; Docker's default seccomp profile is active in **both** columns). Both hardened blocks are `--read-only` file-system effects — the flags wall the container *off*, not the guest *in*: socket creation, the container's own `/etc/passwd`, fork, threading and environment stay available to the guest.
 
-![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora-cell](assets/same-boundary.gif)
-
-*Same eight attack primitives, measured live: stock `python:3.12-slim` 0/8 blocked, hardened container 2/8 (both blocks are `--read-only` flag effects), Cell 8/8. Measured on two platforms with identical results — macOS arm64 (2026-09-18) and DGX Spark GB10 (2026-09-20, `benchmarks/results/2026-09-20/*-dgx-aarch64.json`). Reproduce:*
+*Same eight attack intents, measured live: stock `python:3.12-slim` 0/8 blocked, hardened container 2/8 (both blocks are `--read-only` flag effects), Cell 8/8. Measured on two platforms with identical results — macOS arm64 (2026-09-18) and DGX Spark GB10 (2026-09-20, `benchmarks/results/2026-09-20/*-dgx-aarch64.json`). Reproduce:*
 
 ```bash
 python assets/demo_attack_probe.py          # stock Docker    ->  0/8 blocked

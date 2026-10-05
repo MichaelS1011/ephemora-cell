@@ -110,7 +110,7 @@ HTML = """<!DOCTYPE html>
     </div>
     <div class="right">
       <div class="term">
-        <span class="c">$</span> <span class="o">ephemora-cell run examples/fuel_bomb.wasm</span><br>
+        <span class="c">$</span> <span class="o">ephemora-cell run examples/fuel_bomb.wasm --json</span><br>
         <span class="r">&nbsp;&nbsp;"status": "fuel_exhausted",</span><br>
         <span class="o">&nbsp;&nbsp;"fuel_utilization": 1.0,</span><br>
         <span class="c">$</span> <span class="o">python examples/signed_record_demo.py</span><br>
