@@ -273,19 +273,12 @@ documented per control in [SECURITY.md](SECURITY.md) and
 
 Around the sandbox sits a verifiable trust chain for third-party tools:
 
-```text
-TOOL ──▶ SIGNED MANIFEST ──▶ HOST VERIFY ──▶ EPHEMORA CELL ──▶ SIGNED EXECUTION
-        (vendor ships)     (fail-closed,      runs inside       RECORD
-                           hash + policy      the sandbox       (tamper-evident)
-                           check)
-```
-
-Anything failing verification is rejected before a single instruction executes — execution never depends on a happy path.
-
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/trust-chain-dark.svg">
   <img src="assets/trust-chain-light.svg" alt="Trust chain: vendor signs manifest, host verifies fail-closed, Cell sandbox runs, signed execution record">
 </picture>
+
+Anything failing verification is rejected before a single instruction executes — execution never depends on a happy path.
 
 - **Signed tool manifests, governed loading.** Third-party tools ship an Ed25519-signed manifest
   (RFC 8785 JCS); the server verifies signature **and module hash** before registering, and a bare
