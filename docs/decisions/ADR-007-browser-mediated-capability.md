@@ -28,7 +28,7 @@ missing functionality.
    - no socket ever touches the guest — the guest sees only the request
      file and (optionally) a bounded result file.
 3. **Hybrid delivery:**
-   - a small **reference sidecar** ships in an open-source Cell release
+   - a small **reference sidecar** ships in a source-available Cell release
      to prove the pattern end to end (measured, with the honesty gate:
      claimed only after it runs in CI);
    - a **governed enterprise module** (fleet orchestration, evidence

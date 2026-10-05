@@ -5,7 +5,7 @@
 > (LinkedIn, 2026-09).
 >
 > **Measured against:** Ephemora **Enterprise** (the proprietary execution pipeline),
-> run `20260910T192649`. The open-source Cell shares the WASI runtime design but was
+> run `20260910T192649`. The source-available Cell shares the WASI runtime design but was
 > **not scored** by this run — reproduction requires the Enterprise stack.
 >
 > **What is redacted and why:** enforcement internals — module identifiers, exit-code

@@ -19,7 +19,7 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/"><img src="https://img.shields.io/pypi/v/ephemora-cell" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License: BUSL-1.1 (source-available; converts to Apache-2.0 four years after each release)"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License: BUSL-1.1 (source-available; each version converts to Apache-2.0 four years after its first publicly available distribution)"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell"><img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers"><img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell" alt="GitHub stars"></a>
 </p>
@@ -364,9 +364,11 @@ Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/th
 Ephemora-cell is licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1) — source-available, not open source.
 
 - **Free for non-production use** — evaluation, development, research, testing.
-- **Business/production use requires a license from Ephemora** — see [docs/enterprise.md](docs/enterprise.md).
-- **Automatic conversion:** each version converts to **Apache 2.0** four years after its first public release.
-- **License history by version:** versions ≤ 1.0.4.3 are Apache-2.0. Versions 1.0.5 and later are BUSL-1.1 ([ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md)).
+- **Business/production use before the applicable Change Date requires a license from the Licensor, Michael Soppa** — see [docs/enterprise.md](docs/enterprise.md).
+- **Automatic conversion:** each version converts to **Apache 2.0** four years after its first publicly available distribution.
+- **License history by version:** versions ≤ 1.0.4.3 are Apache-2.0. Versions 1.0.5 and later are BUSL-1.1 ([ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md) carries each version's first public distribution date and its Change Date).
+- **No warranty:** the Licensed Work is provided on an "AS IS" basis, with all warranties and conditions disclaimed, in the terms the [LICENSE](LICENSE) states.
+- **Third-party material** is not relicensed here: what ships or is referenced under another license is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Ephemora-cell is the standalone execution boundary — no Ephemora dependency. The Ephemora enterprise edition builds on this boundary for production and regulated deployments: Cell is complete for isolation, the enterprise edition is complete for operation.
 

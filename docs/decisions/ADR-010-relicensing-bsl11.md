@@ -116,3 +116,51 @@ relicense and enforce. The clause is mirrored in `CONTRIBUTING.md`
   licensor/copyright role. The licensor role for future versions can move
   to the incorporated AG once it exists (per-version licensor identity);
   the copyright line is uniform across LICENSE, headers, and docs.
+
+
+## Licensor identity, and what each version converts on (register 2026-10-06)
+
+**Rights continuity.** The Licensor and copyright holder of every published
+version — 1.0.0 through 1.1.0, Apache and BUSL alike — is Michael Soppa as a
+natural person. The "Ephemora AG (in formation), Zug, Switzerland" line that
+`370a02f` (2026-09-11) put into the Apache-2.0 appendix travelled into the
+published artifacts of 1.0.1 through 1.0.4.3; the entity was being formed, was
+never incorporated, and never held rights. `e9e0bcd` (2026-09-29, "an AG in
+formation cannot yet hold the role") corrected the text six minutes before the
+1.0.5 upload, so no BUSL artifact carries it. PyPI artifacts are immutable, so
+the correction is recorded here and in the `LICENSE` appendix rather than in
+those files. The license metadata of every one of those versions was and remains
+correct: `License: Apache-2.0` on 1.0.0–1.0.4.3, `License: BUSL-1.1` on 1.0.5 and
+later — the defect was the rights-holder name, not the license.
+
+When the AG exists, the licensor role can move to it for future versions
+(per-version licensor identity); that would not retroactively change who held
+the rights for the versions already published.
+
+**Change Date per version.** The `LICENSE` sets the Change Date as the fourth
+anniversary of each version's first publicly available distribution, so the
+date is a property of the release record, not of this file. Measured from the
+earliest public artifact of each version (PyPI upload time, compared against the
+GitHub release where one exists):
+
+| Version | First public distribution | Earliest surface | Change Date | License as published |
+|---------|-------------------------|------------------|-------------|----------------------|
+| 1.0.0   | 2026-08-30 17:49:21 UTC | PyPI             | 2030-08-30  | Apache-2.0           |
+| 1.0.1   | 2026-09-11 19:57:44 UTC | PyPI             | 2030-09-11  | Apache-2.0           |
+| 1.0.2   | 2026-09-17 12:46:48 UTC | PyPI             | 2030-09-17  | Apache-2.0           |
+| 1.0.3   | 2026-09-17 12:53:13 UTC | PyPI             | 2030-09-17  | Apache-2.0           |
+| 1.0.4   | 2026-09-21 18:19:54 UTC | PyPI             | 2030-09-21  | Apache-2.0           |
+| 1.0.4.1 | 2026-09-23 10:09:07 UTC | GitHub release   | 2030-09-23  | Apache-2.0           |
+| 1.0.4.2 | 2026-09-24 22:18:22 UTC | PyPI             | 2030-09-24  | Apache-2.0           |
+| 1.0.4.3 | 2026-09-25 19:24:01 UTC | GitHub release   | 2030-09-25  | Apache-2.0           |
+| 1.0.5   | 2026-09-29 18:24:12 UTC | PyPI             | 2030-09-29  | BUSL-1.1             |
+| 1.1.0   | 2026-10-05 10:08:29 UTC | PyPI             | 2030-10-05  | BUSL-1.1             |
+
+Two gaps worth naming rather than smoothing over: **1.0.4 has no git tag and no
+GitHub release** — the PyPI artifact is its only public record, which is why the
+license line above was read from that artifact (`License: Apache-2.0`, Apache
+`LICENSE` inside the wheel). And for 1.0.4.1 and 1.0.4.3 the GitHub release
+preceded the PyPI upload by minutes; the Change Date is day-precise, so nothing
+moves, but the earliest surface differs from the other eight rows. Re-measure
+this table by hand at each release; `scripts/check_test_count.py` guards test
+counts, not dates.
