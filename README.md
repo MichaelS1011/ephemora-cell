@@ -15,8 +15,8 @@ evidence of what happened, and ends without carrying execution state into the ne
 **Ephemeral. Stateless. Capability-bound. Verifiable.**
 
 No execution state or authority is inherited implicitly. Explicit, bounded, host-managed
-named state is a separate capability, not execution persistence — and it is named as such
-in every run's record.
+named state is a separate capability the host configures on purpose — a per-session
+convenience with its own entry and byte caps, not execution persistence and not storage.
 
 Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads** — the flow is `AI Agent / Application → Tool / Plugin / MCP → Ephemora-cell (capabilities · resource budgets · WASI sandbox · execution record) → WASM module`, drawn in the hero picture below.
 
@@ -125,10 +125,9 @@ explicitly, and every grant shows up in the run's own record.
 Agent-generated code is different from application code: it can be buggy, computationally
 unbounded, unexpectedly expensive — or hostile. The runtime must **enforce** boundaries,
 not document them — enforced budgets and deterministic loop-stop are specified in the
-[Security model](#security-model) and measured in [Security](#security). What makes a Cell
-result different from a return value is that it carries its own audit:
-
-Every execution answers three questions at once — attached to the result as `_meta.execution`, canonicalized (RFC 8785 JCS) and signable:
+[Security model](#security-model) and measured in [Security](#security). And a Cell result is
+not just a return value: every execution answers three questions at once, attached to it as
+`_meta.execution`, canonicalized (RFC 8785 JCS) and signable:
 
 | | Answer | Example fields |
 |---|---|---|
@@ -231,11 +230,13 @@ time and output**. Granting any of those is an explicit, recorded host decision.
 **Security is never opt-in.** Every execution — in-process or isolated — runs under
 enforced limits (fuel, memory, wall-clock, output caps: always on; the guest cannot reach
 them off and the caller sets their size, not their existence). Two deliberate exceptions
-exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may
-load) and `allow_fsync` (whether WASI sync calls are permitted) — both attested in the
-signed baseline, neither widened by any profile. The one thing you choose is the process
-boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside
-your own build — agent output, third-party plugins, PR-contributed code. The enforced
+exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load
+— 32 MiB everywhere except the `interpreter` profile, which raises it to 512 MiB for
+bring-your-own guests) and `allow_fsync` (whether WASI sync calls are permitted — no shipped
+profile turns it on; only an explicit `--allow-fsync` does). Both are attested in the signed
+baseline, so a widened run never reads like a default one. The one thing you choose is the
+process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from
+outside your own build — agent output, third-party plugins, PR-contributed code. The enforced
 defaults:
 
 | Resource | Default |
@@ -263,8 +264,9 @@ proposal quietly flipped to default-on. Cell keeps that surface at zero and pays
 
 Additional controls — I/O budgets (`io_cpu_seconds` / `io_budget_bytes`: walls for host work, not
 just guest compute), dual-ABI (Preview1 + WASI 0.2 components, opt-in), memory64 opt-in, GC-heap
-declared cap, bounded named state (64 entries · 256 KiB · 1 MiB per session) and host-mediated
-egress — are documented per control in [SECURITY.md](SECURITY.md) and
+declared cap, bounded named state (a host-supplied `StateStore`: 64 entries · 256 KiB per value ·
+1 MiB total, [ADR-004](docs/decisions/ADR-004-named-state.md)) and host-mediated egress — are
+documented per control in [SECURITY.md](SECURITY.md) and
 [docs/egress_patterns.md](docs/egress_patterns.md).
 
 ## Execution records
@@ -531,7 +533,7 @@ Latency by path, including the two MCP server modes and the isolated subprocess 
 
 Throughput on this host: the one-liner path sustains **~3M executions/hour** per core (n=500, `hello.wasm`, Mac M5 — regenerate with the snippet in [docs/recipes.md](docs/recipes.md)); the pooled hot-loop path reaches **~5.5M/hour**.
 
-**Sandbox tax on an industry-standard workload:** on EEMBC CoreMark 1.01 the Cell layer costs **8.6–10.0 %** over the bare wasmtime engine on the same machine, and instruction-level fuel metering a further 12.5–14.7 % — measured on macOS arm64 and DGX Spark GB10 against wasmer and wasm3 as external controls. Full matrix, per-run scores and reproduce command: [docs/performance.md#sandbox-tax](docs/performance.md).
+**Sandbox tax on an industry-standard workload:** on EEMBC CoreMark 1.01 the Cell layer costs **8.6–10.0 %** over the bare wasmtime engine on the same machine, and instruction-level fuel metering a further 12.5–14.7 % — measured on macOS arm64 and DGX Spark GB10 against wasmer and wasm3 as external controls. Full matrix, per-run scores and reproduce command: [docs/performance.md](docs/performance.md#sandbox-tax-on-an-industry-standard-workload-eembc-coremark-101).
 
 Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competitive_benchmark.py` · `python benchmarks/coremark_wasi.py --rounds 3` (raw results with `measured:true` committed under `benchmarks/results/`). Agentic workloads, cold/warm detail and the third-party positioning: [docs/performance.md](docs/performance.md).
 
@@ -555,7 +557,10 @@ result.fuel_consumed
 result = run_isolated("tool.wasm", config=WASIConfig(max_fuel=500_000))
 ```
 
-Named state, disk quotas and GC-heap caps are `WASIConfig` knobs; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
+Disk quota (`disk_quota_bytes`) and the GC-heap cap (`max_gc_heap_mb`) are `WASIConfig` knobs;
+named state is a host-supplied `StateStore` passed to the run, not a config flag; the component
+path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md)
+has the recipes (FastAPI, serverless, air-gapped, WASI 0.2).
 
 **CLI** — five verbs cover the loop:
 
@@ -573,7 +578,7 @@ ephemora-cell ledger    Verify a run chain: linkage and order, and what it canno
 
 **Cell is:** the minimal execution boundary for untrusted code — a WASM/WASI sandbox with explicit capabilities and budgets, a resource-accounted runtime, an embeddable Python library, a CLI, an MCP execution layer.
 
-**Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It holds no state you are meant to come back to: name-value state is a bounded, per-session convenience (`max_state_entries` · bytes per value · per-session budget), not storage, and authority never survives a run.
+**Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It holds no state you are meant to come back to: named state is a bounded, host-supplied convenience (`StateStore(max_entries=64, max_value_bytes=256 KiB, max_total_bytes=1 MiB)`, [ADR-004](docs/decisions/ADR-004-named-state.md)), not storage, and authority never survives a run.
 
 Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Cell is optimized for bounded executions, not long-running service workloads — for full Linux service semantics, use an appropriate container or microVM boundary (see [docs/performance.md](docs/performance.md) for the measured third-party comparison).
 
