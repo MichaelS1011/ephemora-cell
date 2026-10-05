@@ -1,6 +1,6 @@
 # Security Posture — Detail
 
-Detail page for [README.md](../README.md#security). Policy and reporting: [SECURITY.md](SECURITY.md).
+Detail page for [README.md](../README.md#security). Policy and reporting: [SECURITY.md](../SECURITY.md).
 
 ## Security Posture
 
@@ -188,3 +188,72 @@ README keeps the measured result table):
   (`01_hardened_docker_attack_probe.json` ·
   `02_docker_attack_probe.json` · `03_cell_8_vector_verify.json`) +
   historical `benchmarks/results/2026-09-02/`
+
+## Evidence ladder (moved out of the README on 2026-10-05)
+
+The README keeps the summary and the link; the ladder with its reproduce
+commands is the reviewer's entry point and lives here. Strongest first — every
+row is measured, the raw evidence is committed, and each run is reproducible:
+
+| # | Evidence | What it proves | How it is measured | Reproduce |
+|---|---|---|---|---|
+| 1 | [MCP CVE replays](../benchmarks/mcp_cve_replay.py) | Real exploit paths of two patched CVEs are denied at the engine level; governed loading fails closed on a tampered payload — also verified on WASI 0.2 components, with a **measured call-time socket denial** | Pinned vulnerable reference server vs Cell, random marker tokens, positive controls on both sides | `python benchmarks/mcp_cve_replay.py` |
+| 2 | [SandboxEscapeBench-18 mapping](../benchmarks/sandbox_escape_18.py) | 18 container/K8s escape scenarios mapped to WASM: **8 execution-tested and denied, 10 not expressible** on the WASI surface | Structural mapping + live attempts, granted-preopen positive control | `python benchmarks/sandbox_escape_18.py` |
+| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (matrix in [README](../README.md#security)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
+| 4 | [Official WASI conformance](../conformance/README.md) | 72 pass / 1 documented xfail / 0 fail against the pinned upstream suite — re-run weekly in CI (weekly ubuntu runs land 71–72 on varying fs tests; a documented runner quirk, not a Cell defect) | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
+| 5 | [2026 probe classes](../benchmarks/probe_classes_2026.py) | The CVE-2026-47261 companion FS vectors (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
+| 6 | [Cross-architecture determinism](comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |
+
+### Where the 18 scenarios come from, and what the mapping does
+
+Not ours: the UK AI Security Institute's *SandboxEscapeBench*
+([arXiv 2603.02277](https://arxiv.org/abs/2603.02277), scenarios:
+[UKGovernmentBEIS/sandbox_escape_bench](https://github.com/UKGovernmentBEIS/sandbox_escape_bench),
+MIT) documents 18 ways code escapes container/Kubernetes sandboxes. This suite
+does something narrower: each scenario is mapped to its closest WASM/WASI
+equivalent and executed against Cell, no model in the loop. The primitives those
+escapes rely on (privileged modes, namespaces, cgroups, raw sockets) do not
+exist on the WASI surface; the scenarios with a WASM-expressible equivalent
+(filesystem, sockets) are denied by the live boundary. Prompt-injection and
+agent-behavior security are a different layer — out of scope for an execution
+sandbox by design; the wider agentic escape evaluation is part of the Ephemora
+enterprise edition ([enterprise.md](enterprise.md)).
+
+## CVE replay detail (moved out of the README on 2026-10-05)
+
+The official MCP reference servers have real, patched CVEs against this exact
+surface. [`benchmarks/mcp_cve_replay.py`](../benchmarks/mcp_cve_replay.py)
+replays them as their original exploit paths — pinned vulnerable reference
+server vs. Cell, same files, positive controls on both sides (2026-09-17,
+`measured:true`):
+
+- **CVE-2025-53109/53110** ("EscapeRoute", symlink escape + prefix traversal):
+  the vulnerable reference server **leaked** the protected file in both intents;
+  Cell blocked both at the engine level (`EPERM`/`ENOTCAPABLE`) — with the
+  granted-capability control reading successfully on both sides.
+- **CVE-2025-54136 class** ("MCPoison", payload swap after trust): a signed tool
+  is accepted once, then a single tampered wasm byte makes the next governed-load
+  request **fail closed** (hash mismatch).
+- **Same replays against WASI 0.2 components**
+  ([evidence](../benchmarks/results/2026-09-18/mcp_cve_replay_component.json),
+  `abi: "component"`): the component path denies the same escape intents
+  (symlink escape → `EPERM`, traversal → no preopen base) and the same
+  governed-load tamper fails closed. The network vector gets its own intent —
+  the WASI 0.2 world *links* `wasi:sockets` (unlike Preview1), so a TCP connect
+  is attempted under the sandbox and **refused at call time**, with the
+  granted-read control passing in the same run.
+
+## Why now — 2026 literature on container and scanner boundaries
+
+*(Literature, `measured:false` for Cell. These rows never mix with the measured
+table above; they are why the measured table is the thing we publish.)*
+
+[SABER — the SandboxEscapeBench program](https://arxiv.org/abs/2603.02277)
+(UK AI Security Institute & Oxford, ICML 2026) shows frontier models **reliably
+escaping Docker containers** through common misconfigurations. Trail of Bits
+researchers (Judson & Hess, 2026) bypassed **five** agent-skill scanners and
+sandbox defenses in one study, and the DDIPE skill-poisoning attack
+([arXiv 2604.03081](https://arxiv.org/abs/2604.03081)) measures 11.6–33.5%
+bypass rates against agent skill ecosystems. The pattern across all three:
+scanning and container defaults fail; the boundary that holds is the one
+**enforced between the code and the host**.
