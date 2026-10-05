@@ -130,14 +130,22 @@ produced 16 failures + 4 errors where this document had recorded **803 passed /
 predicate now keys on `docs/` + `scripts/` (never shipped by a distribution,
 always present in a clone or a source export), `tests/test_checkout_skip_policy.py`
 (5) pins both halves, and the re-measurement is **753 passed / 136 skipped / 0
-errors** in the container with a native control run at 763/127/0. The single
-remaining container failure is `test_100_parallel_runs_no_fd_exhaustion`: it
-passes natively (macOS 3/3, native linux/amd64) and fails only under
-amd64-under-QEMU emulation, because the `io_cpu_seconds` watchdog charges the
-emulated worker's interpreter+wasmtime startup (~0.25 s) against a 2.0 s budget
-while the guest itself needs 12 ms natively. Recorded as an emulation artefact
-plus an open accounting question (absolute vs delta worker CPU), not as a passed
-gate and not as a product defect.
+errors** in the container with a native control run at 763/127/0 — itself a
+figure that needed re-measuring, see below.
+
+**The container leg, measured twice more since:** at `7f9e860` on a quiet host the
+clean room is **fully green — 770 passed / 138 skipped / 0 failures, 0 errors**
+(exit 0). Under concurrent host load the same tree reported two failures
+(`test_100_parallel_runs_no_fd_exhaustion` and `test_run_isolated_component`), and
+both passed when run standalone in the same container and natively (5.88 s). So the
+earlier sentence "exactly one failure, QEMU-only" was too narrow: what is actually
+observed is that the `io_cpu_seconds` watchdog can refuse legitimate isolated runs
+when the host is contended, because it compares ABSOLUTE worker CPU — interpreter and
+engine startup, inflated ~70x by amd64-under-QEMU emulation and further by scheduler
+pressure — against a fixed budget, while the guest itself needs ~12 ms. That is open
+item 9 below, recorded as an accounting question with a reproduction condition, not
+as a passed gate and not as a product defect. A packaging claim that only holds when
+nobody else is using the machine is a claim about the machine.
 
 ## A third pass: this branch's own documentation audited against its own code
 
@@ -197,7 +205,8 @@ check sitting in `except OSError` never ran. It is a pre-open check now.
    today (verified against both binaries), but the gate is not reproducible by
    construction. Pinning it changes CI, so it is the operator's call rather than a
    silent edit during a freeze.
-10. **`io_cpu_seconds` counts the whole worker process, startup included.** The
+10. **The passing count is host-dependent, the collection is not.**
+    contended host can therefore refuse a legitimate run.** The
     watchdog compares absolute `getrusage(RUSAGE_SELF)`; the report's
     `io_cpu_used_seconds` is a delta from process start. The message now quotes the
     compared value, so the two no longer contradict each other, but the underlying
@@ -206,7 +215,7 @@ check sitting in `except OSError` never ran. It is a pre-open check now.
     release does not make it. Measured consequence: 100 parallel isolated runs pass
     natively (0.01 s guest CPU, 12 ms) and fail 4-6 of 100 under amd64-under-QEMU
     emulation, where startup alone costs 0.4-1.8 s.
-9. **The passing count is host-dependent, the collection is not.** Of the 4
+9. **`io_cpu_seconds` counts the whole worker process, startup included — and a Of the 4
    toolchain skips in `tests/test_builder.py`, three run because a toolchain is
    missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
    host the same commit reports 950 passed / 3 skipped. `check_test_count.py`

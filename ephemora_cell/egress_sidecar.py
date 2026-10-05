@@ -535,9 +535,12 @@ def execute_request(
         # no rebinding window between checking the URL and connecting.
         with (
             _egress_context(resolver),
-            opener.open(  # nosec B310 — scheme is
-                # pinned to http/https by _url_matches_allowlist (request) and the
-                # redirect revalidator (every hop); no file:/ftp: path reaches here.
+            # Scheme is pinned to http/https by _url_matches_allowlist (the
+            # request) and by the redirect revalidator (every hop): no file:/ftp:
+            # path reaches this call. The suppression is on its own token so
+            # bandit does not read the trailing prose as test IDs.
+            opener.open(  # nosec B310
+                # (see the comment above for why no arbitrary scheme can arrive here)
                 req,
                 timeout=timeout_seconds,
             ) as resp,
