@@ -1,0 +1,40 @@
+# Dependency update automation. Scoped deliberately: the two ecosystems this
+# repo actually resolves from. `pip-audit` in CI remains the vulnerability gate
+# for the pinned runtime set (`requirements.txt`); Dependabot adds the alerts and
+# the fix PRs, including for the workflow pins below.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    # wasmtime is pinned exactly in requirements.txt and the pin is a security
+    # property (patch-level CVE state is checked by scripts/check_wasmtime_patch.py);
+    # a bump there is a reviewed decision, not an automated PR.
+    ignore:
+      - dependency-name: "wasmtime"
+    groups:
+      python-dev:
+        patterns:
+          - "pytest"
+          - "pytest-cov"
+          - "black"
+          - "ruff"
+          - "mypy"
+          - "bandit"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    # Actions are referenced by full commit SHA here, so an update PR changes the
+    # commit and the `# vN` comment together; the comment is documentation, the
+    # SHA is what runs.

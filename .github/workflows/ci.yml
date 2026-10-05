@@ -35,7 +35,7 @@ jobs:
           # (>=43.0.1,<48). --no-deps keeps the pinned version instead of
           # downgrading.
           python -m pip install -r requirements.txt
-          python -m pip install "pytest<9" pytest-cov
+          python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           # tools-signing extra: the signing-chain tests run for real, not
           # skipped (they importorskip cryptography for bare environments)
           python -m pip install "cryptography>=42"
@@ -56,7 +56,7 @@ jobs:
 
       - name: Lint (black + ruff)
         run: |
-          python -m pip install black ruff
+          python -m pip install "black==26.10.0" "ruff==0.16.10"
           # ephemora_cell_mcp/ was previously un-linted; the MCP surface ships in the
           # same wheel and is now gated identically (verified clean before this line).
           python -m black --check ephemora_cell/ ephemora_cell_mcp/ tests/
@@ -64,7 +64,7 @@ jobs:
 
       - name: Type check (mypy, non-strict — decision D4)
         run: |
-          python -m pip install mypy
+          python -m pip install "mypy==2.4.0"
           # bare `python -m mypy` had no targets/config and checked nothing (silent
           # green no-op). Real targets now: the two shipped packages must stay clean.
           # verified green locally: `Success: no issues found in 22 source files`.
@@ -103,7 +103,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install "pytest<9" pytest-cov
+          python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
 
@@ -158,7 +158,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install -e ".[dev]"
+          python -m pip install -e . --no-deps
+          python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
 
       # Real toolchain builds (rust + go) run in CI
       - name: Run builder tests with real toolchains
@@ -166,8 +167,12 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
-    permissions:
-      actions: write
+    # No job-level `permissions:` override: the workflow default is `read-all`.
+    # Two other workflows already upload artifacts under `read-all` and their
+    # upload steps report success ("WASI Conformance" run 36416665803,
+    # "Linux Benchmark" run 36420197406), so the SBOM upload here needs no more;
+    # this run's own `Upload SBOM` step is the check that the claim holds for this
+    # job too. An extra `actions: write` would be surface, not need.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -187,7 +192,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -e . --no-deps
-          python -m pip install pip-audit cyclonedx-bom
+          python -m pip install "pip-audit==2.10.1" "cyclonedx-bom==7.5.0"
 
       - name: CVE scan (pip-audit)
         run: |
@@ -199,7 +204,7 @@ jobs:
       # surfaces; ruff already covers test code style/correctness.
       - name: SAST (bandit)
         run: |
-          python -m pip install bandit
+          python -m pip install "bandit==1.9.4"
           bandit -r ephemora_cell/ ephemora_cell_mcp/ -ll
 
       # SBOM from the INSTALLED environment (true dependency tree,
@@ -264,10 +269,36 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-          python -m pip install "pytest<9" -e ".[integration]"
+          python -m pip install "pytest==8.4.2" -e ".[integration]"
 
       - name: Official MCP SDK interop
         # -o addopts= drops the project-wide coverage addopts: this job
         # installs pytest without pytest-cov on purpose (interop, not
         # coverage — the test jobs own that).
         run: python -m pytest integration/test_mcp_sdk_client.py -v --tb=short -o addopts=""
+
+  # Stable gate name for branch protection. The matrix legs are `test (ubuntu-latest,
+  # 3.10)` … and those strings change whenever the matrix does, which silently
+  # un-required them; this job's name does not. `if: always()` so it reports even
+  # when a leg fails — and then fails itself, naming the legs that did.
+  release-gate:
+    runs-on: ubuntu-latest
+    needs: [test, coverage, build-recipes, security, test-bench, mcp-sdk-interop]
+    if: always()
+    steps:
+      - name: All required legs green?
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "leg results: $RESULTS"
+          python - <<'PY'
+          import json, os, sys
+          results = json.loads(os.environ["RESULTS"])
+          bad = [r for r in results if r != "success"]
+          if bad:
+              print(f"::error::release-gate: {len(bad)} of {len(results)} required legs not "
+                    f"successful ({', '.join(bad)}). A cancelled or skipped leg counts as "
+                    "not-green on purpose: it proves nothing.")
+              sys.exit(1)
+          print(f"release-gate: all {len(results)} required legs success")
+          PY
