@@ -592,10 +592,31 @@ range. Triage per advisory:
   2): every mediated connect resolves hostnames through a filter that drops
   loopback/RFC1918/CGNAT/link-local/multicast/reserved addresses,
   validate-and-connect in one step; an IP-literal allowlist entry is operator
-  intent and stays reachable. Hardened 2026-10-04 on three fronts: (a) the
+  intent and stays reachable. **The classification is Cell's own special-use
+  registry (`_V4_REFUSED` / `_V6_REFUSED`), not `ipaddress.is_private` /
+  `is_reserved`.** That is a measured requirement, not a preference: those
+  properties changed meaning across CPython patch releases — 3.10.11, 3.11.8 and
+  3.11.9 answered "global" for `2002:7f00:1::` (6to4 embedding 127.0.0.1) while
+  refusing `::ffff:8.8.8.8`, and 3.12.10+ refused the whole `2002::/16`
+  including public-embedded addresses. A boundary built on them moved when the
+  interpreter was patched, and CI on macOS + 3.10.11 caught exactly that on
+  2026-10-05. Now the embedded IPv4 is read from the packed bytes for the three
+  families that carry one (`::ffff:0:0/96`, `2002::/16`, `64:ff9b::/96`) and
+  judged against the IPv4 registry — the notation is never the authority — and
+  every other address is judged against the IPv6 registry. Gated by a frozen
+  67-address decision set (50 refused / 17 reachable) whose decision vector is
+  byte-identical across ten CPython builds: 3.10.11, 3.10.20, 3.11.8, 3.11.9,
+  3.11.15, 3.12.10, 3.12.13, 3.13.0, 3.13.14, 3.14.7. A further gate flips
+  `is_private`/`is_reserved`/`is_global` on `IPv6Address` to the opposite answer
+  and requires every decision to hold, which is what proves the stdlib is not
+  being consulted. Reverting the classification to stdlib semantics = 6 red on
+  3.10.11. Hardened 2026-10-04 on three fronts: (a) the
   filtered families now include scoped IPv6 (`fe80::1%eth0`), both metadata
   addresses, IPv4-mapped IPv6 (`::ffff:127.0.0.1`) and 6to4/NAT64 forms that
-  embed a private v4 address; (b) **an ambient `http_proxy` used to defeat the
+  embed a private v4 address — described then, actually delivered by the
+  registry above, which also refuses `2001::/23` (Teredo: its embedded address
+  is obfuscated, so it is not decidable) and `3fff::/20`, `5f00::/8`,
+  `192.88.99.0/24`; (b) **an ambient `http_proxy` used to defeat the
   guard** — urllib resolves the PROXY, never the URL host, so the filter vetted
   the wrong address and the real resolution happened on a third party's box; the
   mediated fetch now builds its opener with `ProxyHandler({})` and goes direct;

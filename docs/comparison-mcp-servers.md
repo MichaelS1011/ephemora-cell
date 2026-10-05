@@ -199,7 +199,7 @@ retrieved 2026-10-03):**
    measurement, §3), no container latency (Docker wrapper: +490 ms, a
    third-party figure from EnkryptAI's walkthrough, not a Docker value).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 952 CI-enforced
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 957 CI-enforced
    tests (4 skipped) with security gates (pip-audit, SBOM, bandit) and an
    active release line; Wassette itself declares itself "not production ready".
    Status 2026-10-03: Wassette v0.8.0 lists memory, CPU-time and execution-time
@@ -314,7 +314,7 @@ the measurements in §2, §4.1, §4.2 and §5.
 | Network model | Host calls only. File paths, network hosts and tools are signed ed25519 grants — principal-bound, time-limited, globally revocable (documented, not run locally here) | No network in the guest (call-time socket denial measured, §4 item 1). Egress is host-mediated after the run (`--egress-allow`), allowlist + redirect/resolve-time SSRF revalidation; the 1.1.0 line (cut 2026-10-05, not yet published on PyPI) adds per-tool **signed-grant envelopes** whose time-limit, usage cap and revocation are enforced by a `GrantLedger` (ADR-013, fail-closed) — matching astrid's grant SHAPE on the local build path, and the grant is now AUTHENTICATED on load — a DSSE envelope signed by a key in an operator trust root kept outside the grants directory (`grant_trust.py`, ADR-013) — while revocation stays per next-call, not in-flight |
 | Evidence: per call vs. history | **History:** signed, hash-chained audit chain — every entry seals the hash of its predecessor, JSONL, one chain per principal, independently verifiable. **Per call:** no instruction or cost figure returned to the caller, consistent with the ledger's documented "no read/deny path yet" | **Per call:** `_meta.execution` cost receipt on every response, RFC 8785-canonicalizable and sign-ready (§4.1). **History:** none in the released 1.0.5 — receipts are not hash-linked there, so reordering or dropping them is not detectable from Cell's own output. The 1.1.0 line (not yet published on PyPI) adds `LedgerEntry` (ADR-011): a signed JSONL chain over both records of every run, linkage verifiable without a key |
 | Embedding / footprint | `brew install astrid` or `cargo install` (Rust 1.95+); filesystem access mounts through macOS FSKit (macOS 26+, signed app plus extension approval) or Linux FUSE; Windows is tested in CI but explicitly absent from the release archives. No footprint measured here | `pip install ephemora-cell`: 2 distributions, 36.2 MB site-packages, 52.3 MB peak RSS, importable as a library (§2, §4.2); no daemon, no FUSE/FSKit mount and no Node in the documented install path |
-| Maturity / reach | 10 279 stars, 141 forks, 25 watchers, 240 open issues, 889 PRs; repo created 2026-02-15, org `astrid-runtime` since 2026-07-10, last push 2026-10-03; release v2026.9.4 (2026-09-20); primary author Joshua J. Bouw with 698 of roughly 735 commits, company @unicitynetwork ("Unicity Labs": org since 2024-10, 80 public repos, 23 253 followers) | 46 stars (2026-10-03); sources at 1.1.0 in `pyproject.toml` and `server.json`, with 1.0.5 still the newest published on PyPI; `serverInfo` 0.1.0 in the dated §2 and §5.4 runs; suite measured on the 2026-10-05 release gate: 956 collected / 952 passing / 4 skipped |
+| Maturity / reach | 10 279 stars, 141 forks, 25 watchers, 240 open issues, 889 PRs; repo created 2026-02-15, org `astrid-runtime` since 2026-07-10, last push 2026-10-03; release v2026.9.4 (2026-09-20); primary author Joshua J. Bouw with 698 of roughly 735 commits, company @unicitynetwork ("Unicity Labs": org since 2024-10, 80 public repos, 23 253 followers) | 46 stars (2026-10-03); sources at 1.1.0 in `pyproject.toml` and `server.json`, with 1.0.5 still the newest published on PyPI; `serverInfo` 0.1.0 in the dated §2 and §5.4 runs; suite measured on the 2026-10-05 release gate: 961 collected / 957 passing / 4 skipped |
 | License | Dual "MIT OR Apache-2.0" ("at your option"), copyright "Joshua J. Bouw and Unicity Labs" | BUSL-1.1 (`LICENSE`), source-available rather than OSI-open, change date four years per version |
 
 **Where astrid is ahead.** It is a multi-principal platform: aggregation and
@@ -453,7 +453,7 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 956 collected tests today (measured 2026-10-05) — 952 passing (4 skipped)
+comprises 961 collected tests today (measured 2026-10-05) — 957 passing (4 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.

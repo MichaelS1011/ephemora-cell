@@ -18,6 +18,30 @@ weaker.
 
 ### Security
 
+- **The resolve-time SSRF filter classified by CPython patch release, and on
+  3.10.11 / 3.11.8 / 3.11.9 a 6to4 address embedding 127.0.0.1 was reachable.**
+  `_ip_blocked` delegated the whole decision to `ipaddress.is_private` /
+  `is_reserved`, whose coverage of 6to4, NAT64 and IPv4-mapped space changed
+  across patch releases: 3.10.11, 3.11.8 and 3.11.9 answered "global" for
+  `2002:7f00:1::` — 127.0.0.1 written as 6to4 — and simultaneously refused
+  `::ffff:8.8.8.8`, so the same build both under-blocked a loopback spelling and
+  over-blocked a public one. 3.12.10 and 3.13.0 refused the entire `2002::/16`,
+  including public-embedded addresses. Measured across ten CPython builds before
+  the fix: three distinct decision sets. Classification now comes from Cell's own
+  special-use registry, and the three families that carry an IPv4 destination
+  (`::ffff:0:0/96`, `2002::/16`, `64:ff9b::/96`) are decoded from the packed
+  bytes and judged by that destination — the notation is never the authority.
+  Refused additionally: `2001::/23` (Teredo — its embedded address is
+  obfuscated, so it is not decidable), `3fff::/20`, `5f00::/8`,
+  `192.31.196.0/24`, `192.88.99.0/24`. Gates: a frozen 67-address decision set
+  (50 refused / 17 reachable) that is byte-identical on 3.10.11, 3.10.20, 3.11.8,
+  3.11.9, 3.11.15, 3.12.10, 3.12.13, 3.13.0, 3.13.14 and 3.14.7, plus a gate
+  that flips `is_private`/`is_reserved`/`is_global` on `IPv6Address` to the
+  opposite answer and requires every decision to hold. Reverting the
+  classification to stdlib semantics = 6 red on 3.10.11. Found by the release CI
+  matrix, not by the local gate: the local suite ran 3.12 and 3.13 builds where
+  the hole did not exist.
+
 - **The host followed a symlink the guest planted — arbitrary file write as the
   server's own user.** WASI refuses an **absolute** `path_symlink` target
   (ENOTCAPABLE) and accepts a **relative** one, so a guest could create

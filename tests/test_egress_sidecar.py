@@ -1471,6 +1471,131 @@ class TestSSRFAdversarialFamilies:
         ):
             assert not _ip_blocked(ip), ip
 
+    # --- interpreter independence of the embedded-family classification ------
+    # `ipaddress.is_private` / `is_reserved` are not a stable security boundary.
+    # Measured across CPython patch releases: 3.10.11 / 3.11.8 / 3.11.9 let
+    # 2002:7f00:1:: (6to4 embedding loopback) THROUGH and refused ::ffff:8.8.8.8,
+    # while 3.12.10 and 3.13.0 refused the whole 2002::/16 — including
+    # 2002:0808:0808::, whose embedded address is public. Same input, different
+    # decision, depending on which interpreter the operator happened to install.
+    # These gates pin the classification to Cell's own registry instead.
+
+    def test_embedded_ipv4_is_read_from_the_bytes(self):
+        """6to4 / NAT64 / IPv4-mapped are only notations for an IPv4 target."""
+        from ephemora_cell.egress_sidecar import _embedded_ipv4
+
+        assert _embedded_ipv4("::ffff:127.0.0.1") == "127.0.0.1"
+        assert _embedded_ipv4("::ffff:8.8.8.8") == "8.8.8.8"
+        assert _embedded_ipv4("2002:7f00:1::") == "127.0.0.1"
+        assert _embedded_ipv4("2002:0808:0808::") == "8.8.8.8"
+        assert _embedded_ipv4("64:ff9b::7f00:1") == "127.0.0.1"
+        assert _embedded_ipv4("64:ff9b::808:808") == "8.8.8.8"
+        # addresses that do not embed an IPv4 must not be forced through the
+        # extraction path (they are classified by the v6 registry)
+        for other in (
+            "2001:db8::1",
+            "fe80::1",
+            "2001::1",
+            "2606:2800:220:1:248:1893:25c8:1946",
+            "8.8.8.8",
+            "not-an-address",
+        ):
+            assert _embedded_ipv4(other) is None, other
+
+    def test_the_embedded_target_decides_not_the_notation(self):
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        # private / special-use behind any of the three embeddings: refused
+        for ip in (
+            "2002:7f00:1::",
+            "::ffff:127.0.0.1",
+            "64:ff9b::a9fe:a9fe",  # 169.254.169.254 — cloud metadata via NAT64
+            "::ffff:169.254.169.254",
+            "2002:0a00:1::",  # 10.0.0.0/8 via 6to4
+        ):
+            assert _ip_blocked(ip), ip
+        # public behind the same embeddings: reachable, on every interpreter
+        for ip in (
+            "::ffff:8.8.8.8",
+            "2002:0808:0808::",
+            "64:ff9b::808:808",
+            "::ffff:93.184.216.34",
+        ):
+            assert not _ip_blocked(ip), ip
+
+    def test_flipping_the_stdlib_properties_moves_no_decision(self, monkeypatch):
+        """The proof that the guard does not consult `is_private`/`is_reserved`
+        for these families: forcing each of them to the opposite answer on every
+        IPv6 address must leave every classification unchanged."""
+        import ipaddress
+
+        from ephemora_cell import egress_sidecar as es
+
+        blocked = ("2002:7f00:1::", "::ffff:127.0.0.1", "64:ff9b::7f00:1", "fe80::1")
+        reachable = ("::ffff:8.8.8.8", "2002:0808:0808::", "64:ff9b::808:808")
+        for prop in ("is_private", "is_reserved", "is_global"):
+            for value in (True, False):
+                monkeypatch.setattr(
+                    ipaddress.IPv6Address,
+                    prop,
+                    property(lambda self, _v=value: _v),
+                )
+                for ip in blocked:
+                    assert es._ip_blocked(ip), f"{prop}={value} flipped {ip}"
+                for ip in reachable:
+                    assert not es._ip_blocked(ip), f"{prop}={value} flipped {ip}"
+
+    def test_registry_covers_the_special_use_ranges_it_claims(self):
+        """Written against Cell's own list, so a CPython that stopped flagging
+        one of these ranges could not silently open it here."""
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        for ip in (
+            "0.0.0.0",
+            "0.0.0.1",  # 0.0.0.0/8, not only the all-zeros address
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.88.99.1",
+            "198.18.0.1",
+            "198.19.255.255",
+            "203.0.113.9",
+            "224.0.0.1",
+            "239.255.255.255",
+            "240.0.0.1",
+            "255.255.255.255",
+            "::",
+            "::1",
+            "100::1",  # discard-only
+            "2001::1",  # Teredo: its embedded v4 is obfuscated, so refused
+            "2001:10::1",  # ORCHID / ORCHIDv2 (inside 2001::/23)
+            "2001:20::1",
+            "2001:db8::1",
+            "3fff::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "fe80::1%eth0",
+            "ff02::1",
+        ):
+            assert _ip_blocked(ip), ip
+
+    def test_public_space_around_the_registry_stays_reachable(self):
+        """Positive controls for the same edges: the list must not grow into a
+        block-everything filter."""
+        from ephemora_cell.egress_sidecar import _ip_blocked
+
+        for ip in (
+            "8.8.8.8",
+            "1.1.1.1",
+            "100.128.0.1",  # just above 100.64.0.0/10
+            "169.253.255.255",  # just below 169.254.0.0/16
+            "192.1.1.1",
+            "2001:db9::1",  # just outside the documentation prefix
+            "2003::1",
+            "2001:400::1",  # above 2001::/23 and 2001:100::/32, unassigned
+            "6000::1",  # just above 5f00::/8
+        ):
+            assert not _ip_blocked(ip), ip
+
     def test_multi_a_record_keeps_only_public_in_original_order(self):
         from ephemora_cell.egress_sidecar import (
             _egress_context,

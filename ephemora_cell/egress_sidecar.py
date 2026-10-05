@@ -96,26 +96,122 @@ class _SSRFBlocked(Exception):
 #: Addresses an egress host may never resolve to. An allowlist entry that is an
 #: IP *literal* is operator intent and bypasses this; only hostnames — the
 #: surface a rebinding attack drives — are filtered.
-_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+#:
+#: This is Cell's own registry, deliberately NOT `ipaddress.is_private` /
+#: `is_reserved`. Those properties are not a stable security boundary: their
+#: coverage of 6to4, NAT64, IPv4-mapped and IPv6 documentation space changed
+#: across CPython patch releases (measured on 3.10.11, 3.11.8, 3.11.9, 3.12.10,
+#: 3.13.0, 3.10.20, 3.11.15, 3.12.13, 3.13.14, 3.14.7 — e.g. 3.10.11 answers
+#: "global" for `2002:7f00:1::`, which is 127.0.0.1 written in 6to4, while
+#: 3.12.10 answers "private" for the whole 2002::/16 including public-embedded
+#: addresses). A boundary that moves when the interpreter is patched is not a
+#: boundary. Contents: iana-ipv4-special-registry / iana-ipv6-special-registry,
+#: non-globally-routable entries only.
+_V4_REFUSED = tuple(
+    ipaddress.ip_network(c)
+    for c in (
+        "0.0.0.0/8",  # this host on this network (includes 0.0.0.0)
+        "10.0.0.0/8",  # RFC 1918
+        "100.64.0.0/10",  # shared address space / CGNAT
+        "127.0.0.0/8",  # loopback — the whole /8, not just .1
+        "169.254.0.0/16",  # link local (cloud metadata lives here)
+        "172.16.0.0/12",  # RFC 1918
+        "192.0.0.0/24",  # IETF protocol assignments
+        "192.0.2.0/24",  # documentation (TEST-NET-1)
+        "192.31.196.0/24",  # AS112-DNS
+        "192.88.99.0/24",  # 6to4 relay anycast (deprecated)
+        "192.168.0.0/16",  # RFC 1918
+        "198.18.0.0/15",  # benchmarking
+        "198.51.100.0/24",  # documentation (TEST-NET-2)
+        "203.0.113.0/24",  # documentation (TEST-NET-3)
+        "224.0.0.0/4",  # multicast
+        "240.0.0.0/4",  # reserved, includes 255.255.255.255
+    )
+)
+
+#: IPv6 prefixes refused as-is. The three families that EMBED an IPv4
+#: (IPv4-mapped, 6to4, NAT64 well-known) are not listed here: they are decoded
+#: and their target is judged by :data:`_V4_REFUSED` instead, because the
+#: notation is not the destination.
+_V6_REFUSED = tuple(
+    ipaddress.ip_network(c)
+    for c in (
+        "::/128",  # unspecified
+        "::1/128",  # loopback
+        "64:ff9b:1::/48",  # NAT64 local/intermediate prefix (no embedded target)
+        "100::/64",  # discard-only
+        "2001::/23",  # Teredo, ORCHID, ORCHIDv2
+        "2001:100::/32",  # IANA reservation
+        "2001:db8::/32",  # documentation
+        "3fff::/20",  # documentation
+        "5f00::/8",  # IETF template / unassigned
+        "fc00::/7",  # unique local
+        "fe80::/10",  # link local
+        "ff00::/8",  # multicast
+    )
+)
+
+
+def _parse_address(ip: str):
+    """Parse an address, dropping any IPv6 scope id.
+
+    A scope id does not change where the address routes, and equality between a
+    scoped and an unscoped address is interpreter-version sensitive — comparing
+    the number is not.
+    """
+    addr = ipaddress.ip_address(ip)
+    if addr.version == 6 and getattr(addr, "scope_id", None):
+        addr = ipaddress.IPv6Address(int(addr))
+    return addr
+
+
+def _embedded_ipv4_of(addr) -> ipaddress.IPv4Address | None:
+    """The IPv4 an IPv6 address stands for, read from its bytes.
+
+    Covers the three families that carry an IPv4 destination rather than an
+    IPv6 one: ``::ffff:0:0/96`` (mapped), ``2002::/16`` (6to4) and
+    ``64:ff9b::/96`` (NAT64 well-known). Computed from ``packed`` on purpose:
+    ``IPv6Address.embedded_ipv4_address`` exists only on recent CPython, and
+    ``is_private`` answers differently per patch release for these forms.
+    """
+    if addr.version != 6:
+        return None
+    raw = addr.packed
+    if raw[:2] == b"\x20\x02":  # 2002::/16 — 6to4 puts the IPv4 in bytes 2..5
+        return ipaddress.IPv4Address(raw[2:6])
+    if raw[:12] == b"\x00" * 10 + b"\xff\xff":  # ::ffff:0:0/96 — IPv4-mapped
+        return ipaddress.IPv4Address(raw[12:16])
+    # 64:ff9b::/96 is 00 64 ff 9b + eight zero bytes: the first hextet is 0x0064,
+    # not 0x64.
+    if raw[:4] == b"\x00\x64\xff\x9b" and raw[4:12] == b"\x00" * 8:
+        return ipaddress.IPv4Address(raw[12:16])
+    return None
+
+
+def _embedded_ipv4(ip: str) -> str | None:
+    """String form of :func:`_embedded_ipv4_of`; ``None`` if this is not an
+    address or embeds no IPv4."""
+    try:
+        addr = _parse_address(ip)
+    except ValueError:
+        return None
+    embedded = _embedded_ipv4_of(addr)
+    return str(embedded) if embedded is not None else None
 
 
 def _ip_blocked(ip: str) -> bool:
     try:
-        addr = ipaddress.ip_address(ip)
+        addr = _parse_address(ip)
     except ValueError:
         return True  # unparseable — fail closed
-    if (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_multicast
-        or addr.is_reserved
-        or addr.is_unspecified
-    ):
-        return True
-    # RFC 6598 CGNAT is not flagged is_private on every Python release, but it
-    # routes to provider-side space no egress should reach.
-    return addr.version == 4 and addr in _CGNAT
+    if addr.version == 4:
+        return any(addr in net for net in _V4_REFUSED)
+    embedded = _embedded_ipv4_of(addr)
+    if embedded is not None:
+        # 6to4/NAT64/mapped are spellings of an IPv4 destination: judge the
+        # destination, never the notation.
+        return any(embedded in net for net in _V4_REFUSED)
+    return any(addr in net for net in _V6_REFUSED)
 
 
 def _is_ip_literal(host: str) -> bool:

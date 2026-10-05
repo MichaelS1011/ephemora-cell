@@ -185,6 +185,53 @@ still asserted "release line 1.0.5 in `pyproject.toml`", a present-tense claim t
 had been false since the 1.1.0 bump, and it carried a stale suite figure that the
 count guard does not see because that row uses no guarded phrasing.
 
+## A fourth pass: the release CI matrix caught what every local pass had missed
+
+The release was signed off on a local gate that ran CPython 3.12/3.13-class builds
+on one machine. The pushed CI matrix — 2 OSes × 3.10/3.11/3.12/3.13 — came back red
+in two places, on two supported interpreter builds: macos-latest + 3.11.9 (2 failures)
+and macos-latest + 3.10.11 (21 failures). The same matrix was green on the previous
+release SHA `c466158` with identical interpreter patch versions, so both findings
+belong to this branch.
+
+| # | Finding | Sev | Closure | Red when reverted |
+|---|---|---|---|---|
+| 1 | **The resolve-time SSRF filter decided by CPython patch release.** `_ip_blocked` was six `ipaddress` properties plus a CGNAT network. Those properties are not stable across patch releases: `2002:7f00:1::` — 127.0.0.1 written as 6to4 — was "global" on 3.10.11, 3.11.8 and 3.11.9 and "private" from 3.12.10 on, while `::ffff:8.8.8.8` was "reserved" (refused) on the old builds and reachable on the new, and 3.12.10+ refused the whole `2002::/16` including public-embedded addresses. A boundary whose meaning changes when the operator patches Python is not a boundary, and the direction that mattered was the permissive one: on the oldest supported build a hostname could resolve to loopback through the guard | P1 | Cell's own special-use registry replaces the stdlib predicates. The three families that carry an IPv4 destination (`::ffff:0:0/96`, `2002::/16`, `64:ff9b::/96`) are decoded from `packed` bytes and judged by the DESTINATION; Teredo (`2001::/23`) is refused outright because its embedded address is obfuscated and therefore undecidable. A frozen 67-address decision set (50 refused / 17 reachable) is byte-identical on ten CPython builds: 3.10.11, 3.10.20, 3.11.8, 3.11.9, 3.11.15, 3.12.10, 3.12.13, 3.13.0, 3.13.14, 3.14.7 (identical sha256 over the decision vector). A further gate flips `is_private`/`is_reserved`/`is_global` on `IPv6Address` to the opposite answer and requires every decision to hold, which is what proves the stdlib is not consulted | 6 on 3.10.11 |
+| 2 | **19 guest runs returned `ExecutionStatus.ERROR` with `list indices must be integers or slices, not function`** on macos-latest + 3.10.11 in the release run — Preview1 and Component paths, engine and MCP channel alike | open | Not yet root-caused; see the four measurements below. The interpreter build and wasmtime are ruled out, and so is the machine: the same runner passed both the minimal runs and a full suite with `--no-cov` | — |
+
+Measurements for #2, in order, all on the runner that failed (macos-26-arm64,
+CPython 3.10.11 from the actions python-versions build, wasmtime
+`47.0.1-py3-none-macosx_11_0_arm64`):
+
+1. Raw wasmtime with no Cell code, same guest shape, zero fuel: traps
+   `all fuel consumed` as expected. wasmtime and the interpreter build are not
+   sufficient.
+2. One minimal Cell run through `WASISandbox`: `FUEL_EXHAUSTED` / `SUCCESS` /
+   `SUCCESS` (in-process, default, isolated subprocess). Cell's happy path works
+   on that machine.
+3. The two failing pytest cases run alone: `2 passed`. So the failure needs the
+   rest of the suite in the same process.
+4. The whole suite with `--no-cov --tb=line`: `948 passed / 2 failed` — only the
+   SSRF pair, no defect-B string anywhere in the log. So coverage instrumentation
+   or the `-v --tb=short` invocation the release job uses is the remaining
+   difference; a round-3 diagnostic run pins it.
+
+Locally, CPython 3.10.11 (python-build-standalone, same macOS major version and
+arch) with pytest 8.4.2 and the repo's coverage addopts runs the whole suite green
+except the same two SSRF cases — the standalone build does not reproduce it either.
+
+**Rules this round adds.**
+
+* The release gate must include the CI matrix itself; a local gate that runs one
+  interpreter generation proves nothing about `requires-python = ">=3.10"`.
+* "No known P0 bypass remains" is a claim about the OLDEST supported interpreter
+  first, because that is where a stdlib-semantics assumption is most likely to
+  still hold.
+* A security decision that is derived from stdlib semantics is a dependency on a
+  release note. Own the registry, and gate the decision set for
+  interpreter-independence — including the direction that over-blocks, because a
+  positive control is part of a filter's definition.
+
 ## Not closed (deliberate, and the reason)
 
 1. **Key status is a startup property** — a key retired mid-run keeps the grants
