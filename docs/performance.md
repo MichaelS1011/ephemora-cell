@@ -195,3 +195,56 @@ Cost density (engine ~14 MB warm + <1 MB per guest vs ~50 MB per Docker containe
 throughput in the 10M calls/h/core class, savings 100–350x) comes from a local
 cost-density run whose raw log is not committed (`07_cost_density.log`, gitignored) —
 treat it as an order-of-magnitude indicator, not committed evidence.
+
+## Sandbox tax on an industry-standard workload (EEMBC CoreMark 1.01)
+
+Moved out of the README on 2026-10-05 so the landing page carries one number
+instead of a matrix; the measurement and its reading live here.
+
+The same committed `coremark.wasm` (EEMBC CoreMark 1.01, pinned sources,
+wasi-sdk-34) runs interleaved under three Cell configurations and, when their
+CLIs are on PATH, under external engines — every run must pass CoreMark's own
+self-validation. Scores are CoreMark's self-timed "Iterations/Sec":
+
+| Median score (n=3 interleaved) | macOS arm64 (wasmtime 47.0.1, wasmer 7.4.2, wasm3 0.9.0) | DGX Spark GB10 aarch64 (artifact header: Wasm3 v0.9.1 on arm64-v8a) |
+|---|---|---|
+| bare wasmtime (reference) | 55,204 | 48,860 |
+| **Cell sandbox** | 50,456 (**−8.60%**) | 44,040 (**−9.86%**) |
+| Cell + fuel metering | 43,054 (−14.67% vs sandbox) | 38,491 (−12.60% vs sandbox) |
+| wasmer (external control) | 63,798 (+15.57% vs bare) | 53,735 (+9.98% vs bare) |
+| wasm3 (external control, interpreter) | 5,566 (−89.92% vs bare) | 5,747 (−88.24% vs bare) |
+
+Read as facts, not a ranking: on this workload the engine choice spans a ~9–12×
+range depending on platform, the Cell sandbox layer costs 8.6–10.0% over the
+bare engine on the same machine, and instruction-level fuel metering a further
+12.5–14.7%. External engines are context, not competitors measured by Cell's
+API; wasmer requires `--enable-tail-call` (the build ships the upstream
+Lime1+tail-call feature set). Evidence with verbatim commands, versions and
+per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`.
+Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
+
+## Throughput per core (2026-09-14, Mac M5)
+
+| Path | Executions/hour per core | How |
+|---|---|---|
+| One-liner (`run_wasm`, fresh sandbox per call) | **~3M** | n=500, `hello.wasm`, snippet in [recipes.md](recipes.md) |
+| Pooled hot loop (cached engine, `io_budget_bytes=None`) | **~5.5M** | same workload, engine reused across calls |
+
+Both are single-core numbers on one machine on one date; they order the two
+paths relative to each other, not against other products.
+
+## Latency by execution path
+
+Five different paths, five different numbers — the README's MCP section quotes
+this table, so it is stated once here with what each row costs and why:
+
+| Path | Per call | Why |
+|---|---|---|
+| Library, pooled engine (`io_budget_bytes=None`) | ~0.5 ms | cached engine, trusted workloads |
+| Library, default per-run engine | ~0.9 ms | fresh engine per run so the I/O wall holds |
+| Library, `run_isolated()` | ~10–100 ms | disposable worker process, OS rlimits, hard kill |
+| MCP stdio server, default | ~12 ms | fresh sandbox per `tools/call` — the ADR-002 I/O wall enforced via a per-run engine, measured end-to-end |
+| MCP stdio server, `--pooled` | ~0.5 ms | verified tools on the pooled engine; the relaxed I/O wall is attested in `get-policy` |
+
+Sources: `benchmarks/pool_vs_budget.py`, `benchmarks/results/2026-09-14/`, and
+the MCP numbers in [mcp.md](mcp.md).
