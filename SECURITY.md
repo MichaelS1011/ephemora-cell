@@ -2,16 +2,19 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.0.x   | ✅ Yes             |
+| Version | Supported | Notes |
+| ------- | --------- | ----- |
+| 1.1.x   | ✅ Yes | Current — source-available under BUSL-1.1 |
+| 1.0.x   | ✅ Yes | Mixed licence inside the line: ≤ 1.0.4.3 Apache-2.0, 1.0.5 BUSL-1.1 |
 
 Earlier internal milestones (pre-public, 2026-08) are not published and
-not supported — upgrade to the current release.
+not supported — upgrade to the current release. Fixes are developed on the
+current release; where an advisory names an older version, that is because the
+mitigation shipped there, not because the old line still receives updates.
 
 ## Reporting a Vulnerability
 
-We take security vulnerabilities seriously. If you discover a security issue in Ephemora Cell, please report it responsibly.
+We take security vulnerabilities seriously. If you discover a security issue in Ephemora-cell, please report it responsibly.
 
 **Do NOT open a public GitHub issue.**
 
@@ -57,7 +60,7 @@ Please include:
 
 ### Known Limitations
 
-Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platform. Documented limitations include:
+Ephemora-cell is an isolated WASM sandbox, not a full security enforcement platform. Documented limitations include:
 
 - **I/O costs minimal fuel:** `fd_write` calls run on the host and consume ~27 fuel/write
   on the stdout path (~1.18MB theoretical before exhaustion at default 1M fuel); preopen
@@ -152,7 +155,7 @@ Threat model (adversary model, trust boundaries, residual risks):
 found, what was closed with a test that bites, and what is deliberately left open):
 [docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md).
 
-Ephemora Cell relies on:
+Ephemora-cell relies on:
 - **WASM Memory Safety:** Bounds-checked memory access (no buffer overflows)
 - **WASI Preview1 / WASI 0.2:** Capability-based filesystem access (only preopened directories; the effective per-ABI grant is attested in the execution report's `security_baseline.preopens`)
 - **Resource Limits:** Fuel metering (CPU), memory caps (128MB default), wall-clock timeout (30s default)
