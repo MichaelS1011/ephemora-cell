@@ -32,6 +32,15 @@ TRIVIAL_WAT = b"""
 """
 
 
+SPIN_WAT = b"""
+(module
+  (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (loop $spin (br $spin))))
+"""
+
+
 def _write_module(tmp_path: Path, wat: bytes, name: str = "module.wasm") -> Path:
     path = tmp_path / name
     path.write_bytes(wasmtime.wat2wasm(wat))
@@ -400,6 +409,42 @@ class TestWorkerRlimits:
     def test_nofile_capped(self):
         calls = self._capture_rlimits(WASIConfig(max_memory_mb=128))
         assert calls[_FakeResource.RLIMIT_NOFILE] == (256, 256)
+
+
+class TestIoCpuWallReporting:
+    """The wall and the message must name the same number.
+
+    `io_cpu_seconds` is compared against the worker's ABSOLUTE process CPU (the
+    meter the design chose: every host syscall the guest induces lands in the
+    worker's own CPU). The refusal reported the run-attributable DELTA instead, so
+    an operator read "worker used 0.47s CPU (io_cpu_seconds=2.0)" — a number below
+    the budget it claimed to have exceeded, measured under QEMU emulation. Refusing
+    was right; the message lied.
+    """
+
+    def test_the_breach_quotes_the_value_the_watchdog_compared(self, tmp_path):
+        import re
+
+        from ephemora_cell import WASIConfig
+
+        wasm = _write_module(tmp_path, SPIN_WAT, "spin.wasm")
+        result = run_isolated(
+            str(wasm),
+            WASIConfig(
+                io_cpu_seconds=0.3,
+                max_fuel=10_000_000_000,
+                timeout_seconds=30,
+            ),
+        )
+        assert result["status"] == ExecutionStatus.ERROR, result["stderr"]
+        text = result["stderr"] or ""
+        assert "I/O budget exceeded" in text, text
+        cited = re.search(r"worker used ([\d.]+)s absolute process CPU", text)
+        assert cited is not None, text
+        # The invariant: a refusal never cites a figure below its own budget.
+        assert float(cited.group(1)) >= 0.3, text
+        # And the delta is still reported, labelled as what it is.
+        assert "attributable to this run" in text, text
 
 
 class TestParallelIsolation:

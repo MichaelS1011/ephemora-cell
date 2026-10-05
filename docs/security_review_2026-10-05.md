@@ -78,9 +78,9 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA: **938 passed / 4 skipped (942 collected)**, 90 % statement
-coverage; minimal install without `cryptography`: 833 passed / 66 skipped
-(899 collected), 81 %.
+Suite on this SHA: **939 passed / 4 skipped (943 collected)**, 90 % statement
+coverage; minimal install without `cryptography`: 834 passed / 66 skipped
+(900 collected), 81 %.
 
 ## Closed after the review by operator decision
 
@@ -177,11 +177,20 @@ gate and not as a product defect.
    today (verified against both binaries), but the gate is not reproducible by
    construction. Pinning it changes CI, so it is the operator's call rather than a
    silent edit during a freeze.
+10. **`io_cpu_seconds` counts the whole worker process, startup included.** The
+    watchdog compares absolute `getrusage(RUSAGE_SELF)`; the report's
+    `io_cpu_used_seconds` is a delta from process start. The message now quotes the
+    compared value, so the two no longer contradict each other, but the underlying
+    choice — should a guest be charged for the interpreter and engine it made the
+    host load? — is an enforcement-semantics decision, not a message fix, and the
+    release does not make it. Measured consequence: 100 parallel isolated runs pass
+    natively (0.01 s guest CPU, 12 ms) and fail 4-6 of 100 under amd64-under-QEMU
+    emulation, where startup alone costs 0.4-1.8 s.
 9. **The passing count is host-dependent, the collection is not.** Of the 4
    toolchain skips in `tests/test_builder.py`, three run because a toolchain is
    missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
-   host the same commit reports 939 passed / 3 skipped. `check_test_count.py`
-   hard-checks collection (942) and the documented pair, so a host with a different
+   host the same commit reports 940 passed / 3 skipped. `check_test_count.py`
+   hard-checks collection (943) and the documented pair, so a host with a different
    toolchain mix shows up as a strict-mode badge mismatch rather than a silent lie.
 
 ## What a signature means here (stated once, in three answers)

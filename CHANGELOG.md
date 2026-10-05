@@ -552,6 +552,20 @@ how the engine consumed the day's grant objects.
 
 ### Changed
 
+- **The `io_cpu_seconds` refusal now quotes the number it actually compared.** The
+  watchdog compares the worker's ABSOLUTE process CPU (that is the design: the wall
+  bounds every host syscall the guest induces, and it is metered in the worker's own
+  CPU), while the error string reported the run-attributable DELTA. The result was a
+  message like `worker used 0.47s CPU (io_cpu_seconds=2.0)` — naming a figure BELOW
+  the budget it claimed to have exceeded, measured in the emulated clean-room leg.
+  Enforcement is unchanged (still conservative: it refuses), the message now names
+  the absolute value and labels the delta as what it is, so the audit a operator
+  reads is the decision that was made. Gate:
+  `tests/test_process_executor.py::TestIoCpuWallReporting` (spin-loop guest, asserts
+  the cited number is >= the budget it cites) — reverting the message to the delta
+  form turns it red on native hardware, not only under emulation. Whether the wall
+  SHOULD exclude worker startup is an enforcement question and is recorded as open,
+  not answered here.
 - **One client-visible protocol behavior, on purpose:** a handshake-era request
   that arrives before `initialize` is answered with `-32600` instead of being
   served, and a repeated `initialize` on the same stdio process too. Real clients

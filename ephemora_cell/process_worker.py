@@ -119,7 +119,7 @@ def _cpu_usage() -> float:
 
 
 def _start_io_cpu_watchdog(
-    limit: float, interrupt_event, done_event
+    limit: float, interrupt_event, done_event, seen: list | None = None
 ) -> threading.Thread:
     """Watch worker CPU time; interrupt the guest when ``limit`` is hit.
 
@@ -130,9 +130,16 @@ def _start_io_cpu_watchdog(
     """
 
     def _watch() -> None:
-        used = 0.0
         while not done_event.wait(0.1):
             used = _cpu_usage()
+            # The number the wall actually compares is the worker's ABSOLUTE
+            # process CPU — interpreter and engine startup included. Hand it back
+            # so the refusal can quote the value it tripped on; quoting the
+            # run-attributable delta instead produced messages like "worker used
+            # 0.47s CPU (io_cpu_seconds=2.0)", naming a number BELOW the budget it
+            # claimed to have exceeded (measured under amd64 QEMU emulation).
+            if seen is not None:
+                seen[0] = used
             if used >= limit:
                 interrupt_event.set()
                 return
@@ -266,12 +273,17 @@ def run_worker(
     # interrupt_event (epoch) and we translate the breach into a clean
     # ERROR report below.
     io_cpu_used = 0.0
+    # Declared with the rest of the accounting state: the breach branch below
+    # reads it, and it must exist even when the watchdog never started.
+    watchdog_seen = [0.0]
     interrupt_event = threading.Event()
     done_event = threading.Event()
     cpu_at_start = 0.0
     if config.io_cpu_seconds is not None and resource is not None:
         cpu_at_start = _cpu_usage()
-        _start_io_cpu_watchdog(config.io_cpu_seconds, interrupt_event, done_event)
+        _start_io_cpu_watchdog(
+            config.io_cpu_seconds, interrupt_event, done_event, watchdog_seen
+        )
     try:
         result = sandbox.run(
             str(resolved),
@@ -293,8 +305,11 @@ def run_worker(
         # Epoch fired by the CPU watchdog, not the wall-clock timer.
         result.status = ExecutionStatus.ERROR
         result.stderr = (
-            f"I/O budget exceeded: worker used {io_cpu_used:.2f}s CPU "
-            f"(io_cpu_seconds={config.io_cpu_seconds}): {result.stderr}"
+            f"I/O budget exceeded: worker used {watchdog_seen[0]:.2f}s "
+            f"absolute process CPU (io_cpu_seconds={config.io_cpu_seconds}; "
+            f"{io_cpu_used:.2f}s of it attributable to this run — the wall "
+            f"counts the whole worker process, startup included): "
+            f"{result.stderr}"
         )
     return _build_report(
         result,
