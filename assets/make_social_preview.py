@@ -3,7 +3,7 @@
 GitHub has no API for the social preview upload; this script regenerates
 the asset deterministically, a human uploads it in repo Settings ->
 General -> Social media preview. Same visual language (and headless-Chrome
-render path) as assets/make_release_card.py: GitHub Primer dark, blue
+render path) as the other `assets/make_*.py` generators: GitHub Primer dark, blue
 accent. Designed for HALF SIZE legibility (link cards render ~600x300).
 
 No volatile numbers on purpose: test counts, coverage and latencies were the
