@@ -1,13 +1,16 @@
-name: Debug defect B (full suite on macOS 3.10.11, traceback at the catch site)
+name: Debug defect B (exact CI invocation on macOS 3.10.11)
 
-# Throwaway diagnostic branch cut from 3094a4b. Round 1 answered three
-# questions: raw wasmtime 47.0.1 is clean on this runner (it traps "all fuel
-# consumed" as expected), one minimal Cell guest run succeeds (FUEL_EXHAUSTED /
-# SUCCESS), and the two failing pytest cases PASS when run alone. So the failure
-# is a state produced by the full-suite run itself — not the interpreter build,
-# not wasmtime. Round 2 runs the whole suite and records, at the catch site, the
-# test that was executing plus the internal traceback, in a file (immune to
-# pytest's output capture).
+# Round 1 ruled out wasmtime and the interpreter build: raw wasmtime 47.0.1 traps
+# "all fuel consumed" correctly on this runner, and one minimal Cell guest run
+# returns FUEL_EXHAUSTED / SUCCESS. Round 2 ran the whole suite with
+# `--no-cov --tb=line`: 948 passed, 2 failed — the two SSRF cases only, no
+# defect-B string anywhere. So the 19 guest-run failures in the release CI run
+# are produced by the invocation the release run uses, not by the machine.
+#
+# Round 3 reproduces that invocation exactly (`pytest tests/ -v --tb=short`, so
+# the pyproject coverage addopts are active) and records the test name plus the
+# internal traceback at the catch site. The record is written to a file because
+# pytest captures stderr, and ExitTrap (a normal guest exit) is filtered out.
 
 on:
   push:
@@ -34,28 +37,41 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install "pytest<9" pytest-cov "cryptography>=42"
           python -m pip install -e . --no-deps
+          python -m pip freeze | grep -iE "^(pytest|coverage|wasmtime)" 
 
-      - name: Full suite with per-catch-site traceback recording
+      - name: Exact CI invocation, traceback recorded at the catch site
         env:
           CELL_DEBUG_TB_FILE: /tmp/cell_tb.txt
         run: |
-          python -m pytest tests/ -q --tb=line -p no:cacheprovider --no-cov > /tmp/full.log 2>&1 || true
+          python -m pytest tests/ -v --tb=short > /tmp/full.log 2>&1 || true
           echo "=== summary ==="
           tail -3 /tmp/full.log
-          echo "=== records written ==="
-          echo "tracebacks: $(grep -c '^Traceback' /tmp/cell_tb.txt || echo 0)"
-          echo "=== first 60 lines of the record (test + frames) ==="
-          head -60 /tmp/cell_tb.txt
+          echo "=== FAILED lines ==="
+          grep -E "^FAILED" /tmp/full.log | head -30
+          echo "=== defect-B occurrences in the log ==="
+          grep -c "list indices must be integers" /tmp/full.log || true
 
-      - name: Which test polluted, grouped
+      - name: First recorded non-ExitTrap traceback
         if: always()
         run: |
-          echo "=== tests that produced an internal traceback ==="
-          grep '^TEST:' /tmp/cell_tb.txt | sed 's/ (call).*//;s/ (setup).*//;s/ (teardown).*//' | sort | uniq -c | sort -rn | head -15
-          echo "=== frames of those tracebacks ==="
-          grep -E 'File "' /tmp/cell_tb.txt | sed 's/^ *//' | sort | uniq -c | sort -rn | head -20
-          echo "=== first line of each recorded error ==="
-          grep -E '^[A-Za-z_.]*(Error|Exception|Trap)' /tmp/cell_tb.txt | sort | uniq -c | sort -rn | head -10
+          python - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("/tmp/cell_tb.txt")
+          if not p.exists():
+              print("no record written")
+              raise SystemExit(0)
+          text = p.read_text()
+          blocks = re.split(r"(?m)^(?=TEST: )", text)
+          interesting = [b for b in blocks if "ExitTrap" not in b]
+          print(f"records: {len(blocks)}  non-ExitTrap: {len(interesting)}")
+          for b in interesting[:4]:
+              print("=" * 60)
+              print(b[:2000])
+          tests = sorted({b.splitlines()[0] for b in interesting})
+          print(f"distinct tests with a non-ExitTrap record: {len(tests)}")
+          for t in tests[:12]:
+              print(" ", t)
+          PY
 
       - name: Environment
         if: always()
