@@ -120,8 +120,14 @@ its license is compatible and note it in the PR.
    unpack the sdist and run `pytest tests/`. Modules that inspect repository files
    (metadata, `scripts/`, module source text) skip with a stated reason — the full
    suite needs a checkout, and CI runs it from one.
-4. `python scripts/check_version_sync.py` must exit 0 (CI enforces this
-   in the `security` job — a push with drifted sources fails there). The guard
+4. `python scripts/check_version_sync.py` must exit 0. CI runs it in the
+   `security` job, and since 2026-10-05 the aggregate `release-gate` job is a
+   required status check on `main` (`contexts: ["release-gate"]`, `strict: true`,
+   `enforce_admins: true`), so a merge that carries drifted sources cannot land.
+   Measured rather than assumed: the requirement also stops a direct push — a push
+   of a commit whose `release-gate` has not reported is rejected with
+   `GH006 … Required status check "release-gate" is expected`. Work therefore lands
+   by branch + pull request, which is what the rule is for. The guard
    treats a bump commit whose sources all agree but whose tag does not exist yet
    as a release in progress (WARNING, exit 0); once the tag is pushed the same
    run is a hard equality check, and a version LOWER than the newest tag fails.
