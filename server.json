@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MichaelS1011/ephemora-cell-mcp",
   "title": "Ephemora-cell MCP — ephemeral, stateless execution boundary",
-  "description": "Capability-bound WASM/WASI execution for untrusted agent and MCP workloads: fuel, memory, I/O and time budgets, host-mediated egress under authenticated signed grants, and signed per-execution evidence. No execution state survives into the next run.",
+  "description": "Ephemeral, stateless, capability-bound WASM execution with signed evidence, for untrusted code.",
   "version": "1.1.0",
   "repository": {
     "url": "https://github.com/MichaelS1011/ephemora-cell",
