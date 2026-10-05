@@ -115,7 +115,7 @@ weaker.
   `-32600` before the engine is reached, and a second `initialize` on the same
   process too; the stateless `2026-07-28` path and the `server/discover` era-probe
   stay reachable, because that revision has no handshake and the probe is sent
-  before one. Gates: `tests/test_mcp_adapter.py::TestHandshakeOrder` (10). Along the
+  before one. Gates: `tests/test_mcp_adapter.py::TestHandshakeOrder` (11). Along the
   way the new CLI test for `--egress-grants-required` caught that its own
   validation guard could never fire — it was nested inside the `if
   args.egress_grants_dir:` branch whose condition it negated. It now runs before
@@ -165,7 +165,29 @@ weaker.
   request-artifact check, so an ungranted tool that attempted no egress no longer
   grows an `_meta.egress`: the flag changes what may be reached, not what a run
   reports.
- Three pins, all
+- **The governed-loading path followed links the way the sidecar used to.** The
+  host-boundary rule this release ships says no host read follows a name someone else
+  can create — and one path still did: proposals were enumerated with `Path.glob`
+  (which swallows `OSError`, so an unreadable directory reads as an empty inbox), the
+  settled-check used `Path.read_bytes()` and the request itself `Path.read_text()`. A
+  writer of the proposals directory could plant `x.tool.request.json -> ../../../../…`
+  and the MCP server parsed the TARGET as a proposal. Deferring was the worse failure
+  mode: a link can never settle, so it would sit in `pending` forever — nothing
+  decided, nothing reported. Now `os.scandir` with the failure surfaced as `error` in
+  the report, an explicit refusal **with a reason** unless the entry is a regular file
+  reachable without following a link, the authoritative read through
+  `read_regular_nofollow`, and `read_stable_bytes` itself no-follows. From the same
+  audit: `AppendLog`'s no-`O_NOFOLLOW` fallback was dead code (opening a symlink on
+  such a platform does not raise, so a check inside `except OSError` never ran) — it
+  is a pre-open check now; `--egress-grants-required` was unreachable in a grant-only
+  deployment because `policy is None → return ()` sat in front of it, while
+  `get-policy` attested the denial; the ceiling's `timeout_seconds` narrowing had no
+  test; and "the ceiling's resolver wins" was decorative, since `EgressGrant` has no
+  resolver field — the order now makes resolution available only to the operator and
+  the claim is pinned structurally. Gates: 7 tests (3 proposals, 1 stability seam, 1
+  strict denial, 1 resolver, 1 timeout), each reverted to count its own red (2 + 2 + 3
+  + 0 + 1).
+- **The artefact's own claims now bind verification.** Three pins, all
   fail-closed: a DSSE signature entry that DECLARES an `alg` is checked against
   the expected algorithm (Ed25519 bytes labelled `ES256` used to verify happily as
   long as the caller supplied the right key, which is how an algorithm claim on an

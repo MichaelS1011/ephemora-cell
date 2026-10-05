@@ -78,9 +78,9 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA (`0712875`, re-verified clean clone): **939 passed / 4 skipped (943 collected)**, 89.9 % statement
-coverage (the README badge shows the rounded 90 %); minimal install in a checkout without `cryptography`: 834 passed / 66 skipped
-(900 collected), 81 %.
+Suite on this SHA (`0712875`, re-verified clean clone): **947 passed / 4 skipped (951 collected)**, 89.9 % statement
+coverage (the README badge shows the rounded 90 %); minimal install in a checkout without `cryptography`: 842 passed / 66 skipped
+(908 collected), 81 %.
 
 ## Closed after the review by operator decision
 
@@ -139,6 +139,26 @@ while the guest itself needs 12 ms natively. Recorded as an emulation artefact
 plus an open accounting question (absolute vs delta worker CPU), not as a passed
 gate and not as a product defect.
 
+## A third pass: this branch's own documentation audited against its own code
+
+The last round was not an attack on new code but a check of what the docs on this
+branch claim. One P1 and four smaller mismatches, all closed, each with the number of
+tests that go red when the closure is reverted:
+
+| # | Finding | Sev | Closure | Red when reverted |
+|---|---|---|---|---|
+| 1 | **"The host never follows a name someone else can create" was not universal.** Governed loading read proposals with plain `Path.read_text()` / `Path.read_bytes()` (inside `read_stable_bytes`) and enumerated with `Path.glob` — the same swallow-`OSError` pattern this document condemns for the grants dir. A writer of that directory could plant `x.tool.request.json -> ../../../../…` and the server parsed the TARGET. Deferring an unreadable name was the worse failure: a link can never settle, so it would sit in `pending` forever and nothing would ever be decided | P1 | `os.scandir` enumeration (failure surfaces as `error` in the report), explicit refusal **with a reason** unless the entry is a regular file readable without following links, authoritative read through `read_regular_nofollow`, and `read_stable_bytes` itself no-follows | 2 (proposal gates) + 2 (stability seam) |
+| 2 | `--egress-grants-required` was **unreachable in a grant-only deployment**: `policy is None → return ()` sat in front of the denial, so an ungranted tool got silence while `get-policy` attested "denied (--egress-grants-required)" | P2 | denial moved ahead of the policy question, still behind the artifact check | 3 |
+| 3 | The ceiling's `timeout_seconds` narrowing had no test at all | P2 | behaviour-level gate: origin answers after 2.0 s, ceiling 0.4 s → stopped early and delivered nothing | 1 |
+| 4 | "strictest of the two, **including the ceiling's resolver**" overstated: `EgressGrant` has no resolver field, so both precedence orders resolve identically | P2 | order written so resolution can only come from the operator, plus a structural assertion that `EgressGrant.policy().resolver is None` — the claim is checkable now instead of decorative | n/a (no behavioural delta; that is the finding) |
+| 5 | Stale class arithmetic inside this release's own entries (`TestHandshakeOrder` written as 10 while it is 11, plus six class sizes that had grown since their sentence was written) | P2 | counts re-derived from collection | `check_test_count.py --strict` |
+
+Two more corrections came out of the same sweep: SECURITY.md's handshake paragraph now
+names `params._meta` as the place a request declares its version (the location the
+specification's own `tools/call` example uses), and the append-log's no-`O_NOFOLLOW`
+fallback was dead code — opening a symlink on such a platform does not raise, so a
+check sitting in `except OSError` never ran. It is a pre-open check now.
+
 ## Not closed (deliberate, and the reason)
 
 1. **Key status is a startup property** — a key retired mid-run keeps the grants
@@ -189,8 +209,8 @@ gate and not as a product defect.
 9. **The passing count is host-dependent, the collection is not.** Of the 4
    toolchain skips in `tests/test_builder.py`, three run because a toolchain is
    missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
-   host the same commit reports 940 passed / 3 skipped. `check_test_count.py`
-   hard-checks collection (943) and the documented pair, so a host with a different
+   host the same commit reports 948 passed / 3 skipped. `check_test_count.py`
+   hard-checks collection (951) and the documented pair, so a host with a different
    toolchain mix shows up as a strict-mode badge mismatch rather than a silent lie.
 
 ## What a signature means here (stated once, in three answers)

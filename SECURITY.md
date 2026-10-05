@@ -296,8 +296,15 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   `http://allowlisted-host:70000/…` split fine and raised on the port read — outside
   the guard, past the mediator, into a JSON-RPC -32603 with no audit entry and no
   `_meta.egress`; the whole match is guarded now, because a refusal that leaves no
-  trace is a fail-open. The same rule covers grant files, the trust root, and the append-only
-  books — a swappable ledger silently resets caps, windows and revocations — and
+  trace is a fail-open. The same rule covers grant files, the trust root, the append-only
+  books and the governed tool-loading path — proposals are enumerated with
+  `os.scandir` (not `Path.glob`, which swallows `OSError` and reads as an empty
+  inbox), every `*.tool.request.json` is refused **with a reason** unless it is a
+  regular file reachable without following a link, and the settled-check reads the
+  same way; a link there would otherwise have made the host parse an arbitrary file
+  of the writer's choosing, and deferring it as "pending" forever is worse than a
+  rejection because nothing is ever decided. A swappable ledger silently resets
+  caps, windows and revocations — and
   an unreadable ledger now refuses the **call with an audit line** instead of
   raising past the mediator (`limit: "ledger"`).
 - **The grants directory is not allowed to be empty or unreadable.** `Path.glob`

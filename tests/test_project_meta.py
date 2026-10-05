@@ -82,3 +82,29 @@ def test_pyproject_declares_busl_license():
     assert (
         'license = {text = "BUSL-1.1"}' in text
     ), 'pyproject.toml must declare license = {text = "BUSL-1.1"}'
+
+
+def test_changelog_list_structure_is_intact():
+    """No bullet may lose its lead-in.
+
+    A `re.split` on a markdown line silently swallowed one sentence here and the
+    entry began with `  Three pins, all` — nothing rendered it wrong, nothing
+    measured it, and it sat across four commits. Continuation lines of a list item
+    are indented by exactly the marker width; a line indented by anything else is
+    a broken item.
+    """
+    text = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    broken = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if not stripped or indent == 0 or stripped.startswith(("#", "|", ">")):
+            continue
+        if line.startswith("```"):
+            continue
+        if stripped.startswith(("- ", "* ", "[", "<")) or indent in (2, 4):
+            continue
+        if stripped[:1].isdigit() and ". " in stripped[:4]:
+            continue
+        broken.append((number, line[:70]))
+    assert broken == [], f"malformed changelog continuation lines: {broken[:8]}"

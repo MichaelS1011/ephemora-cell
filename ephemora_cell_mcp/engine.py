@@ -314,15 +314,19 @@ class CellToolEngine:
         policy: EgressPolicy | None = (
             grant.policy() if grant and use_grant else self.egress_policy
         )
-        if policy is None or not sandbox_dir:
+        if not sandbox_dir:
             return ()
         request_path = Path(sandbox_dir) / REQUEST_FILENAME
         if not os.path.lexists(request_path):
             return ()
-        # Strict posture, checked AFTER the surface exists: a tool with no signed
-        # grant that DID ask for egress is denied here rather than mediated on the
-        # allowlist. A tool that asked for nothing keeps reporting no egress in
-        # either mode — the flag changes what may be reached, not what a run says.
+        # Strict posture, checked AFTER the surface exists and BEFORE the policy
+        # question: a tool with no signed grant that DID ask for egress is denied
+        # here rather than mediated on the allowlist — including the grant-only
+        # deployment with no server-wide policy, where `policy` is None and an
+        # earlier `return ()` had made the denial unreachable while get-policy kept
+        # attesting "denied (--egress-grants-required)". A tool that asked for
+        # nothing reports no egress in either mode: the flag changes what may be
+        # reached, not what a run says.
         if grant is None and self.grants_required:
             # Audited, because a denial that leaves no trace is indistinguishable
             # from a missing feature.
@@ -343,6 +347,9 @@ class CellToolEngine:
                     "response": {"ok": False, "error": "no grant for this tool"},
                 },
             )
+        if policy is None:
+            # No surface at all: no mediation and no audit — the documented silence.
+            return ()
         try:
             # The artifact NAME lives in a directory the guest writes to, and WASI
             # refuses absolute symlink targets but accepts a relative one — so

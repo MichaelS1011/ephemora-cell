@@ -77,13 +77,15 @@ class AppendLog:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         if create:
             flags |= os.O_RDWR | os.O_CREAT | os.O_APPEND
+        if not getattr(os, "O_NOFOLLOW", 0):
+            # Where O_NOFOLLOW does not exist the refusal has to happen BEFORE
+            # the open. Checked inside `except OSError` it was dead code: opening
+            # a symlink succeeds there, so no error ever reached the check.
+            if os.path.islink(str(self.path)):
+                raise OSError(f"log path is a symlink, refusing to follow: {self.path}")
         try:
             return os.open(str(self.path), flags)
-        except OSError as e:
-            if not getattr(os, "O_NOFOLLOW", 0) and os.path.islink(str(self.path)):
-                raise OSError(
-                    f"log path is a symlink, refusing to follow: {self.path}"
-                ) from e
+        except OSError:
             raise
 
     def tail_line(self, fd: int) -> bytes | None:

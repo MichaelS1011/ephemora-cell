@@ -125,14 +125,20 @@ def read_regular_nofollow(path: str | Path, max_bytes: int | None = None) -> byt
 def read_stable_bytes(path: str | Path) -> bytes | None:
     """Read a file only if it is settled, i.e. two consecutive reads agree.
 
-    Returns the content, or ``None`` when the file is unreadable or still
-    changing (a producer streaming it, or a publish racing the read).
-    Consumers use this to defer — not reject — files that a writer has
-    not finished publishing.
+    Returns the content, or ``None`` when the file is unreadable, is not a file
+    the host may read at all (a symlink, a device), or is still changing (a
+    producer streaming it, or a publish racing the read). Consumers use that to
+    defer — not reject — files a writer has not finished publishing.
+
+    The reads go through ``read_regular_nofollow``, because "settled" is checked
+    on paths a *other* writer owns: a proposal directory a client drops files into,
+    an append book. An ordinary ``read_bytes()`` there resolves a planted link, and
+    a stability check that follows links is a stability check on someone else's
+    file.
     """
     try:
-        data = Path(path).read_bytes()
-        if data != Path(path).read_bytes():
+        data = read_regular_nofollow(path)
+        if data != read_regular_nofollow(path):
             return None
     except OSError:
         return None

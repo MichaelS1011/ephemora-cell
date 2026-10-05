@@ -497,7 +497,7 @@ def execute_request(
     if ceiling is not None:
         max_response_bytes = min(max_response_bytes, ceiling.max_response_bytes)
         timeout_seconds = min(timeout_seconds, ceiling.timeout_seconds)
-        resolver = resolver or ceiling.resolver
+        resolver = ceiling.resolver or resolver
     trail = _RedirectTrail()
     # A custom opener, not urlopen: the default one follows redirects without
     # asking the policy. Only http/https can be reached at all — the allowlist

@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -65,6 +66,7 @@ from typing import Any
 from ephemora_cell._fsutil import (
     atomic_write_bytes,
     atomic_write_json,
+    read_regular_nofollow,
     read_stable_bytes,
 )
 from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
@@ -830,7 +832,32 @@ class Server:
             return report
         before = {spec.name for spec in self.registry.list_tools()}
         installed = 0
-        for request_path in sorted(requests_dir.glob(f"*{TOOL_REQUEST_SUFFIX}")):
+        # `os.scandir`, not `Path.glob`: glob swallows OSError, so an unreadable
+        # proposals directory looked like "the operator submitted nothing" — the
+        # same silent-empty-authority class the grants loader refuses (ADR-013).
+        try:
+            entries = sorted(
+                Path(entry.path)
+                for entry in os.scandir(requests_dir)
+                if entry.name.endswith(TOOL_REQUEST_SUFFIX)
+            )
+        except OSError as e:
+            report["error"] = f"proposals directory unreadable: {e}"
+            return report
+        for request_path in entries:
+            # The host never follows a name someone else can create: a proposal
+            # that is a symlink or not a regular file is REFUSED here, rather than
+            # read through into the parser (or deferred forever as "unsettled").
+            try:
+                read_regular_nofollow(request_path)
+            except OSError as e:
+                report["rejected"].append(
+                    {
+                        "request": request_path.name,
+                        "reason": f"request refused: {e.strerror or e}",
+                    }
+                )
+                continue
             # A request file still being written must not produce a
             # rejection storm (and must never be parsed mid-write):
             # defer it to the next tick. It stays on disk either way;
@@ -879,7 +906,7 @@ class Server:
         ``requests_dir`` is the caller's resolved, non-None allowlist root.
         """
         try:
-            request = json.loads(request_path.read_text(encoding="utf-8"))
+            request = json.loads(read_regular_nofollow(request_path).decode("utf-8"))
         except (OSError, ValueError) as e:
             return False, f"unreadable request: {e}"
         if not isinstance(request, dict):

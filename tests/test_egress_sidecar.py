@@ -964,6 +964,153 @@ class TestEngineGrantEnforcement:
         finally:
             server.shutdown()
 
+    def test_strict_denial_reaches_a_grant_only_deployment(self, tmp_path):
+        """`--egress-grants-required` without `--egress-allow` must still deny.
+
+        The early `policy is None -> no mediation` return sat in front of the
+        strict branch, so a grant-only deployment silenced the ungranted tool
+        instead of refusing it — while `get-policy` attested
+        "denied (--egress-grants-required)". A posture that is claimed in the
+        control plane and unreachable in the data path is a disclosure bug, not a
+        corner case.
+        """
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            eng = CellToolEngine(
+                egress_grants={"other": self._grant(port, tool="other")},
+                grant_ledger=self._ledger(tmp_path),
+                grants_required=True,
+            )
+            d = _artifact_dir(
+                tmp_path / "no-policy", f"http://127.0.0.1:{port}/v1/data"
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied", audit
+            assert audit["limit"] == "grant-required", audit
+            # Positive control: no artifact, still silence in both modes.
+            empty = tmp_path / "empty-no-policy"
+            empty.mkdir()
+            assert eng._mediate_egress(str(empty), "t") == ()
+        finally:
+            server.shutdown()
+
+    def test_the_ceilings_resolver_is_the_one_that_resolves(self, tmp_path):
+        """An operator injects a resolver; a signed document does not get to choose.
+
+        `EgressGrant.policy()` has no resolver field, so the grant-derived policy
+        always carries None — but the precedence order in `execute_request` decided
+        which of the two objects was asked. The ceiling (the operator's own policy)
+        must win, otherwise a deployment that pins resolution through a private
+        resolver silently resolves over the public one whenever a grant exists.
+        """
+        import socket
+
+        from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        asked: list = []
+
+        def spy(host, port, *args, **kwargs):
+            asked.append((host, port))
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.9", port))]
+
+        eng = CellToolEngine(
+            egress_policy=EgressPolicy(
+                allowed_endpoints=("http://grant-ceiling.test:8080/v1",),
+                resolver=spy,
+            ),
+            egress_grants={
+                "t": EgressGrant(
+                    grant_id="g-res",
+                    tool="t",
+                    allowed_endpoints=("http://grant-ceiling.test:8080/v1",),
+                    max_calls=5,
+                    not_after="2099-01-01T00:00:00Z",
+                )
+            },
+            grant_ledger=self._ledger(tmp_path),
+        )
+        d = _artifact_dir(tmp_path / "res", "http://grant-ceiling.test:8080/v1/data")
+        eng._mediate_egress(str(d), "t")
+        assert (
+            asked and asked[0][0] == "grant-ceiling.test"
+        ), "the operator's resolver was never asked: " + str(asked)
+        # Why the order in `execute_request` cannot be inverted by a document: a
+        # grant carries endpoints and methods only, so its policy object has no
+        # resolver to offer. Resolution therefore always comes from the operator.
+        assert (
+            EgressGrant(
+                grant_id="g-shape",
+                tool="t",
+                allowed_endpoints=("http://x.test/v1",),
+                max_calls=1,
+                not_after="2099-01-01T00:00:00Z",
+            )
+            .policy()
+            .resolver
+            is None
+        )
+
+    def test_the_server_wide_timeout_narrows_a_grant_fetch(self, tmp_path):
+        """Same envelope argument for time: the ceiling's 0.4 s beats the
+        default 10 s the grant policy carries."""
+        import socketserver
+        import threading
+
+        from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+
+        class Slow(socketserver.BaseRequestHandler):
+            def handle(self):
+                try:
+                    self.request.recv(4096)
+                except OSError:
+                    return
+                time.sleep(2.0)
+                try:
+                    self.request.sendall(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}"
+                    )
+                except OSError:
+                    pass
+
+        class Server(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        slow = Server(("127.0.0.1", 0), Slow)
+        port = slow.server_address[1]
+        threading.Thread(target=slow.serve_forever, daemon=True).start()
+        try:
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
+                    timeout_seconds=0.4,
+                ),
+                egress_grants={
+                    "t": EgressGrant(
+                        grant_id="g-timeout",
+                        tool="t",
+                        allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
+                        max_calls=5,
+                        not_after="2099-01-01T00:00:00Z",
+                    )
+                },
+                grant_ledger=self._ledger(tmp_path),
+            )
+            d = _artifact_dir(tmp_path / "slow", f"http://127.0.0.1:{port}/v1/slow")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            # The origin answers after 2.0 s. Under the grant policy's default 10 s
+            # the fetch would SUCCEED; the ceiling's 0.4 s must stop it, so the
+            # observable contract is "stopped early and delivered nothing" —
+            # whether the socket timeout or the wall-clock deadline fires first is
+            # an implementation detail, not the claim.
+            assert audit["elapsed_ms"] < 1500, audit
+            assert audit["bytes"] in (0, None), audit
+        finally:
+            slow.shutdown()
+
     def test_revocation_refuses_without_touching_the_booked_count(self, tmp_path):
         from ephemora_cell_mcp.engine import CellToolEngine
 

@@ -17,7 +17,6 @@ import hashlib
 import json
 import os
 import sys
-from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -106,19 +105,35 @@ class TestStableRead:
     def test_changing_file_returns_none(self, tmp_path, monkeypatch):
         """A file whose content differs between two reads is not settled —
         the consumer defers instead of parsing/rejecting a partial file."""
+        import ephemora_cell._fsutil as fsutil
+
         target = tmp_path / "file.bin"
         target.write_bytes(b"final-content")
-        real_read = Path.read_bytes
-        calls = {"n": 0}
+        real = fsutil.read_regular_nofollow
+        reads = {"n": 0}
 
-        def flaky_read(self):
-            calls["n"] += 1
-            if calls["n"] == 1:
+        def flaky(path, max_bytes=None):
+            reads["n"] += 1
+            if reads["n"] == 1:
                 return b"partial-write"  # producer still streaming
-            return real_read(self)
+            return real(path, max_bytes)
 
-        monkeypatch.setattr(Path, "read_bytes", flaky_read)
+        monkeypatch.setattr(fsutil, "read_regular_nofollow", flaky)
         assert read_stable_bytes(target) is None
+
+    def test_a_symlink_at_the_path_is_not_read(self, tmp_path):
+        """Stability is checked on a directory someone else writes into.
+
+        Following a link there means comparing the stability of the target file
+        — which is not the file the consumer decided to parse. Refusing is the
+        same "defer" signal the streaming case produces.
+        """
+        victim = tmp_path / "victim.bin"
+        victim.write_bytes(b"host-content")
+        link = tmp_path / "proposal.bin"
+        link.symlink_to(victim.name)  # relative: exactly what a guest may plant
+        assert read_stable_bytes(link) is None
+        assert victim.read_bytes() == b"host-content"
 
 
 class TestRegistryLoadGuard:

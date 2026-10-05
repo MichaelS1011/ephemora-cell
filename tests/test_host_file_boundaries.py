@@ -250,3 +250,85 @@ def test_a_host_side_run_failure_keeps_its_traceback_off_the_guest_surface(tmp_p
     assert (
         result.host_traceback and "Traceback" in result.host_traceback
     ), "the operator side lost the diagnostic the client side just gave up"
+
+
+# --- governed tool-loading: the proposals directory is the same boundary ----
+#
+# The sidecar artifacts live in a directory the GUEST writes, so they were the
+# first place the "host never follows a name someone else creates" rule was
+# applied. A proposals directory is the same shape of problem: another writer owns
+# the names, and the server parses what it finds there. These gates close the two
+# ways that reading used to be a normal `open()`.
+
+
+def _proposal_server(tmp_path, **kwargs):
+    from ephemora_cell_mcp import Server
+    from ephemora_cell_mcp.transport import MemoryTransport
+
+    tools = tmp_path / "tools"
+    tools.mkdir(exist_ok=True)
+    proposals = tmp_path / "proposals"
+    proposals.mkdir(exist_ok=True)
+    server = Server(
+        tools_dir=tools,
+        tool_requests_dir=proposals,
+        transport=MemoryTransport([]),
+        **kwargs,
+    )
+    return server, proposals
+
+
+VALID_REQUEST = {
+    "wasm_path": "innocent.wasm",
+    "manifest": {"name": "innocent", "profile": "llm", "wasm_sha256": "0" * 64},
+}
+
+
+def test_a_symlinked_proposal_is_refused_not_followed(tmp_path):
+    """A relative link inside the proposals dir points anywhere on the host.
+
+    The target here is a document that WOULD parse as a request, so "followed" and
+    "refused" are distinguishable by the reason the report gives — and the target's
+    content must never reach the evaluation path at all.
+    """
+    server, proposals = _proposal_server(tmp_path)
+    outside = tmp_path / "outside.tool.request.json"
+    outside.write_text(json.dumps(VALID_REQUEST), encoding="utf-8")
+    (proposals / "planted.tool.request.json").symlink_to(outside.name)
+
+    report = server.process_tool_requests()
+    reasons = json.dumps(report)
+    assert report["accepted"] == [], report
+    assert len(report["rejected"]) == 1, report
+    assert "refus" in report["rejected"][0]["reason"].lower(), report
+    assert "signed-tools" not in reasons, "the target was parsed after all"
+    assert outside.read_text(encoding="utf-8") == json.dumps(VALID_REQUEST)
+
+
+def test_a_directory_at_the_proposal_name_is_refused(tmp_path):
+    """Not a regular file is not a pending file: it is a refusal, and it is loud."""
+    server, proposals = _proposal_server(tmp_path)
+    (proposals / "dir.tool.request.json").mkdir()
+    report = server.process_tool_requests()
+    assert report["rejected"], report
+    assert "pending" not in report, report
+
+
+def test_an_unreadable_proposals_directory_says_so(tmp_path):
+    """`Path.glob` swallows OSError and yields nothing, which reads as an empty
+    inbox. Enumeration must surface the failure instead. Skipped for root, which
+    ignores the permission the test creates."""
+    import os as _os
+
+    if _os.geteuid() == 0:
+        pytest.skip("running as root: file permissions are not enforced")
+    server, proposals = _proposal_server(tmp_path)
+    (proposals / "x.tool.request.json").write_text(
+        json.dumps(VALID_REQUEST), encoding="utf-8"
+    )
+    _os.chmod(proposals, 0)
+    try:
+        report = server.process_tool_requests()
+    finally:
+        _os.chmod(proposals, 0o755)
+    assert "proposals directory unreadable" in json.dumps(report), report
