@@ -78,9 +78,9 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA: **937 passed / 4 skipped (941 collected)**, 90 % statement
-coverage; minimal install without `cryptography`: 832 passed / 66 skipped
-(898 collected), 81 %.
+Suite on this SHA: **938 passed / 4 skipped (942 collected)**, 90 % statement
+coverage; minimal install without `cryptography`: 833 passed / 66 skipped
+(899 collected), 81 %.
 
 ## Closed after the review by operator decision
 
@@ -120,6 +120,7 @@ that is real in its own test and incomplete in the path around it.
 | 4 | The handshake exemption keyed on the presence of `params._meta`, so a request naming a HANDSHAKE-era version there was served `tools/call` before `initialize` — the malicious-client case, re-opened by my own gate | P2 | exemption only for versions that are not handshake-era; unsupported still answers -32022 | 1 (`test_a_legacy_version_in_meta_does_not_buy_a_handshake_free_call`) |
 | 5 | `CellToolEngine(grants_required=True, grant_ledger=…)` built with no grants, denied every call, and `get-policy` reported `mediation: disabled` — a posture nothing could observe | P2 | guard demands grants AND a ledger | 2 |
 | 6 | The strict-mode denial returned before the request-artifact check, so an ungranted tool that attempted no egress grew an `_meta.egress` | P2 | denial issued after the artifact exists | 2 (silent without artifact, audited with) |
+| 7 | (Follow-up I ran on that lane's nit list) The engine looked grants up by the **dict key** a caller passed, while the signed payload names a `tool` — a grant signed for one tool mediated another and spent its cap. Measured before the fix: `allowed` for a tool the document never named | P1 | the engine re-keys by `grant.tool` and refuses two grants claiming one tool; the loader already did this | 1 (`test_a_grant_authorizes_the_tool_its_payload_names`), book-based |
 
 Also fixed by this round outside the egress surface: the checkout detector in
 `tests/conftest.py` was made TRUE by the fixtures the previous commit started
@@ -168,6 +169,20 @@ gate and not as a product defect.
    "no space") and **the governed-load bookkeeping divergence** after a crash
    between install and unlink (a still-present request is re-reported as a name
    collision although the tool did install). Both are correctness, not boundary.
+
+8. **The lint toolchain is unpinned in CI.** `.github/workflows/ci.yml` runs
+   `pip install black ruff`, so the formatter judging the tree is whatever PyPI
+   serves that day — the dev venv (black 26.5.1) and a fresh CI resolve (26.10.0)
+   have already disagreed on `assert cond, (msg)` wrapping. Both agree on this tree
+   today (verified against both binaries), but the gate is not reproducible by
+   construction. Pinning it changes CI, so it is the operator's call rather than a
+   silent edit during a freeze.
+9. **The passing count is host-dependent, the collection is not.** Of the 4
+   toolchain skips in `tests/test_builder.py`, three run because a toolchain is
+   missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
+   host the same commit reports 939 passed / 3 skipped. `check_test_count.py`
+   hard-checks collection (942) and the documented pair, so a host with a different
+   toolchain mix shows up as a strict-mode badge mismatch rather than a silent lie.
 
 ## What a signature means here (stated once, in three answers)
 

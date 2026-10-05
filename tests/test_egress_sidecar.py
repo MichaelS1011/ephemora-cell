@@ -544,12 +544,20 @@ class TestEngineGrantEnforcement:
     """ADR-013 Prio 1: a tool with a signed grant + a GrantLedger is mediated
     grant-gated — window/cap/revocation enforced, not just the allowlist."""
 
-    def _grant(self, port, max_calls=None, not_before=None, not_after=None):
+    def _grant(
+        self,
+        port,
+        max_calls=None,
+        not_before=None,
+        not_after=None,
+        tool="t",
+        grant_id="g-eng",
+    ):
         from ephemora_cell.egress_sidecar import EgressGrant
 
         return EgressGrant(
-            grant_id="g-eng",
-            tool="t",
+            grant_id=grant_id,
+            tool=tool,
             allowed_endpoints=(f"http://127.0.0.1:{port}/v1",),
             max_calls=max_calls,
             not_before=not_before,
@@ -778,7 +786,7 @@ class TestEngineGrantEnforcement:
                 egress_policy=EgressPolicy(
                     allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
                 ),
-                egress_grants={"other": self._grant(port)},
+                egress_grants={"other": self._grant(port, tool="other")},
                 grant_ledger=self._ledger(tmp_path),
                 grants_required=True,
             )
@@ -890,7 +898,7 @@ class TestEngineGrantEnforcement:
                 egress_policy=EgressPolicy(
                     allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
                 ),
-                egress_grants={"other": self._grant(port)},
+                egress_grants={"other": self._grant(port, tool="other")},
                 grant_ledger=self._ledger(tmp_path),
                 grants_required=True,
             )
@@ -902,6 +910,57 @@ class TestEngineGrantEnforcement:
             (audit,) = eng._mediate_egress(str(d), "t")
             assert audit["decision"] == "denied"
             assert audit["limit"] == "grant-required", audit
+        finally:
+            server.shutdown()
+
+    def test_a_grant_authorizes_the_tool_its_payload_names(self, tmp_path):
+        """The signed `tool` field is the authority; the dict key is not.
+
+        `load_egress_grants` keys by the payload for exactly this reason, but the
+        engine accepted any caller-supplied dict, so a grant signed for one tool
+        mediated ANOTHER — a cross-tool repurpose of a legitimate signature
+        (measured before the fix: the mis-keyed tool was grant-mediated and spent
+        the grant's slot). The engine re-keys by the payload now, and refuses two
+        grants claiming one tool.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"someone-else": self._grant(port, max_calls=1)},
+                grant_ledger=ledger,
+            )
+            d = _artifact_dir(tmp_path / "miskeyed", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "someone-else")
+            # Mediated on the server-wide policy (the documented fallback), NOT on
+            # the grant: the grant's authority and its ledger slot stayed untouched.
+            assert audit["decision"] == "allowed", audit
+            # The discriminator is the book, not the wording: the policy fallback
+            # charges no grant slot, and none of the grant's authority was used.
+            assert ledger.usage("g-eng").calls == 0, "a mis-keyed grant spent its cap"
+            # The payload-named tool is the one that reaches the grant path.
+            assert list(eng.egress_grants) == ["t"]
+            d2 = _artifact_dir(tmp_path / "named", f"http://127.0.0.1:{port}/v1/data")
+            (audit2,) = eng._mediate_egress(str(d2), "t")
+            assert audit2["decision"] == "allowed", audit2
+            assert (
+                ledger.usage("g-eng").calls == 1
+            ), "the named tool did not reach its grant"
+
+            with pytest.raises(ValueError, match="claim tool"):
+                CellToolEngine(
+                    egress_grants={
+                        "a": self._grant(port, grant_id="g-one"),
+                        "b": self._grant(port, grant_id="g-two"),
+                    },
+                    grant_ledger=ledger,
+                )
         finally:
             server.shutdown()
 
@@ -950,8 +1009,10 @@ class TestEngineGrantEnforcement:
         server, port = _serve()
         try:
             ledger = self._ledger(tmp_path)
+            # Filed under "other", payload names "other" too: "t" has no grant.
             eng = CellToolEngine(
-                egress_grants={"other": self._grant(port)}, grant_ledger=ledger
+                egress_grants={"other": self._grant(port, tool="other")},
+                grant_ledger=ledger,
             )
             # Tool "t" has no grant and there is no server policy → no mediation.
             d = _artifact_dir(tmp_path / "a", f"http://127.0.0.1:{port}/v1/data")

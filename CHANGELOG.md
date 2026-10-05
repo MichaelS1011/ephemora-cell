@@ -134,6 +134,20 @@ weaker.
   grant existed (measured: 8 203 bytes delivered against a 256-byte ceiling). The
   strictest of the two now wins, including the ceiling's resolver. A signed
   document may narrow the endpoint scope; it may not lift a resource envelope.
+- **A grant authorized the tool it was FILED UNDER, not the tool its signature
+  names.** `load_egress_grants` keys grants by the `tool` field inside the signed
+  payload for exactly this reason, but the engine looked up whatever dict key a
+  caller passed — so `CellToolEngine(egress_grants={"victim-tool": grant_for_echo})`
+  mediated `victim-tool` on echo's signature and charged echo's cap slot (measured
+  before the fix: `decision: allowed` for the wrong tool). The engine now re-keys by
+  `grant.tool` and refuses two documents claiming one tool, so on every path —
+  loader or library — the signed document is the only thing that decides which tool
+  a grant speaks for. Gate:
+  `test_a_grant_authorizes_the_tool_its_payload_names` (book-based: the mis-keyed
+  mediation leaves the grant's slot at 0, the payload-named tool spends it).
+  Fixing it also exposed four tests whose setups had relied on the key being
+  authoritative (`{"other": grant_for_t}`) — they now name a genuinely different
+  tool instead of a mismatched key.
 - **Three smaller fail-open and disclosure paths, same pass.** `SplitResult.port`
   validates lazily, so `http://allowlisted-host:70000/…` split fine and then raised
   OUTSIDE the guard — past `validate_request`, past the mediator, into a JSON-RPC
@@ -274,7 +288,10 @@ strictest-wins envelope costs
 `_meta.egress`"), its construction guard 2; moving the port read back outside the
 guard costs 2; disabling the pre-initialize gate costs 4 tests (both refusals, the
 "no WASM ran" proof and the lifecycle-vs-lookup distinction), the
-duplicate-`initialize` refusal 1, and the stateless-revision-only exemption 1.
+duplicate-`initialize` refusal 1, and the stateless-revision-only exemption 1, and the payload re-key (a grant filed
+under another tool's dict key no longer mediates that tool) 1. Re-running the whole
+round is what turned up the seventh finding, which was NOT in the day's code but in
+how the engine consumed the day's grant objects.
 
 ### Added
 
@@ -582,7 +599,7 @@ duplicate-`initialize` refusal 1, and the stateless-revision-only exemption 1.
 
 ### Tests
 
-- 31 gates for the three post-review decisions plus the round that audited them:
+- 32 gates for the three post-review decisions plus the round that audited them:
   `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — pre-initialize
   `tools/list`/`tools/call` refused with `-32600` and, proved separately, without
   reaching the engine; unknown method is a lifecycle error before the handshake and

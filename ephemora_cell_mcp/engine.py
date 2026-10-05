@@ -156,7 +156,22 @@ class CellToolEngine:
         # allowlist + a charged call) instead of the server-wide policy path. A
         # tool with no grant keeps the plain egress_policy path; no policy and
         # no grant means no mediation at all.
-        self.egress_grants = egress_grants or {}
+        # Keyed by what the SIGNED payload says (`grant.tool`), never by the key a
+        # caller filed it under: the loader already does this, because a grant's
+        # authority is the document, and an engine that trusted the dict key would
+        # let a signature for `echo` mediate a different tool — measured as a
+        # mis-keyed grant charging another tool's cap before this re-key. Two
+        # documents claiming one tool is a conflict, not a last-one-wins.
+        self.egress_grants: dict[str, EgressGrant] = {}
+        for supplied in (egress_grants or {}).values():
+            owner = self.egress_grants.get(supplied.tool)
+            if owner is not None and owner.grant_id != supplied.grant_id:
+                raise ValueError(
+                    f"two grants claim tool {supplied.tool!r} "
+                    f"({owner.grant_id!r} and {supplied.grant_id!r}) — one authority "
+                    "per tool, refuse rather than let the last one win"
+                )
+            self.egress_grants[supplied.tool] = supplied
         self.grant_ledger = grant_ledger
         # Strict posture (ADR-013): a tool with no signed grant is DENIED
         # mediation instead of falling back to the server-wide allowlist. Opt-in,

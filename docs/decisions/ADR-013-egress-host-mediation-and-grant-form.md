@@ -422,4 +422,10 @@ startup path is now real too.
   `test_a_legacy_version_in_meta_does_not_buy_a_handshake_free_call`,
   `test_the_construction_guard_demands_BOTH_grants_and_ledger`,
   `test_strict_mode_stays_silent_when_the_guest_asks_for_nothing`. Each was proved
-  red by reverting its own fix (1 / 1 / 2 / 1 / 2 / 2 tests).
+  red by reverting its own fix (1 / 1 / 2 / 1 / 2 / 2 tests). A seventh finding from the same pass was
+  not in the new code at all: the engine looked grants up by the caller's dict key
+  while the LOADER keyed them by `grant.tool`, so a signature for one tool could
+  mediate another (`ephemora_cell_mcp/engine.py` re-keys by payload now and refuses
+  conflicting claims; gate
+  `test_a_grant_authorizes_the_tool_its_payload_names`, which proves it on the
+  ledger: the mis-keyed mediation leaves the grant's slot at 0).

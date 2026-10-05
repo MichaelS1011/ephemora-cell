@@ -73,6 +73,12 @@ Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platf
 - **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path.
 - **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
+- **A grant speaks for the tool its signature names — on every path.** The engine
+  re-keys any caller-supplied grant mapping by `grant.tool` and refuses two grants
+  claiming one tool. Before this, only the loader honoured the payload: an embedder
+  (or a mis-keyed directory walk) could file echo's signature under another tool's
+  name and that tool was mediated on it, spending the cap of the wrong grant
+  (measured: `allowed` for a tool the document never named).
 - **Grants are per tool; the server-wide allowlist is still the fallback.** A
   tool without a signed grant file is mediated by `--egress-allow` alone —
   allowlist, no window, no cap, no ledger. Renaming or deleting one grant file
