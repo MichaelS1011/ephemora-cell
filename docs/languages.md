@@ -13,6 +13,42 @@ Ephemora Cell executes pre-compiled `.wasm` modules — it does not ship languag
 
 Every tier runs under the same boundary: fuel, memory cap, wall-clock epoch timeout, canonical preopen allowlist, byte-budgeted output — and the [proposal policy](../SECURITY.md#proposal-policy--set-not-inherited-2026-09-25) keeps threads, GC, exceptions and stack-switching enforced off.
 
+## Compile recipes and CI gates
+
+The tier-1 languages, with the exact command each recipe runs and what CI
+proves about it. All five gates run in the `build-recipes` job on every push
+([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)), and each one builds
+a real module **and executes it in the sandbox**, asserting `SUCCESS` — a build
+that yields a module Cell cannot run is a failed gate, not a passed build. Where
+a host has no toolchain installed the corresponding test skips, which is the
+toolchain-skip asymmetry documented in
+[release_assurance.md](release_assurance.md).
+
+| Language | Build command the recipe runs | Gate |
+|---|---|---|
+| Rust | `cargo build --target wasm32-wasip1` | compiled + executed (CI) |
+| Go | `GOOS=wasip1 GOARCH=wasm go build` | compiled + executed (CI) |
+| C | wasi-sdk `clang --target=wasm32-wasip1` | compiled + executed (CI) |
+| AssemblyScript | `asc --runtime stub` | compiled + executed (CI) |
+| Zig | `zig build-exe -target wasm32-wasi` | compiled + executed (CI) |
+| Python | no AOT-to-WASM compiler exists | guidance only — the measured path is the pinned interpreter guest below |
+
+`ephemora-cell build <source>` wraps these commands and, when a toolchain is
+missing, names the installer instead of failing with "command not found".
+
+**What does *not* run:** native Python, Node.js/npm packages, or Linux/ELF
+binaries — Cell executes WASM modules and WASI 0.2 components, nothing else.
+Scripting languages run only as interpreter binaries *you* compile to WASM (or
+componentize — `componentize-py`, jco/StarlingMonkey) and bring yourself. Cell
+ships no interpreters, and GC/threads-based ports stay locked for the reason in
+the tier table above, not by policy.
+
+**Where this is measured:** the language gates and the test matrix run on
+`ubuntu-latest` and `macos-latest` across Python 3.10–3.13. Interpreter-guest
+and performance numbers are measured on macOS (Apple M5) and on a DGX Spark
+GB10 (Ubuntu 24.04, Grace arm64) — cross-platform detail in
+[comparison-mcp-servers.md](comparison-mcp-servers.md#55-cross-platform-suite--scale-dgx-spark).
+
 ## WASI Preview1
 
 Ephemora Cell currently uses **WASI Preview1** (`wasi_snapshot_preview1`), the stable WASI interface with:
@@ -84,11 +120,16 @@ ephemora-cell run opt/wasi-python/bin/python3.10.wasm \
 results in `benchmarks/results/2026-10-02/interpreter_guest.json`):** an
 interpreter guest is a different workload class from a compiled module, and it
 does **not** inherit the sub-millisecond figure. Measured on macOS arm64 with
-a pinned wasi-python 3.10 guest under the `interpreter` profile. **Evidence
+a pinned wasi-python 3.10 guest under the `interpreter` profile: four workloads
+(boot, print, stdlib json round-trip, `sum(range(200000))`) × 2 paths, **25
+in-process and 15 isolated runs per workload, every single one `success`** — the
+table below is the median of those runs. **Evidence
 scope:** the 22 MB guest is not committed (ADR-009 D2 ships no interpreter
 binaries), so this table is reproducible on request — set
 `EPHEMORA_BYO_PYTHON_ROOT` at your own guest and re-run `measure.py` — rather
-than CI-enforced.
+than CI-enforced. The same measurement under Cell's *default* profile ends in
+`fuel_exhausted` at 1 000 000 units during CPython startup, which is the whole
+reason the `interpreter` preset exists.
 
 | workload | Cell, in-process (median) | Cell, isolated (median) | fuel |
 |---|---|---|---|
