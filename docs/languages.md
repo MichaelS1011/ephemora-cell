@@ -1,6 +1,6 @@
 # Languages & Interpreters
 
-Ephemora Cell executes pre-compiled `.wasm` modules — it does not ship language interpreters. For building from source, use `ephemora-cell build <source>` (see the [README](../README.md#architecture) and [ADR-005](decisions/ADR-005-build-pipeline.md)); this page covers which languages run in the Cell and how. Strategy reference: [ADR-009](decisions/ADR-009-language-support.md).
+Ephemora Cell executes pre-compiled `.wasm` modules — it does not ship language interpreters. For building from source, use `ephemora-cell build <source>` (see the [README](../README.md#api-cli-and-integrations) and [ADR-005](decisions/ADR-005-build-pipeline.md)); this page covers which languages run in the Cell and how. Strategy reference: [ADR-009](decisions/ADR-009-language-support.md).
 
 ## Support tiers
 

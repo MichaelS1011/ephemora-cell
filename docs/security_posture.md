@@ -1,6 +1,6 @@
 # Security Posture — Detail
 
-Detail page for [README.md](../README.md#security). Policy and reporting: [SECURITY.md](../SECURITY.md).
+Detail page for [README.md](../README.md#security-evidence). Policy and reporting: [SECURITY.md](../SECURITY.md).
 
 ## Security Posture
 
