@@ -78,7 +78,7 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA (`0712875`, re-verified clean clone): **947 passed / 4 skipped (951 collected)**, 89.9 % statement
+Suite on this SHA (`0712875`, re-verified clean clone): **949 passed / 4 skipped (953 collected)**, 89.9 % statement
 coverage (the README badge shows the rounded 90 %); minimal install in a checkout without `cryptography`: 842 passed / 66 skipped
 (908 collected), 81 %.
 
@@ -209,8 +209,8 @@ check sitting in `except OSError` never ran. It is a pre-open check now.
 9. **The passing count is host-dependent, the collection is not.** Of the 4
    toolchain skips in `tests/test_builder.py`, three run because a toolchain is
    missing and one (`.zig`) is skipped *because* zig is installed; on a zig-free
-   host the same commit reports 948 passed / 3 skipped. `check_test_count.py`
-   hard-checks collection (951) and the documented pair, so a host with a different
+   host the same commit reports 950 passed / 3 skipped. `check_test_count.py`
+   hard-checks collection (953) and the documented pair, so a host with a different
    toolchain mix shows up as a strict-mode badge mismatch rather than a silent lie.
 
 ## What a signature means here (stated once, in three answers)

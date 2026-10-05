@@ -909,3 +909,47 @@ def test_unreconstructable_payload_is_a_grant_refusal_not_a_valueerror(root, ops
         # signed by a trusted key, so it reaches the payload stage at all
         with pytest.raises(GrantTrustError):
             root.verify_envelope(envelope)
+
+
+# --- duplicate JSON keys: the parser's last-wins is an attack surface -------
+#
+# Reviewers ask this of every canonicalization claim: "your signer hashed one
+# object, but JSON lets a document repeat a key, and json.loads keeps the LAST
+# value". These two gates say where that ends: a duplicate may only ever repeat
+# what was signed, and any other spelling is a bad signature.
+
+
+def test_a_duplicate_envelope_key_may_only_repeat_the_signed_payload(root, ops):
+    grant = _grant(max_calls=5)
+    envelope = _envelope(grant, ops)
+    raw = json.dumps(envelope)
+    # Repeating the key with the SAME value parses to the same bytes the key
+    # signed: refused nothing, granted nothing.
+    benign = json.loads(f'{raw[:-1]},"payload":"{envelope["payload"]}"}}')
+    assert benign["payload"] == envelope["payload"]
+    assert root.verify_envelope(benign).max_calls == 5
+    # Repeating it with an EDITED payload: the last value is what the verifier
+    # parses, and those bytes were never signed.
+    signed_doc = json.loads(base64.b64decode(envelope["payload"]))
+    evil_bytes = canonical_bytes({**signed_doc, "max_calls": 5_000_000})
+    evil_b64 = base64.b64encode(evil_bytes).decode()
+    assert (
+        json.loads(evil_bytes)["max_calls"] == 5_000_000
+    ), "the duplicate must actually change the parsed value"
+    evil = json.loads(f'{raw[:-1]},"payload":"{evil_b64}"}}')
+    with pytest.raises(GrantTrustError, match="does not verify"):
+        root.verify_envelope(evil)
+
+
+def test_a_duplicate_key_inside_the_signed_bytes_is_refused(root, ops):
+    """The payload is compared as BYTES, so a second `max_calls` inside it —
+    which `json.loads` would resolve to the last, larger number — cannot load."""
+    grant = _grant(max_calls=5)
+    envelope = _envelope(grant, ops)
+    signed = base64.b64decode(envelope["payload"])
+    dup = signed[:-1] + b',"max_calls":999999}'
+    assert json.loads(dup)["max_calls"] == 999_999
+    assert json.loads(signed)["max_calls"] == 5
+    forged = dict(envelope, payload=base64.b64encode(dup).decode())
+    with pytest.raises(GrantTrustError, match="does not verify"):
+        root.verify_envelope(forged)

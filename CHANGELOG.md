@@ -635,6 +635,20 @@ how the engine consumed the day's grant objects.
 
 ### Tests
 
+- 9 gates from the round that audited this branch's documentation against its code:
+  a symlinked proposal is refused and its target never parsed, a directory at the
+  proposal name is a refusal rather than a permanent "pending", an unreadable
+  proposals directory reports an error (skipped for root), `read_stable_bytes`
+  refuses a link, the strict denial is reachable in a grant-only deployment (with
+  no-artifact silence as the positive control), the operator's resolver is the one
+  asked on the grant path plus the structural half (`EgressGrant.policy().resolver`
+  is None), the ceiling's timeout stops a 2 s origin under a 0.4 s budget, the
+  changelog list-structure gate (proved by re-breaking the line), and two answers to
+  the duplicate-key question: `json.loads` keeps the LAST duplicate, so a repeated
+  `"payload"` may only repeat the signed bytes — a same-value repeat verifies, an
+  edited one is a bad signature — and a second `max_calls` inside the signed bytes,
+  which would parse to the larger number, is refused because the payload is compared
+  as bytes.
 - 31 gates for the three post-review decisions plus the round that audited them:
   `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — pre-initialize
   `tools/list`/`tools/call` refused with `-32600` and, proved separately, without
