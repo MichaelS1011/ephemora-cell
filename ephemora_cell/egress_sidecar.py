@@ -679,7 +679,12 @@ def run_sidecar_cycle(
 
 
 def mediate_with_grant(
-    grant: EgressGrant, ledger: GrantLedger, raw: bytes | str, *, now=None
+    grant: EgressGrant,
+    ledger: GrantLedger,
+    raw: bytes | str,
+    *,
+    now=None,
+    ceiling: EgressPolicy | None = None,
 ) -> EgressResult:
     """Mediate a request under a SIGNED grant whose window/cap/revocation are
     enforced by ``ledger`` (ADR-013) — not the allowlist-only :func:`mediate`.
@@ -693,6 +698,13 @@ def mediate_with_grant(
          ``not_before`` / ``not_after`` / ``max_calls`` decided and written in
          one critical section);
       3. only on approval, execute the fetch.
+
+    ``ceiling`` is the server-wide policy (`--egress-allow`) when one is also
+    configured. A grant then NARROWS it and never widens it: the request must
+    clear both allowlists, checked after the grant's own and BEFORE the ledger
+    charge, so a call the operator's policy refuses cannot spend a grant slot.
+    Without a ceiling the grant is the whole authority for its tool, which is the
+    documented behaviour of a grant-only deployment.
 
     The grant's ``not_*``/``max_calls`` fields stop being schema-only here:
     this is the shipped consumer that reads them. Revocation is effective at
@@ -721,6 +733,26 @@ def mediate_with_grant(
             },
             audit=audit,
         )
+    if ceiling is not None:
+        # Grant ∩ server policy: a signed document cannot enlarge what the
+        # operator allowlisted. Refused here, so no slot is spent on a call that
+        # the deployment would never have made.
+        ceiling_audit = validate_request(ceiling, request)
+        if ceiling_audit.decision == "denied":
+            reason = (
+                f"granted endpoint is outside the server-wide allowlist: "
+                f"{ceiling_audit.reason}"
+            )
+            return EgressResult(
+                response_doc={"ok": False, "error": reason},
+                audit=EgressAuditEntry(
+                    url=request.url,
+                    method=request.method,
+                    decision="denied",
+                    reason=reason,
+                    limit="server-policy",
+                ),
+            )
     try:
         decision = ledger.record_call(grant, now=now)
     except (OSError, ValueError, RuntimeError) as e:

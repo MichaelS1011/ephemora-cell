@@ -26,7 +26,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ephemora_cell_mcp import Server, __version__
+from ephemora_cell_mcp import Server, __version__, protocol
 from ephemora_cell_mcp.engine import CellToolEngine
 from ephemora_cell_mcp.transport import MemoryTransport
 
@@ -38,12 +38,41 @@ PACKAGE_TOOLS = Path(sys.modules["ephemora_cell_mcp"].__file__).parent / "tools"
 ECHO_WASM = PACKAGE_TOOLS / "echo.wasm"
 
 
+#: A request id no test uses, so the handshake answer is recognisable.
+INITIALIZE_ID = "handshake"
+
+INITIALIZE = {
+    "jsonrpc": "2.0",
+    "id": INITIALIZE_ID,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "pytest", "version": "0"},
+    },
+}
+
+
 @pytest.fixture()
 def server_with(tmp_path):
-    """Build a Server over a MemoryTransport seeded with requests."""
+    """Build a Server over a MemoryTransport seeded with requests.
 
-    def _build(tools_dir=PACKAGE_TOOLS, inbox=None, engine=None, **server_kwargs):
-        transport = MemoryTransport(inbox or [])
+    This file drives handshake-era (legacy) clients, so by default the inbox is
+    opened with `initialize` — the server refuses era-unaware requests before
+    the handshake (MCP lifecycle: "other requests ... are not possible until
+    initialization has completed"). ``handshake=False`` keeps the raw inbox for
+    the tests that probe the gate itself; ``_reply`` never shows its answer.
+    """
+
+    def _build(
+        tools_dir=PACKAGE_TOOLS,
+        inbox=None,
+        engine=None,
+        handshake=True,
+        **server_kwargs,
+    ):
+        requests = ([INITIALIZE] if handshake else []) + list(inbox or [])
+        transport = MemoryTransport(requests)
         server = Server(
             tools_dir=tools_dir, transport=transport, engine=engine, **server_kwargs
         )
@@ -52,15 +81,38 @@ def server_with(tmp_path):
     return _build
 
 
+def _initialized(server):
+    """Run the handshake on an in-process server (for handle_*-driven tests)."""
+    return server.handle_message(INITIALIZE)
+
+
 def _reply(server, transport):
-    """Feed all remaining inbox lines, return all responses."""
+    """Feed all remaining inbox lines, return all responses but the handshake."""
     responses = []
     while True:
         line = transport.read_line()
         if line is None:
             break
-        responses.extend(server.handle_line(line))
+        responses.extend(
+            r for r in server.handle_line(line) if r.get("id") != INITIALIZE_ID
+        )
     return responses
+
+
+class _RecordingEngine(CellToolEngine):
+    """Logs every execution attempt and refuses to run one.
+
+    Used by the handshake-order gate: reaching the engine at all is the failure
+    being tested, so the recording is paired with an error rather than a result.
+    """
+
+    def __init__(self, calls):
+        super().__init__()
+        self.calls = calls
+
+    def execute(self, spec, params):
+        self.calls.append(getattr(spec, "name", str(spec)))
+        raise AssertionError("the engine was reached")
 
 
 # --- initialize handshake --------------------------------------------
@@ -69,7 +121,8 @@ def _reply(server, transport):
 def test_initialize_handshake(server_with):
     """initialize returns protocolVersion 2025-06-18 + serverInfo."""
     server, transport = server_with(
-        inbox=[{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}]
+        handshake=False,
+        inbox=[{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}],
     )
     responses = _reply(server, transport)
 
@@ -276,12 +329,13 @@ def test_cell_failure_maps_to_iserror(tmp_path, server_with):
 
     transport = MemoryTransport(
         [
+            INITIALIZE,
             {
                 "jsonrpc": "2.0",
                 "id": 8,
                 "method": "tools/call",
                 "params": {"name": "burner", "arguments": {}},
-            }
+            },
         ]
     )
     server = Server(tools_dir=tmp_path, transport=transport, engine=FailingEngine())
@@ -324,12 +378,13 @@ def test_tool_error_key_maps_to_iserror(tmp_path, server_with):
 
     transport = MemoryTransport(
         [
+            INITIALIZE,
             {
                 "jsonrpc": "2.0",
                 "id": 9,
                 "method": "tools/call",
                 "params": {"name": "flaky", "arguments": {}},
-            }
+            },
         ]
     )
     server = Server(tools_dir=tmp_path, transport=transport, engine=FlakyEngine())
@@ -405,13 +460,161 @@ def test_subprocess_stdio_cycle(tmp_path):
 def test_initialize_echoes_arbitrary_id(server_with):
     """String and float ids round-trip."""
     server, transport = server_with(
+        handshake=False,
         inbox=[
             {"jsonrpc": "2.0", "id": "abc", "method": "initialize", "params": {}},
-            {"jsonrpc": "2.0", "id": 2.5, "method": "initialize", "params": {}},
-        ]
+            {"jsonrpc": "2.0", "id": 2.5, "method": "tools/list"},
+        ],
     )
     responses = _reply(server, transport)
     assert [r["id"] for r in responses] == ["abc", 2.5]
+    assert "result" in responses[1]
+
+
+class TestHandshakeOrder:
+    """The MCP lifecycle gate: initialize first, initialize once.
+
+    The legacy revisions make initialization the FIRST interaction and state
+    that other requests "are not possible until initialization has completed"
+    (2025-03-26). A real client that skips the handshake therefore used to be
+    served a tool call — a malicious-client case, not an edge case: nothing
+    about the server's behaviour should depend on a negotiation that never
+    happened. Refusing is ordering conformance, not a security control, which
+    is why the modern (``_meta``-versioned) path stays reachable: that revision
+    has no handshake at all.
+    """
+
+    def _request(self, id_, method, **params):
+        return {"jsonrpc": "2.0", "id": id_, "method": method, "params": params}
+
+    def test_tools_call_before_initialize_is_refused(self, server_with):
+        server, transport = server_with(
+            handshake=False,
+            inbox=[self._request(1, "tools/call", name="echo", arguments={"x": 1})],
+        )
+        (response,) = _reply(server, transport)
+        assert response["error"]["code"] == -32600
+        assert "initialize" in response["error"]["message"]
+
+    def test_tools_list_before_initialize_is_refused(self, server_with):
+        server, transport = server_with(
+            handshake=False, inbox=[self._request(2, "tools/list")]
+        )
+        (response,) = _reply(server, transport)
+        assert response["error"]["code"] == -32600
+
+    def test_refusal_runs_no_wasm(self, server_with):
+        """The gate is before the engine, not a filter on its answer."""
+        calls = []
+        server, transport = server_with(
+            handshake=False,
+            engine=_RecordingEngine(calls),
+            inbox=[self._request(3, "tools/call", name="echo", arguments={})],
+        )
+        (response,) = _reply(server, transport)
+        assert response["error"]["code"] == -32600
+        assert calls == []
+
+    def test_modern_request_needs_no_handshake(self, server_with):
+        """2026-07-28 is stateless: a version-carrying request is served raw."""
+        server, transport = server_with(
+            handshake=False,
+            inbox=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/list",
+                    "params": {
+                        "_meta": {
+                            protocol.META_PROTOCOL_VERSION: protocol.MODERN_PROTOCOL_VERSION,
+                            protocol.META_CLIENT_CAPABILITIES: {},
+                        }
+                    },
+                }
+            ],
+        )
+        (response,) = _reply(server, transport)
+        assert response["result"]["resultType"] == "complete"
+
+    def test_unsupported_version_before_initialize_still_answers_32022(
+        self, server_with
+    ):
+        """A modern client must reach the era-identifying error without a
+        handshake — that error is how it discovers what the server supports."""
+        server, transport = server_with(
+            handshake=False,
+            inbox=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/list",
+                    "params": {"_meta": {protocol.META_PROTOCOL_VERSION: "2099-01-01"}},
+                }
+            ],
+        )
+        (response,) = _reply(server, transport)
+        assert response["error"]["code"] == -32022
+        assert (
+            protocol.MODERN_PROTOCOL_VERSION in response["error"]["data"]["supported"]
+        )
+
+    def test_discover_is_the_probe_before_initialize(self, server_with):
+        """server/discover is sent BEFORE a dual-era client knows whether to
+        initialize — gating it would hide the server's era."""
+        server, transport = server_with(
+            handshake=False, inbox=[self._request(6, "server/discover")]
+        )
+        (response,) = _reply(server, transport)
+        assert response["result"]["resultType"] == "complete"
+
+    def test_second_initialize_is_refused(self, server_with):
+        server, transport = server_with(
+            handshake=False,
+            inbox=[
+                {"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "id": 8, "method": "initialize", "params": {}},
+            ],
+        )
+        responses = _reply(server, transport)
+        assert "result" in responses[0]
+        assert responses[1]["error"]["code"] == -32600
+        assert "already completed" in responses[1]["error"]["message"]
+
+    def test_notifications_are_never_answered_before_the_handshake(self, server_with):
+        """A pre-handshake notification gets no response (JSON-RPC: nothing to
+        answer) — the gate is about served work, not about silence."""
+        server, transport = server_with(
+            handshake=False,
+            inbox=[{"jsonrpc": "2.0", "method": "notifications/initialized"}],
+        )
+        assert _reply(server, transport) == []
+
+    def test_unknown_method_before_initialize_is_a_lifecycle_error(self, server_with):
+        """Before the handshake the refusal is ORDER, not lookup: an unknown
+        method answers `-32600` (this request was never possible), after it the
+        same method answers `-32601` (this method does not exist)."""
+        server, transport = server_with(
+            handshake=False, inbox=[self._request(11, "resources/list")]
+        )
+        (response,) = _reply(server, transport)
+        assert response["error"]["code"] == -32600
+        server.handle_message(INITIALIZE)
+        (after,) = server.handle_message(
+            {"jsonrpc": "2.0", "id": 12, "method": "resources/list", "params": {}}
+        )
+        assert after["error"]["code"] == -32601
+
+    def test_serving_continues_normally_after_the_handshake(self, server_with):
+        server, transport = server_with(
+            handshake=False,
+            inbox=[
+                {"jsonrpc": "2.0", "id": 9, "method": "initialize", "params": {}},
+                self._request(10, "tools/list"),
+            ],
+        )
+        responses = _reply(server, transport)
+        assert [r["id"] for r in responses] == [9, 10]
+        assert "tools" in responses[1]["result"]
 
 
 def test_bundled_package_has_version():
@@ -441,6 +644,7 @@ class TestMcpHardening:
 
     def test_internal_error_maps_to_32603(self, server_with):
         server, _ = server_with()
+        _initialized(server)
         original = server.registry
         server.registry = None  # forces AttributeError inside handler
         try:
@@ -481,7 +685,8 @@ class TestMcpHardening:
             + "}}",
             "{'jsonrpc': '2.0', 'id': 8, 'method': 'tools/list'}",  # not JSON
         ]
-        server, _ = server_with()
+        server, _ = server_with(handshake=False)
+        _initialized(server)
         for i in range(100):
             if i % 4 == 3:
                 # occasional random byte soup
@@ -728,6 +933,65 @@ def test_get_policy_unknown_tool_is_invalid_params(server_with):
     """Unknown tool names map to JSON-RPC -32602, consistent with tools/call."""
     response = _call_get_policy(server_with, {"tool": "does-not-exist"})
     assert response["error"]["code"] == -32602
+
+
+class TestGrantScopeDisclosure:
+    """The two things "ledger-backed" cannot say (ADR-013, D1/D2).
+
+    "Grants are enforced" is silent on how far a grant reaches and on what
+    happens to a tool that has no grant at all — both are posture decisions the
+    operator made, so `get-policy` states them instead of leaving a caller to
+    infer them from the presence of a ledger.
+    """
+
+    @staticmethod
+    def _engine(tmp_path, *, policy=None, grants_required=False):
+        from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
+        from ephemora_cell.grant_ledger import GrantLedger
+
+        grant = EgressGrant(
+            grant_id="g-scope",
+            tool="echo",
+            allowed_endpoints=("https://api.example.com/v1",),
+            max_calls=5,
+            not_after="2099-01-01T00:00:00Z",
+        )
+        return CellToolEngine(
+            egress_grants={"echo": grant},
+            grant_ledger=GrantLedger(tmp_path / "grants.jsonl"),
+            egress_policy=(
+                EgressPolicy(allowed_endpoints=("https://api.example.com/v1",))
+                if policy == "set"
+                else None
+            ),
+            grants_required=grants_required,
+        )
+
+    def _egress(self, server_with, tmp_path, **kwargs):
+        response = _call_get_policy(
+            server_with, None, engine=self._engine(tmp_path, **kwargs)
+        )
+        return json.loads(response["result"]["content"][0]["text"])["egress"]
+
+    def test_scope_names_the_ceiling_that_is_live(self, server_with, tmp_path):
+        egress = self._egress(server_with, tmp_path, policy="set")
+        assert egress["grant_scope"] == "intersected with the server-wide allowlist"
+
+    def test_scope_says_when_the_grant_alone_decides(self, server_with, tmp_path):
+        """No server-wide list means no ceiling — the disclosure must not let a
+        caller read "ledger-backed" as "bounded by the operator's policy"."""
+        egress = self._egress(server_with, tmp_path, policy=None)
+        assert egress["grant_scope"] == "the grant is the whole authority for its tool"
+
+    def test_ungranted_tools_reports_the_fallback_by_default(
+        self, server_with, tmp_path
+    ):
+        egress = self._egress(server_with, tmp_path, policy="set")
+        assert egress["ungranted_tools"] == "fall back to the server-wide allowlist"
+
+    def test_ungranted_tools_reports_denial_in_strict_mode(self, server_with, tmp_path):
+        egress = self._egress(server_with, tmp_path, policy="set", grants_required=True)
+        assert egress["ungranted_tools"] == "denied (--egress-grants-required)"
 
 
 def test_get_policy_policy_matches_execution_baseline(server_with):

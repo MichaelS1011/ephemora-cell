@@ -23,7 +23,14 @@ alone, results gain ``resultType: "complete"`` and
 the CacheableResult fields (``ttlMs``/``cacheScope``). An unsupported
 version is rejected with ``-32022`` naming the supported versions so the
 client can retry. Requests without per-request ``_meta`` keep the exact
-pre-2026-07-28 behavior for handshake-era clients. MRTR never occurs: this
+pre-2026-07-28 behavior for handshake-era clients — including its ordering:
+the legacy revisions make initialization the first interaction and say other
+requests "are not possible until initialization has completed", so a
+handshake-era request that arrives before ``initialize`` is refused with
+``-32600``, and a second ``initialize`` on the same process is refused too
+(``server/discover``, the stdio era-probe, stays reachable either way).
+Neither gate is a security control: no client capability unlocks or removes
+authority here. MRTR never occurs: this
 server issues no server-initiated requests (sampling/elicitation/roots are
 deprecated in 2026-07-28 and unused here), so ``"complete"`` is the only
 result type it can produce.
@@ -104,6 +111,12 @@ _NATIVE_TOOLS = (
 )
 _NATIVE_NAMES = frozenset(t["name"] for t in _NATIVE_TOOLS)
 
+# Reachable before the handshake: ``initialize`` is the handshake itself, and
+# ``server/discover`` is the probe a dual-era client is told to send BEFORE it
+# decides whether to initialize (2026-07-28 stdio backward compatibility), so
+# gating the probe would make this server unidentifiable rather than safer.
+_PRE_HANDSHAKE_METHODS = frozenset({"initialize", "server/discover"})
+
 
 def _revoked_or_unknown(ledger, grant_id: str) -> bool | None:
     """Revocation state, or None when the book cannot be read.
@@ -135,6 +148,7 @@ class Server:
         egress_policy: EgressPolicy | None = None,
         egress_grants: dict[str, EgressGrant] | None = None,
         grant_ledger: GrantLedger | None = None,
+        grants_required: bool = False,
         grant_trust: dict[str, Any] | None = None,
         receipt_signer: Callable[[bytes], bytes] | None = None,
         receipt_key_id: str | None = None,
@@ -184,6 +198,9 @@ class Server:
             grant_ledger: The append-only book behind grant enforcement
                 (ADR-013, Prio 1). Revocation is effective at the next mediated
                 call, never an in-flight one.
+            grants_required: ADR-013 strict posture. A tool with no signed grant
+                is denied mediation instead of falling back to ``egress_policy``.
+                Off by default; ``get-policy`` attests which mode is live.
             grant_trust: Summary of the trust root (ADR-013) the grants were
                 authenticated against — key ids, rotation status, windows, never
                 key material. ``None`` means this process did not verify any
@@ -206,6 +223,7 @@ class Server:
                 egress_policy=egress_policy,
                 egress_grants=egress_grants,
                 grant_ledger=grant_ledger,
+                grants_required=grants_required,
             )
         )
         self.registry = ToolRegistry(
@@ -217,6 +235,12 @@ class Server:
         # the self-reported receipt into a verified one. None (default): no
         # attestation key, _meta is exactly the pre-1.1 shape.
         self.receipt_signer = receipt_signer
+        # MCP lifecycle: an `initialize` request completes the handshake for THIS
+        # process (2026-07-28 "Backward Compatibility": legacy semantics are
+        # "scoped to the stdio process"). Ordering conformance, not authority —
+        # no capability a client can claim through the handshake adds or removes
+        # anything this server enforces.
+        self._handshake_complete = False
         self.receipt_key_id = receipt_key_id
         self.receipt_alg = receipt_alg
         # ADR-013: the trust root the grants were authenticated against, as a
@@ -312,6 +336,35 @@ class Server:
         if protocol.is_notification(message):
             return self._handle_notification(message)
         method = message["method"]
+        if not self._handshake_complete and not self._request_is_stateless(message):
+            # Handshake-era traffic (a request that names no protocol version of
+            # its own): the legacy revisions make initialization the FIRST
+            # interaction and say other requests "are not possible until
+            # initialization has completed" (2025-03-26), so a client that skips
+            # the handshake gets InvalidRequest instead of a served tool call.
+            # server/discover stays reachable because the 2026-07-28 revision
+            # tells a dual-era client to probe with it BEFORE deciding whether to
+            # initialize — gating the probe would hide the server's era.
+            if method not in _PRE_HANDSHAKE_METHODS:
+                return [
+                    protocol.make_error(
+                        message,
+                        protocol.INVALID_REQUEST,
+                        "requests other than initialize are not possible before "
+                        "initialization has been completed: send initialize "
+                        "first, or declare a protocol version in "
+                        "params._meta to be served statelessly",
+                    )
+                ]
+        if method == "initialize" and self._handshake_complete:
+            return [
+                protocol.make_error(
+                    message,
+                    protocol.INVALID_REQUEST,
+                    "initialize was already completed for this process — the "
+                    "handshake runs once",
+                )
+            ]
         handler = {
             "initialize": self._handle_initialize,
             "server/discover": self._handle_server_discover,
@@ -332,7 +385,11 @@ class Server:
             if method != "initialize":
                 self._check_request_version(message)
             result = handler(message.get("params"))
-            if method != "initialize" and self._request_is_modern(message):
+            if method == "initialize":
+                # Complete only once initialize was ANSWERED: an internal error
+                # here must not lock a client out of retrying its own handshake.
+                self._handshake_complete = True
+            elif self._request_is_modern(message):
                 result = self._modernize_result(method, result)
             return [protocol.make_result(message, result)]
         except _UnsupportedProtocolVersion as e:
@@ -380,6 +437,20 @@ class Server:
     def _request_is_modern(self, message: dict[str, Any]) -> bool:
         version = self._request_meta(message).get(protocol.META_PROTOCOL_VERSION)
         return version == protocol.MODERN_PROTOCOL_VERSION
+
+    def _request_is_stateless(self, message: dict[str, Any]) -> bool:
+        """Did this request name its own protocol version in ``_meta``?
+
+        Naming a version is the per-request-metadata model of 2026-07-28 —
+        "Every request declares the protocol version it is using", "the server
+        accepts or rejects each request independently", no handshake — so such a
+        request is legitimate without ``initialize``. Whether the named version
+        is one this server serves is decided by ``_check_request_version``
+        (unsupported -> -32022, malformed -> -32602), which a pre-initialize
+        client must still be able to reach: the error a modern client gets is
+        part of how it identifies the server's era.
+        """
+        return protocol.META_PROTOCOL_VERSION in self._request_meta(message)
 
     def _check_request_version(self, message: dict[str, Any]) -> None:
         """Validate the per-request protocol version (2026-07-28 stateless).
@@ -670,6 +741,19 @@ class Server:
         if grants and ledger is not None:
             attestation["grant_enforcement"] = "ledger-backed"
             attestation["enforced"] = "allowlist+window+cap+revocation"
+            # Two things "ledger-backed" cannot tell a caller, so they are stated:
+            # whether a grant may exceed the operator's own allowlist, and what
+            # happens to a tool that has no grant file at all.
+            attestation["grant_scope"] = (
+                "intersected with the server-wide allowlist"
+                if policy is not None
+                else "the grant is the whole authority for its tool"
+            )
+            attestation["ungranted_tools"] = (
+                "denied (--egress-grants-required)"
+                if getattr(self.engine, "grants_required", False)
+                else "fall back to the server-wide allowlist"
+            )
             # Authentication is a SEPARATE claim from enforcement, and the
             # difference matters: a ledger-backed grant whose signature nobody
             # checked is a file the host happened to read. A server built without

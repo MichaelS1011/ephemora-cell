@@ -72,47 +72,64 @@ the isolated-subprocess path (0 leaks, 107 ms/pair). 40 audit books whose writer
 was SIGKILLed mid-append were all self-consistent, 0 silently wrong. A positive
 control proves the reader detects a legitimately present marker.
 
-Suite on this SHA: **901 passed / 4 skipped (905 collected)**, 90 % statement
-coverage; minimal install without `cryptography`: 798 passed / 64 skipped
-(862 collected), 81 %.
+Suite on this SHA: **924 passed / 4 skipped (928 collected)**, 90 % statement
+coverage; minimal install without `cryptography`: 819 passed / 66 skipped
+(885 collected), 81 %.
+
+## Closed after the review by operator decision
+
+Three of the open items below were posture questions, not defects, and the
+operator decided each one on 2026-10-05. Every one of the four new gates was
+proved to bite by deleting the enforcement and watching only its own tests go
+red (degradation, not coverage):
+
+| Decision | Semantics now | Gate | Red when the enforcement is removed |
+|---|---|---|---|
+| **D2** — grant scope | A signed grant is intersected with `--egress-allow`: the ceiling is validated **before** the ledger charges, so a granted endpoint outside the operator's list is denied (`limit: "server-policy"`) and spends no slot. With no server-wide list the grant is the whole authority | `TestEngineGrantEnforcement.test_a_grant_never_widens_the_server_wide_allowlist` (+ its positive control) | 1 test |
+| **D1** — ungranted tools | `--egress-grants-required` denies mediation for a tool with no grant (`limit: "grant-required"`) instead of falling back to the allowlist; default stays off, and `get-policy` discloses the live posture as `ungranted_tools`. Constructing an engine with the flag and no grants raises | `test_grants_required_denies_an_ungranted_tool_without_falling_back`, `…_still_mediates_a_granted_tool`, `TestGrantScopeDisclosure` (4), `TestGrantsRequiredFlag` (3 CLI) | 1 test + 1 construction error |
+| **D3** — handshake order | A handshake-era request before `initialize` is `-32600` before the engine is reached; a second `initialize` on the same process too; `server/discover` and version-carrying (`_meta`) stateless requests stay reachable | `tests/test_mcp_adapter.py::TestHandshakeOrder` (10) | 4 + 1 tests |
+
+D3 was checked against the specification rather than against habit: the legacy
+revisions make initialization "the first interaction" and say other requests
+"are not possible until initialization has completed" (2025-03-26), while
+`2026-07-28` states "There is no negotiation handshake" and serves a
+version-carrying request independently — so a blanket gate would have broken
+the stateless era the server promises, and gating `server/discover` would have
+hidden the era probe the spec tells a dual-era client to send first. No current
+revision (2024-11-05 → 2026-07-28) prescribes an error code for the
+pre-initialize case, and none addresses a repeated `initialize`; `-32600` and
+the refusal are this server's documented choices.
 
 ## Not closed (deliberate, and the reason)
 
-1. **Grant downgrade semantics** — a tool without a grant file is mediated by the
-   server-wide `--egress-allow` alone (allowlist, no window, no cap). Denying
-   instead is an operator posture decision, not a bug fix: it changes what a
-   partially configured deployment does. Open question, see ADR-013 Roadmap.
-2. **Grant replaces rather than intersects `--egress-allow`** — a signed grant can
-   be broader than the operator's allowlist. Same category: a posture choice.
-3. **No `initialize` enforcement** — `tools/call` before the handshake is
-   answered. Rejecting it is spec-conformant but protocol-visible; deferred so a
-   release does not silently change what clients may send.
-4. **Key status is a startup property** — a key retired mid-run keeps the grants
+1. **Key status is a startup property** — a key retired mid-run keeps the grants
    already loaded in that process. Documented in SECURITY.md; a runtime lease
    would need a mechanism the release has no place for.
-5. **Library path is unauthenticated by design** — an embedder constructing
+2. **Library path is unauthenticated by design** — an embedder constructing
    `Server(egress_grants=…)` installs the objects it is handed; there is no file
    to verify. `verified_by` names the loader so the disclosure cannot be reused
-   to claim what did not happen.
-6. **Trust-root distribution** — Cell verifies against a root; where the root
+   to claim what did not happen. The same holds for the ceiling: an embedder that
+   passes `egress_policy=None` has no server-wide list to intersect with, and
+   `grant_scope` reports that.
+3. **Trust-root distribution** — Cell verifies against a root; where the root
    comes from (config management, signed bundle, pinned release key) is the
    operator's trust channel. Same open piece as which issuer key a caller trusts
    for receipts.
-7. **Clock is trusted** — `issued_at` freshness and grant windows read wall time;
+4. **Clock is trusted** — `issued_at` freshness and grant windows read wall time;
    a rolled-back clock can keep an expired grant live in a running process. A
    monotonic/lease bound is a design question, not a patch.
-8. **Not fuzzed, not property-tested, not long-run** — the parser/verifier surfaces
+5. **Not fuzzed, not property-tested, not long-run** — the parser/verifier surfaces
    (grant envelope, trust root, URL/egress, receipt verifier) are good fuzz
    targets and the invariants above are natural property tests; hours-long nightly
    runs are post-1.1 work. `docs/threads_roadmap.md` and `docs/observations.md`
    carry the other standing items.
-9. **Orphan sweep** — an abrupt `SIGKILL` of the worker leaves its sandbox and
+6. **Orphan sweep** — an abrupt `SIGKILL` of the worker leaves its sandbox and
    capture directories behind and nothing removes old ones at startup; on a
    long-lived host that is disk growth, not a boundary break.
-10. **`ENOSPC` mislabeling in the output sink** (every write error is reported as
-    "no space") and **the governed-load bookkeeping divergence** after a crash
-    between install and unlink (a still-present request is re-reported as a name
-    collision although the tool did install). Both are correctness, not boundary.
+7. **`ENOSPC` mislabeling in the output sink** (every write error is reported as
+   "no space") and **the governed-load bookkeeping divergence** after a crash
+   between install and unlink (a still-present request is re-reported as a name
+   collision although the tool did install). Both are correctness, not boundary.
 
 ## What a signature means here (stated once, in three answers)
 

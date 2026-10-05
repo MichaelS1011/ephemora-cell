@@ -152,15 +152,19 @@
   `Server(egress_grants=…, grant_ledger=…)` in-process installs the grant objects
   it is handed — that path has no file to authenticate and is explicitly the
   library's, not the operator's, surface.
-- **Grants are per tool; the server-wide allowlist is the fallback.** The loader
-  keys grants by the `tool` field INSIDE the signed payload (never by filename),
-  and the engine mediates a tool through its grant only when one exists. A tool
-  with no grant file — deleted, renamed, or never issued — is still mediated by
-  `--egress-allow` alone: allowlist, no window, no cap, no ledger. That is the
-  documented two-surface design, but it means the grants directory is not itself
-  the boundary: whoever can rename one file downgrades one tool, which is why the
-  root may not live in that directory and why the read is glob-scoped
-  (`*.egress.grant.json`, non-recursive).
+- **Grants are per tool; the server-wide allowlist is the fallback UNLESS the
+  operator requires a grant.** The loader keys grants by the `tool` field INSIDE
+  the signed payload (never by filename), and the engine mediates a tool through
+  its grant only when one exists. A tool with no grant file — deleted, renamed, or
+  never issued — is still mediated by `--egress-allow` alone: allowlist, no window,
+  no cap, no ledger. That is the documented two-surface design, but it means the
+  grants directory is not itself the boundary: whoever can rename one file
+  downgrades one tool, which is why the root may not live in that directory and why
+  the read is glob-scoped (`*.egress.grant.json`, non-recursive). The posture is now
+  stated rather than inferred: `get-policy` reports `ungranted_tools` as either
+  `"fall back to the server-wide allowlist"` or
+  `"denied (--egress-grants-required)"`, and the strict form is one flag away
+  (see "Decided" below).
 - **Revocation is per mediated call, not in-flight.** The correct wording is
   "effective at the next mediated call; already-delivered response artifacts
   are not recalled" — never "instantly revocable".
@@ -236,6 +240,39 @@
   Degrading the filter (returning the unfiltered list) turns five of these tests
   red — they are gates, not documentation.
 
+## Decided on 2026-10-05 (operator, two posture questions and one protocol question)
+
+The three open semantics listed in the review were decided rather than assumed,
+and each is now enforced, disclosed and gated:
+
+1. **A grant NARROWS, it does not enlarge.** `mediate_with_grant` takes the
+   server-wide policy as a `ceiling` and validates the request against grant AND
+   ceiling, ceiling first, before the ledger charges — an endpoint outside
+   `--egress-allow` is denied with `limit: "server-policy"` and spends no slot.
+   An embedder that passes no `egress_policy` has no ceiling, and `grant_scope`
+   says `"the grant is the whole authority for its tool"` rather than letting
+   "ledger-backed" imply a bound.
+2. **Ungranted tools: fallback stays the default, denial is a flag.**
+   `--egress-grants-required` (engine kwarg `grants_required`) denies mediation
+   for a tool with no signed grant — `limit: "grant-required"`, audited like any
+   other denial — instead of serving it under the allowlist alone. Constructing
+   an engine with the flag and no grants is an error, and the CLI refuses the
+   flag without `--egress-grants-dir`/`--grant-ledger` at exit 2. It is opt-in
+   because flipping the default would change what a partially configured
+   deployment does; `ungranted_tools` on `get-policy` states which of the two is
+   live, so the posture is never something a caller has to infer.
+3. **The handshake is ordered** (protocol, not egress, but decided in the same
+   pass): a handshake-era request before `initialize` is `-32600` before the
+   engine is reached, and so is a second `initialize` on the same process.
+   Requests that name their own protocol version in `params._meta` are exempt
+   because `2026-07-28` has no handshake, and `server/discover` is exempt because
+   the spec tells a dual-era client to probe with it first. No revision defines
+   an error code for either case, so `-32600` and the refusal are recorded here
+   as this server's choices. Nothing in Cell derives authority from the
+   handshake, so this is conformance rather than a control — and gates
+   (`tests/test_mcp_adapter.py::TestHandshakeOrder`, 10) that were proved to bite
+   by removing the enforcement and watching exactly those tests go red.
+
 ## Roadmap (remaining, not in 1.1)
 
 Grant ENFORCEMENT (window/cap/revocation via `GrantLedger`, critical-section
@@ -253,14 +290,12 @@ mechanical:
   signed at the next startup, which is the right blast radius for a compromised
   signing key but is not a per-grant revocation list. Per-grant revocation
   already exists in the ledger; per-KEY freshness does not.
-- **The strict grant posture is an open operator decision (2026-10-05).** Two
-  semantics are available and the release ships the permissive one: (a) a tool with
-  no grant file falls back to the server-wide `--egress-allow` instead of being
-  denied, and (b) a grant REPLACES that policy for its tool instead of intersecting
-  it, so a signed grant can be broader than the operator's allowlist. Making the
-  strict form available (`--egress-grants-required`, or intersect-on-both) is a
-  posture choice, not an oversight — it changes what a partially-configured
-  deployment does, so it is decided rather than assumed.
+- **Both strict postures are available; neither is the default.** The ceiling
+  intersection and `--egress-grants-required` (see "Decided on 2026-10-05") cover
+  the two downgrade paths a red-team pass named. What remains here is operator
+  work, not code: a deployment that wants the strict form has to set the flag, and
+  nothing audits from outside whether it did. `get-policy` reports the posture so
+  the check is at least automatable by the caller.
 - **Rotation is a documented sequence, not a ceremony.** The root records
   `active → transition → retired` and `replaced_by`; nothing schedules or
   enforces that a key actually moves, and an operator can leave a signing key in
@@ -333,3 +368,24 @@ startup path is now real too.
   (both get-policy shapes attest mediation off by default) and
   `test_get_policy_reports_egress_enabled_as_allowlist_only` (a wired policy
   discloses endpoints, caps and `enforced: "allowlist-only"`).
+- **Decided 2026-10-05 (ceiling, strict flag, handshake order):**
+  `egress_sidecar.mediate_with_grant(..., ceiling=…)`,
+  `CellToolEngine(grants_required=…)` + `Server(grants_required=…)` +
+  `--egress-grants-required`, and the lifecycle gate in
+  `ephemora_cell_mcp/server.py` (`_handshake_complete`, `_PRE_HANDSHAKE_METHODS`,
+  `_request_is_stateless`). Tests: `TestEngineGrantEnforcement` in
+  `tests/test_egress_sidecar.py` (a grant outside `--egress-allow` is denied with
+  `limit: "server-policy"` before the charge and spends no slot, with a positive
+  control that a granted endpoint INSIDE the policy still fetches; a grant-only
+  deployment keeps the grant as full authority; the strict flag denies an ungranted
+  tool and still mediates a granted one; the flag without grants is a construction
+  error), `TestGrantScopeDisclosure` in `tests/test_mcp_adapter.py` (4 — the two
+  `grant_scope` strings and both `ungranted_tools` strings),
+  `TestGrantsRequiredFlag` in `tests/test_mcp_main.py` (3 — the flag refuses
+  startup without `--egress-grants-dir` and without `--grant-ledger`, and reaches
+  the engine the server is built with, default `False` asserted too), and
+  `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (10 — `tools/call` and
+  `tools/list` refused before `initialize` with no WASM run, the stateless
+  `_meta` path and `server/discover` unaffected, an unsupported version still
+  answered `-32022`, a second `initialize` refused, a pre-handshake notification
+  still silent, and normal service after the handshake).

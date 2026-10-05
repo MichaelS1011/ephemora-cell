@@ -239,9 +239,24 @@ python -m ephemora_cell.grant_trust \
     --grant weather.grant.json --key ops-1.pem --key-id ops-1 \
     --out grants/weather.egress.grant.json
 ephemora-cell-mcp --tools-dir tools \
+    --egress-allow https://api.weather.example/v1 \
     --egress-trust /etc/ephemora/egress-trust.json \
     --egress-grants-dir grants --grant-ledger var/egress-ledger.jsonl
 ```
+
+Two scopes are enforced on top of each other, and the server never lets a caller
+guess which is which:
+
+- **The grant is a narrowing, not a widening.** With `--egress-allow` set, every
+  mediated request is validated against the grant AND the server-wide list first —
+  an endpoint that only the grant allows is denied (`limit: "server-policy"`) and
+  spends no grant slot. Without a server-wide list the grant alone decides.
+  `get-policy` says which case is live as `grant_scope`.
+- **A tool with no grant file falls back to the allowlist alone** — allowlist, no
+  window, no cap, no ledger. `--egress-grants-required` denies that fallback
+  (`limit: "grant-required"`), and needs `--egress-grants-dir` and `--grant-ledger`
+  with it (exit 2 otherwise). The posture is disclosed as `ungranted_tools`, so
+  "we run the strict form" is a claim a caller can check instead of infer.
 
 `--egress-trust` is required whenever `--egress-grants-dir` is given (exit 2,
 before a server exists), and the whole directory is all-or-nothing: one unsigned,

@@ -17,6 +17,7 @@ import typing
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import pytest
 import wasmtime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -583,6 +584,136 @@ class TestEngineGrantEnforcement:
             assert ledger.usage("g-eng").calls == 1
         finally:
             server.shutdown()
+
+    def test_a_grant_never_widens_the_server_wide_allowlist(self, tmp_path):
+        """Operator decision (2026-10-05): a grant NARROWS, it does not enlarge.
+
+        Without the intersection, a signed document for `endpoint B` would let a
+        tool reach a host the operator never allowlisted with `--egress-allow` —
+        the trust root would be a way to bypass the policy it sits next to. And
+        the refusal must not spend a slot: a probe that cannot reach anything
+        cannot drain a cap.
+        """
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        served, port = _serve()
+        other, other_port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            grant = self._grant(other_port, max_calls=5)  # grants the OTHER origin
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"t": grant},
+                grant_ledger=ledger,
+            )
+            d = _artifact_dir(
+                tmp_path / "outside", f"http://127.0.0.1:{other_port}/v1/data"
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied", audit
+            assert audit["limit"] == "server-policy", audit
+            assert other_port not in _RoutingHandler.hits, "the refused hop was fetched"
+            assert ledger.usage("g-eng").calls == 0, "a refused call spent a slot"
+        finally:
+            served.shutdown()
+            other.shutdown()
+
+    def test_intersection_still_admits_a_grant_inside_the_policy(self, tmp_path):
+        """Positive control: the ceiling does not simply deny everything."""
+        from ephemora_cell.egress_sidecar import EgressPolicy
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"t": self._grant(port, max_calls=2)},
+                grant_ledger=ledger,
+            )
+            d = _artifact_dir(tmp_path / "inside", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed", audit
+            assert ledger.usage("g-eng").calls == 1
+        finally:
+            server.shutdown()
+
+    def test_a_grant_only_deployment_keeps_the_grant_as_full_authority(self, tmp_path):
+        """No `--egress-allow`, no ceiling: the grant alone decides (documented
+        posture of a grant-only deployment — the intersection must not invent
+        one)."""
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            eng = CellToolEngine(
+                egress_grants={"t": self._grant(port, max_calls=1)},
+                grant_ledger=self._ledger(tmp_path),
+            )
+            d = _artifact_dir(
+                tmp_path / "grant-only", f"http://127.0.0.1:{port}/v1/data"
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed", audit
+        finally:
+            server.shutdown()
+
+    def test_grants_required_denies_an_ungranted_tool_without_falling_back(
+        self, tmp_path
+    ):
+        """Strict posture: no grant file, no egress — not even through the
+        operator's own allowlist."""
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            eng = CellToolEngine(
+                egress_policy=EgressPolicy(
+                    allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
+                ),
+                egress_grants={"other": self._grant(port)},
+                grant_ledger=self._ledger(tmp_path),
+                grants_required=True,
+            )
+            d = _artifact_dir(
+                tmp_path / "ungranted", f"http://127.0.0.1:{port}/v1/data"
+            )
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "denied", audit
+            assert audit["limit"] == "grant-required", audit
+            assert port not in _RoutingHandler.hits, "the ungranted tool was fetched"
+        finally:
+            server.shutdown()
+
+    def test_grants_required_still_mediates_a_granted_tool(self, tmp_path):
+        """The strict flag must not switch the grant path off."""
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        server, port = _serve()
+        try:
+            ledger = self._ledger(tmp_path)
+            eng = CellToolEngine(
+                egress_grants={"t": self._grant(port, max_calls=1)},
+                grant_ledger=ledger,
+                grants_required=True,
+            )
+            d = _artifact_dir(tmp_path / "granted", f"http://127.0.0.1:{port}/v1/data")
+            (audit,) = eng._mediate_egress(str(d), "t")
+            assert audit["decision"] == "allowed", audit
+            assert ledger.usage("g-eng").calls == 1
+        finally:
+            server.shutdown()
+
+    def test_grants_required_without_grants_is_a_construction_error(self):
+        from ephemora_cell_mcp.engine import CellToolEngine
+
+        with pytest.raises(ValueError, match="grants_required"):
+            CellToolEngine(grants_required=True)
 
     def test_revocation_refuses_without_touching_the_booked_count(self, tmp_path):
         from ephemora_cell_mcp.engine import CellToolEngine

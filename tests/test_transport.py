@@ -63,13 +63,18 @@ def test_limit_reply_is_never_reparsed_as_input():
 
 def test_server_serves_valid_request_after_oversized_line():
     """End to end through the serve loop: limit reply, then the answer."""
+    handshake = json.dumps(
+        {"jsonrpc": "2.0", "id": "hs", "method": "initialize", "params": {}}
+    )
     good = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/list"})
-    transport, out = _transport(OVERSIZED, good, "\n")
+    transport, out = _transport(OVERSIZED, handshake, "\n", good, "\n")
     Server(transport=transport).serve()
     lines = [json.loads(line) for line in out.getvalue().strip().splitlines()]
     assert lines[0]["error"]["code"] == -32600
-    assert lines[1]["id"] == 7
-    assert "tools" in lines[1]["result"]
+    assert "transport limit" in lines[0]["error"]["message"]
+    assert lines[1]["id"] == "hs"
+    assert lines[2]["id"] == 7
+    assert "tools" in lines[2]["result"]
 
 
 # --- the transport reads BYTES: one bad byte is a bad message, not a dead server

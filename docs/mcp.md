@@ -85,10 +85,11 @@ The last one returns:
 | Message | Behaviour |
 |---|---|
 | `server/discover` | Returns `resultType: "complete"`, `supportedVersions` (all four below), `capabilities`, `instructions`, `ttlMs`/`cacheScope` and `_meta["io.modelcontextprotocol/serverInfo"]`. Answered with or without request `_meta` — this is the stdio era-probe dual-era clients use |
-| `initialize` | Legacy era: returns `protocolVersion: "2025-06-18"` (echoes a requested legacy revision), `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: <package version>}` (single-sourced in `ephemora_cell_mcp/_version.py`) |
+| `initialize` | Legacy era: returns `protocolVersion: "2025-06-18"` (echoes a requested legacy revision), `capabilities: {"tools": {"listChanged": false}}`, `serverInfo: {name: "ephemora-cell-mcp", version: <package version>}` (single-sourced in `ephemora_cell_mcp/_version.py`). Completes the handshake for this stdio process; a **second** `initialize` on the same process is refused with `-32600` |
 | `notifications/initialized` | Accepted silently (no response, per JSON-RPC notifications) |
 | `tools/list` | Tools discovered in the registry, as MCP `{name, description, inputSchema}`; modern-era responses additionally carry `resultType`, `ttlMs`, `cacheScope` and `_meta.serverInfo` |
 | `tools/call` | Runs the tool's WASM module; result `content[0].text` is the guest's stdout JSON; `_meta.execution` carries the `ExecutionReport` |
+| `tools/list`, `tools/call` before `initialize` | `-32600`, and no WASM runs — handshake-era traffic must open the session first (see below). A request that names its own version in `params._meta` is never affected. Before the handshake this covers **any** method other than `initialize` and `server/discover`, so an unknown method is `-32600` there rather than `-32601` |
 | anything else | JSON-RPC error `-32601` (method not found) |
 
 ### Protocol versions & stateless operation (2026-07-28)
@@ -111,7 +112,16 @@ The last one returns:
   exact pre-2026-07-28 behavior: `initialize` negotiates
   `2025-06-18` / `2025-03-26` / `2024-11-05` (the handshake never selects
   the stateless revision), responses carry no `resultType` (older clients
-  treat absent `resultType` as `"complete"`, per spec).
+  treat absent `resultType` as `"complete"`, per spec). The **order** is
+  enforced too, because the legacy revisions make initialization the first
+  interaction and state that other requests "are not possible until
+  initialization has completed": a handshake-era `tools/list` or `tools/call`
+  that arrives before `initialize` is refused with `-32600` before the engine
+  is reached, and a second `initialize` on the same process is refused the
+  same way. `server/discover` stays reachable either way — the revision tells
+  a dual-era client to send it *before* deciding whether to initialize, so
+  gating the probe would hide the server's era. Neither gate is a security
+  control: no capability a client can claim adds or removes authority here.
 - **No MRTR** — the stateless revision's Multi Round-Trip Requests pattern
   applies to server-initiated requests (sampling, elicitation, roots).
   This server issues none of those (they are deprecated in `2026-07-28`),
@@ -155,7 +165,9 @@ Errors, cleanly separated:
   non-zero exit) → a *valid* JSON-RPC response with `isError: true`; the text
   payload is `{"status": ..., "message": ..., "exit_code": ...}` and the full
   `_meta.execution` report is included.
-- **Malformed JSON line** → `-32700`; malformed request → `-32600`.
+- **Malformed JSON line** → `-32700`; malformed request → `-32600`; a
+  handshake-era request that arrives before `initialize` (or a second
+  `initialize`) → `-32600` with a message naming the fix.
 
 ### `_meta` — "Verified. Not claimed."
 

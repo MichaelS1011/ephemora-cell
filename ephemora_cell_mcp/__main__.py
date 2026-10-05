@@ -123,6 +123,16 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--egress-grants-required",
+        action="store_true",
+        help=(
+            "strict posture (ADR-013): a tool with no signed grant file is DENIED "
+            "mediation instead of falling back to --egress-allow. Without it, "
+            "renaming or deleting one grant file quietly removes one cap. Needs "
+            "--egress-grants-dir and --grant-ledger."
+        ),
+    )
+    parser.add_argument(
         "--receipt-signing-key",
         metavar="PEM",
         help=(
@@ -171,6 +181,17 @@ def main(argv: list[str] | None = None) -> int:
     egress_grants = None
     grant_ledger = None
     grant_trust_summary = None
+    # OUTSIDE the grants-dir branch, because inside it the condition can never
+    # hold: `--egress-grants-required` without a grants directory is exactly the
+    # misconfiguration this guard exists to refuse, and a check nested in the
+    # branch it guards is a comment, not an error path.
+    if args.egress_grants_required and not args.egress_grants_dir:
+        print(
+            "error: --egress-grants-required needs --egress-grants-dir "
+            "(nothing can be required without a grants directory)",
+            file=sys.stderr,
+        )
+        return 2
     if args.egress_grants_dir:
         # Grants are only meaningful behind BOTH a ledger (ADR-013 enforcement)
         # and a trust root (authentication): a grant whose cap nobody reads is an
@@ -252,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         egress_policy=egress_policy,
         egress_grants=egress_grants,
         grant_ledger=grant_ledger,
+        grants_required=args.egress_grants_required,
         grant_trust=grant_trust_summary,
         receipt_signer=receipt_signer,
         receipt_key_id=args.receipt_key_id,

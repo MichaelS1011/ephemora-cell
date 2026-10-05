@@ -63,14 +63,36 @@ def server_with(tmp_path):
 
 
 def _reply(server, transport):
-    """Feed all remaining inbox lines, return all responses."""
+    """Feed all remaining inbox lines, return all responses.
+
+    A handshake answer (id ``HS_ID``) is filtered out: this file tests result
+    SHAPES per era, and the lifecycle ordering itself is gated in
+    test_mcp_adapter.py::TestHandshakeOrder. Legacy-era traffic still needs the
+    handshake to be served at all, so `_legacy()` puts it in the inbox.
+    """
     responses = []
     while True:
         line = transport.read_line()
         if line is None:
             break
-        responses.extend(server.handle_line(line))
+        responses.extend(r for r in server.handle_line(line) if r.get("id") != HS_ID)
     return responses
+
+
+#: A request id no other test uses, so the handshake answer is recognisable.
+HS_ID = "hs"
+
+_INITIALIZE = {
+    "jsonrpc": "2.0",
+    "id": HS_ID,
+    "method": "initialize",
+    "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {}},
+}
+
+
+def _legacy(*requests: dict) -> list[dict]:
+    """Inbox for handshake-era traffic: the session opens with initialize."""
+    return [_INITIALIZE, *requests]
 
 
 def _request(id_: int, method: str, meta: dict | None = None, **params: object) -> dict:
@@ -178,7 +200,7 @@ def test_stateless_tools_list_governed_ttl(server_with, tmp_path):
 def test_legacy_tools_list_keeps_old_shape(server_with):
     """No _meta -> exact pre-2026-07-28 response (no resultType, no TTL)."""
     server, transport = server_with(
-        inbox=[{"jsonrpc": "2.0", "id": 3, "method": "tools/list"}]
+        inbox=_legacy({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
     )
     (response,) = _reply(server, transport)
     result = response["result"]
@@ -295,26 +317,25 @@ def test_empty_protocol_version_string_is_invalid_params(server_with):
 
 
 def test_initialize_negotiates_legacy_versions_only(server_with):
-    """initialize never answers 2026-07-28 — that revision is stateless."""
-    server, transport = server_with(
-        inbox=[
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {"protocolVersion": MODERN},
-            },
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "initialize",
-                "params": {"protocolVersion": "2025-03-26"},
-            },
-        ]
-    )
-    responses = _reply(server, transport)
-    assert responses[0]["result"]["protocolVersion"] == "2025-06-18"
-    assert responses[1]["result"]["protocolVersion"] == "2025-03-26"
+    """initialize never answers 2026-07-28 — that revision is stateless.
+
+    One negotiation per process, because the handshake completes the session and
+    a second initialize on the same process is refused
+    (test_mcp_adapter.py::TestHandshakeOrder).
+    """
+    for requested, answered in ((MODERN, "2025-06-18"), ("2025-03-26", "2025-03-26")):
+        server, transport = server_with(
+            inbox=[
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {"protocolVersion": requested},
+                }
+            ]
+        )
+        (response,) = _reply(server, transport)
+        assert response["result"]["protocolVersion"] == answered
 
 
 def test_initialize_with_meta_still_legacy(server_with):
@@ -337,14 +358,14 @@ def test_initialize_with_meta_still_legacy(server_with):
 def test_legacy_tools_call_unchanged(server_with):
     """Legacy-era tools/call response keeps the exact pre-revision shape."""
     server, transport = server_with(
-        inbox=[
+        inbox=_legacy(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "tools/call",
                 "params": {"name": "echo", "arguments": {"message": "legacy"}},
             }
-        ]
+        )
     )
     (response,) = _reply(server, transport)
     result = response["result"]

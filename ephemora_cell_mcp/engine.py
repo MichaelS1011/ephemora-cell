@@ -134,6 +134,7 @@ class CellToolEngine:
         egress_policy: EgressPolicy | None = None,
         egress_grants: dict[str, EgressGrant] | None = None,
         grant_ledger: GrantLedger | None = None,
+        grants_required: bool = False,
     ) -> None:
         self.default_profile = profile
         # Trusted fast path (decision D3, 2026-09-12): disabling the
@@ -157,6 +158,20 @@ class CellToolEngine:
         # no grant means no mediation at all.
         self.egress_grants = egress_grants or {}
         self.grant_ledger = grant_ledger
+        # Strict posture (ADR-013): a tool with no signed grant is DENIED
+        # mediation instead of falling back to the server-wide allowlist. Opt-in,
+        # because the fallback is what existing deployments configured; with it
+        # off, renaming or deleting one grant file quietly removes one cap.
+        self.grants_required = grants_required
+        if (
+            self.grants_required
+            and not self.egress_grants
+            and self.grant_ledger is None
+        ):
+            raise ValueError(
+                "grants_required is meaningful only with grants and a ledger — "
+                "set --egress-grants-dir and --grant-ledger as well"
+            )
         if self.egress_grants and self.grant_ledger is None:
             raise ValueError(
                 "egress_grants require a grant_ledger to enforce their "
@@ -269,10 +284,12 @@ class CellToolEngine:
         Returns [] (no egress attempted, no _meta key) unless the run has an
         egress surface AND the guest wrote ``sidecar.request.json``. There are
         two surfaces (ADR-013): a tool with a signed grant and an attached
-        ledger is mediated grant-gated — the grant's allowlist plus a charged
-        call (revocation/window/cap enforced); any other tool falls back to the
-        server-wide ``egress_policy`` allowlist path, and no surface at all
-        means no mediation. A present-but-unreadable artifact still yields an
+        ledger is mediated grant-gated — the grant's allowlist, INTERSECTED with
+        the server-wide policy when one is also configured (a grant narrows, never
+        enlarges), plus a charged call (revocation/window/cap enforced); any other
+        tool falls back to the server-wide ``egress_policy`` allowlist path, and no
+        surface at all means no mediation. With ``grants_required`` that fallback is
+        gone: no grant, no egress. A present-but-unreadable artifact still yields an
         audit: the mediator parses untrusted bytes fail-closed, so a malformed
         request — or an artifact the host refuses to open — becomes a ``denied``
         entry rather than silence. An ABSENT file is the only case that stays
@@ -280,6 +297,27 @@ class CellToolEngine:
         """
         grant = self.egress_grants.get(tool_name)
         ledger = self.grant_ledger
+        if grant is None and self.grants_required:
+            # The strict mode's whole point: no grant, no egress — not even
+            # through the operator's own allowlist. Audited, because a denial
+            # that leaves no trace is indistinguishable from a missing feature.
+            return (
+                {
+                    **asdict(
+                        EgressAuditEntry(
+                            url="<unmediated>",
+                            method="?",
+                            decision="denied",
+                            reason=(
+                                f"tool {tool_name!r} has no signed grant and "
+                                "--egress-grants-required is set"
+                            ),
+                            limit="grant-required",
+                        )
+                    ),
+                    "response": {"ok": False, "error": "no grant for this tool"},
+                },
+            )
         use_grant = grant is not None and ledger is not None
         policy: EgressPolicy | None = (
             grant.policy() if grant and use_grant else self.egress_policy
@@ -320,7 +358,8 @@ class CellToolEngine:
                 },
             )
         if use_grant and grant is not None and ledger is not None:
-            outcome = mediate_with_grant(grant, ledger, raw)
+            # A grant narrows the server-wide policy; it never widens it.
+            outcome = mediate_with_grant(grant, ledger, raw, ceiling=self.egress_policy)
         else:
             outcome = mediate(policy, raw)
         # Produce the response artifact per the pattern. With a fresh sandbox

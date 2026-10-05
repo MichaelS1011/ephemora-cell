@@ -73,14 +73,19 @@ Ephemora Cell is an isolated WASM sandbox, not a full security enforcement platf
 - **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path.
 - **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
-- **Grants are per tool; the server-wide allowlist is the fallback.** A tool
-  without a signed grant file is still mediated by `--egress-allow` alone —
+- **Grants are per tool; the server-wide allowlist is still the fallback.** A
+  tool without a signed grant file is mediated by `--egress-allow` alone —
   allowlist, no window, no cap, no ledger. Renaming or deleting one grant file
   therefore downgrades one tool, and `get-policy` shows the per-tool grant list
-  without a dedicated "these tools are uncapped" key. The strict alternative (a
-  tool with no grant is denied) is an operator posture decision, not taken here.
-  Related: a grant **replaces** `--egress-allow` for its tool rather than
-  intersecting it, so a signed grant can be broader than the server-wide list.
+  plus `ungranted_tools`, which names the posture ("fall back to the server-wide
+  allowlist" or "denied (--egress-grants-required)") rather than leaving it to
+  be inferred. The strict alternative is opt-in: `--egress-grants-required`
+  denies an ungranted tool instead of falling back, which is why it is a flag and
+  not the default — a partially configured deployment changes behaviour.
+  Related: for its tool a grant is intersected with `--egress-allow` (see
+  "Egress mediation"), so a signed grant can no longer be broader than the
+  server-wide list; with no server-wide list configured the grant is the whole
+  authority, and `grant_scope` says which of the two is in force.
 - **The engine pool is only reached when the byte wall is lifted.**
   `io_budget_bytes` is set by default and a set budget forces a per-run engine, so
   pooled-path claims (module cache, engine reuse) are exercised in the suite by
@@ -299,6 +304,28 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   carried (one read holding two messages used to answer only the first), and
   non-finite request ids are refused because `json.loads` accepts `NaN` and the
   echoed id produced a frame strict parsers reject.
+- **Grant authority is an intersection, and the strict posture is a flag
+  (2026-10-05).** A signed grant narrows what a tool may reach; it no longer
+  widens it. `mediate_with_grant` validates the request against the grant AND
+  against the server-wide `--egress-allow` ceiling before anything is charged,
+  so an endpoint outside the operator's list is denied with `limit:
+  "server-policy"` and spends no grant slot — a grant that was broader than the
+  allowlist used to be the whole authority for its tool. `get-policy` discloses
+  which scope is live (`grant_scope`). Separately, `--egress-grants-required`
+  flips the ungranted-tool case from fallback to denial (`limit:
+  "grant-required"`, disclosed as `ungranted_tools`): off by default, so a tool
+  with no grant file is still mediated by the allowlist alone (allowlist, no
+  window, no cap, no ledger) and renaming or deleting one grant file still
+  downgrades that one tool.
+- **The MCP handshake is ordered, and that is conformance, not authority
+  (2026-10-05).** A handshake-era request (one that names no protocol version
+  in `params._meta`) is refused with `-32600` before `initialize` and on a
+  repeated `initialize`, and the refusal happens before the engine is reached
+  (`tests/test_mcp_adapter.py::TestHandshakeOrder`). The stateless `2026-07-28`
+  path is deliberately exempt — that revision has no handshake — as is
+  `server/discover`, the probe a dual-era client sends before it knows whether
+  to initialize. No client capability adds or removes authority in this server,
+  so nothing a caller can claim through the handshake changes what it may run.
 - **The artefact cannot out-argue its own claims.** A declared `alg` on a
   signature is checked against the expected algorithm, and the receipt verifier
   accepts only Cell's own receipt audiences — so a grant envelope signed by the

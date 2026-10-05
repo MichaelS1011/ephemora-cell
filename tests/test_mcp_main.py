@@ -472,3 +472,67 @@ def test_unreadable_signing_key_is_a_clean_error(tmp_path, capsys):
     assert code == 2
     assert "--receipt-signing-key" in capsys.readouterr().err
     assert _RecordingServer.instances == []
+
+
+class TestGrantsRequiredFlag:
+    """`--egress-grants-required` (ADR-013, D1): the strict posture has to be
+    reachable from the CLI, and unreachable postures must fail at startup rather
+    than silently degrade into the allowlist fallback."""
+
+    def test_without_a_grants_dir_it_refuses_startup(self, tmp_path, capsys):
+        code = main(["--tools-dir", str(tmp_path), "--egress-grants-required"])
+        assert code == 2
+        assert "--egress-grants-dir" in capsys.readouterr().err
+        assert _RecordingServer.instances == []
+
+    def test_with_grants_dir_but_no_ledger_it_refuses_startup(self, tmp_path, capsys):
+        grants_dir, trust_file, _grant = _grant_setup(tmp_path)
+        code = main(
+            [
+                "--tools-dir",
+                str(tmp_path),
+                "--egress-grants-dir",
+                str(grants_dir),
+                "--egress-trust",
+                str(trust_file),
+                "--egress-grants-required",
+            ]
+        )
+        assert code == 2
+        assert "--grant-ledger" in capsys.readouterr().err
+        assert _RecordingServer.instances == []
+
+    def test_reaches_the_engine_the_server_serves_with(self, tmp_path):
+        grants_dir, trust_file, _grant = _grant_setup(tmp_path)
+        code = main(
+            [
+                "--tools-dir",
+                str(tmp_path),
+                "--egress-grants-dir",
+                str(grants_dir),
+                "--grant-ledger",
+                str(tmp_path / "gr.jsonl"),
+                "--egress-trust",
+                str(trust_file),
+                "--egress-grants-required",
+            ]
+        )
+        assert code == 0
+        kwargs = _RecordingServer.instances[0].kwargs
+        assert kwargs["grants_required"] is True
+        # The default is the fallback, so the absence of the flag must be a
+        # fact the disclosure can report, not an assumption.
+        plain = main(
+            [
+                "--tools-dir",
+                str(tmp_path),
+                "--egress-grants-dir",
+                str(grants_dir),
+                "--grant-ledger",
+                str(tmp_path / "gr2.jsonl"),
+                "--egress-trust",
+                str(trust_file),
+            ]
+        )
+        assert plain == 0
+        assert _RecordingServer.instances[-1].kwargs["grants_required"] is False

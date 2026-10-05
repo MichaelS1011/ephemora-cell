@@ -97,8 +97,29 @@ weaker.
   never handed an arbitrarily large document the guest decided to write; the
   denial happens before the allocation, not after.
 
-Sensitivity: reverting the no-follow read, the wall-clock deadline or the byte
-stdin turns exactly those gates red — they are gates, not documentation.
+- **A signed grant could out-rank the operator's own allowlist.** For its tool a
+  grant REPLACED `--egress-allow`, so one signature broader than the server-wide
+  list widened what a tool could reach — the allowlist was a floor nobody checked.
+  `mediate_with_grant` now takes the server-wide policy as a `ceiling` and
+  validates against it BEFORE the ledger charges: an endpoint outside the
+  operator's list is denied with `limit: "server-policy"` and spends no slot, and
+  `get-policy` discloses the live scope as `grant_scope` (with no server-wide list
+  the grant alone decides, and it says so). Gate:
+  `TestEngineGrantEnforcement.test_a_grant_never_widens_the_server_wide_allowlist`
+  plus a positive control that a granted endpoint inside the policy still fetches.
+- **The MCP handshake was not ordered, and one CLI guard was dead code.** A
+  handshake-era client that skipped `initialize` was served `tools/call`
+  anyway — spec-wise "other requests are not possible until initialization has
+  completed" (2025-03-26), and a malicious-client case rather than an accident.
+  Requests that name no protocol version in `params._meta` are now refused with
+  `-32600` before the engine is reached, and a second `initialize` on the same
+  process too; the stateless `2026-07-28` path and the `server/discover` era-probe
+  stay reachable, because that revision has no handshake and the probe is sent
+  before one. Gates: `tests/test_mcp_adapter.py::TestHandshakeOrder` (10). Along the
+  way the new CLI test for `--egress-grants-required` caught that its own
+  validation guard could never fire — it was nested inside the `if
+  args.egress_grants_dir:` branch whose condition it negated. It now runs before
+  that branch and exits 2.
 - **The artefact's own claims now bind verification.** Three pins, all
   fail-closed: a DSSE signature entry that DECLARES an `alg` is checked against
   the expected algorithm (Ed25519 bytes labelled `ES256` used to verify happily as
@@ -210,8 +231,30 @@ stdin turns exactly those gates red — they are gates, not documentation.
   reporting "still waiting" — its documented contract (0 = open, 1 = waiting)
   and any CI that trusted it were both inverted. It returns 1 now.
 
+Sensitivity — every one of these is a gate, not documentation, and each was
+proved by deleting the enforcement and counting what went red: reverting the
+no-follow read, the wall-clock deadline or the byte stdin turns the matching
+graders red; removing the `ceiling` argument costs exactly
+`test_a_grant_never_widens_the_server_wide_allowlist`; neutering the
+`grants_required` denial costs
+`test_grants_required_denies_an_ungranted_tool_without_falling_back`; disabling
+the pre-initialize gate costs 4 tests (both refusals, the "no WASM ran" proof and
+the lifecycle-vs-lookup distinction) and disabling the duplicate-`initialize`
+refusal costs 1.
+
 ### Added
 
+- **`--egress-grants-required`: the strict grant posture is reachable.** With it,
+  a tool that has no signed grant file is DENIED mediation (`limit:
+  "grant-required"`, audited like every other denial) instead of falling back to
+  the server-wide allowlist without a window, cap or ledger. Off by default —
+  flipping the default would change what a partially configured deployment does —
+  and `get-policy` states the live posture as `ungranted_tools`, so "we run the
+  strict form" is checkable rather than inferred. The flag refuses startup (exit
+  2) without `--egress-grants-dir` and `--grant-ledger`, and
+  `CellToolEngine(grants_required=True)` without grants raises at construction.
+  Gates: `TestEngineGrantEnforcement` (2), `TestGrantScopeDisclosure` (4),
+  `TestGrantsRequiredFlag` in `tests/test_mcp_main.py` (3).
 - **Signed receipts are bound to one execution, not to a shape.** The signing
   path now writes an `evidence` block INSIDE the canonical bytes
   (`ephemora-execution-evidence.v1`): a fresh `report_id` per receipt, an aware
@@ -458,6 +501,15 @@ stdin turns exactly those gates red — they are gates, not documentation.
 
 ### Changed
 
+- **One client-visible protocol behavior, on purpose:** a handshake-era request
+  that arrives before `initialize` is answered with `-32600` instead of being
+  served, and a repeated `initialize` on the same stdio process too. Real clients
+  are unaffected (every MCP client initializes before listing or calling, and the
+  `2026-07-28` stateless path plus the `server/discover` probe are exempt by
+  design), but a hand-rolled script that fired `tools/call` at a fresh process
+  now has to send the handshake first. Rationale and the spec quotes that justify
+  the asymmetry: [ADR-013](docs/decisions/ADR-013-egress-host-mediation-and-grant-form.md)
+  ("Decided on 2026-10-05") and `docs/mcp.md`.
 - **The sdist can now run the tests it ships.** It contained `tests/*.py` but
   neither `conftest.py` nor the `tests/fixtures/*.wasm` those tests need, so an
   unpacked sdist produced 65 failures that looked like product regressions and
@@ -484,6 +536,22 @@ stdin turns exactly those gates red — they are gates, not documentation.
 
 ### Tests
 
+- 23 gates for the three post-review decisions: `TestHandshakeOrder` in
+  `tests/test_mcp_adapter.py` (9 — pre-initialize `tools/list`/`tools/call` refused
+  with `-32600` and, proved separately, without reaching the engine; the stateless
+  `_meta` path and the `server/discover` probe served; an unsupported version still
+  answered `-32022` rather than masked by the gate; second `initialize` refused;
+  pre-handshake notifications still silent; normal service after the handshake),
+  `TestGrantScopeDisclosure` (4 — both `grant_scope` strings, both
+  `ungranted_tools` strings), `TestGrantsRequiredFlag` in `tests/test_mcp_main.py`
+  (3 — the two startup refusals and the flag reaching the engine the server is
+  built with, default `False` asserted in the same test), and
+  `TestEngineGrantEnforcement` in `tests/test_egress_sidecar.py` (6 — a grant
+  outside the server-wide allowlist denied with no slot spent, the intersection
+  positive control, a grant-only deployment keeping full authority, strict mode
+  denying an ungranted tool and still mediating a granted one, and the
+  construction error). Writing the CLI gate is what exposed that the flag's own
+  validation guard could never fire.
 - `tests/test_execution_invariants.py` (4) — the product promise as four named
   gates: `test_ephemeral_invariant`, `test_stateless_invariant`,
   `test_capability_invariant`, `test_verifiable_execution_invariant`. Written

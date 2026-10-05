@@ -364,14 +364,27 @@ class TestGovernedLoad:
         server, transport, _tools, requests = self._server(tmp_path, pub)
         request_file = self._drop_request(key, requests)
         transport._inbox = [
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "hs",
+                    "method": "initialize",
+                    "params": {},
+                }
+            ),
+            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
         ]
         server.serve()
         methods = [m.get("method") for m in transport.outbox]
         assert "notifications/tools/list_changed" in methods
-        assert methods.index("notifications/tools/list_changed") == 0
         response = transport.outbox[-1]
         assert response["id"] == 1
+        # The announcement must PRECEDE the answer to the message that triggered
+        # its evaluation — that is the "between messages" promise.
+        assert (
+            methods.index("notifications/tools/list_changed")
+            < len(transport.outbox) - 1
+        )
         assert "widget" in {t["name"] for t in response["result"]["tools"]}
         # the request was consumed, not left on disk
         assert not request_file.exists()
