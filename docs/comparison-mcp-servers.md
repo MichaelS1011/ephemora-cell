@@ -195,7 +195,7 @@ retrieved 2026-10-03):**
    measurement, §3), no container latency (Docker wrapper: +490 ms, a
    third-party figure from EnkryptAI's walkthrough, not a Docker value).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 924 CI-enforced
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 929 CI-enforced
    tests (4 skipped) with security gates (pip-audit, SBOM, bandit) and an
    active release line; Wassette itself declares itself "not production ready".
    Status 2026-10-03: Wassette v0.8.0 lists memory, CPU-time and execution-time
@@ -319,8 +319,11 @@ without a restart — Cell's new tenant budgets are per-run attribution charged 
 the library/CLI layer with no platform identity source, and its engine rebuilds
 per call. Its signed grants are also a shipped, globally-revocable capability
 bound to a principal; Cell's 1.1 grant enforces the same fields (time, cap,
-revocation) on the host build path but does not yet verify the grant signature on
-load, and its revocation is per next mediated call rather than in-flight. Both
+revocation), authenticates the signature on load against a trust root kept outside
+the grants directory, and intersects the grant with the operator's
+`--egress-allow` (ADR-013) — what stays behind is the principal binding (Cell has
+no platform identity source) and revocation taking effect at the next mediated
+call rather than in-flight. Both
 edges are reach and productisation, not missing capability on the axes Cell has
 now built.
 
@@ -446,7 +449,7 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 928 collected tests today (measured 2026-10-05) — 924 passing (4 skipped)
+comprises 933 collected tests today (measured 2026-10-05) — 929 passing (4 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.

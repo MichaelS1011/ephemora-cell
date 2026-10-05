@@ -27,8 +27,11 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 
 # Modules that read repository files or fixtures that the sdist does not carry.
-# Verified by unpacking the 1.1.0 sdist into a clean python:3.12-slim container
-# and installing it as the only source of the package.
+# The list was assembled by unpacking the sdist into a clean python:3.12-slim
+# container and installing it as the only source of the package — which is also
+# how the marker above was found to be self-defeating: shipping `tests/fixtures`
+# made an unpacked sdist look like a checkout, so these modules ran and failed
+# instead of being skipped. `tests/test_checkout_skip_policy.py` pins both halves.
 CHECKOUT_ONLY_MODULES = frozenset(
     {
         # repository metadata, scripts and source-text inspection
@@ -44,11 +47,24 @@ CHECKOUT_ONLY_MODULES = frozenset(
 )
 
 
+def is_checkout(repo: Path) -> bool:
+    """Is ``repo`` a source checkout rather than an unpacked distribution?
+
+    A checkout is where the REPOSITORY inputs exist, not where the project file
+    is. The obvious predicate — `pyproject.toml` plus the `tests/fixtures`
+    binaries — is wrong, and was wrong since the sdist started shipping those
+    fixtures: an unpacked sdist satisfies it, so the skip below never fired and
+    eight repository-inspection modules ran against files no distribution
+    carries. What a Python distribution never ships is the repository's own
+    documentation and script directories, and a checkout — clone or source
+    export — always has both, because that is where the build-and-verify
+    instructions live.
+    """
+    return (repo / "docs").is_dir() and (repo / "scripts").is_dir()
+
+
 def _in_source_checkout() -> bool:
-    """A checkout has the project file AND the fixture binaries the suite needs."""
-    return (REPO / "pyproject.toml").is_file() and (
-        TESTS / "fixtures" / "hello02.wasm"
-    ).is_file()
+    return is_checkout(REPO)
 
 
 def pytest_collection_modifyitems(
