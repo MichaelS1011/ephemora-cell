@@ -311,9 +311,14 @@ tools directory if you want them alongside your own).
   deployments can instead pass a custom `manifest_verifier` callable.
 - **Governed dynamic loading (`--tool-requests-dir DIR`, ADR-006)** — with
   signed-tools mode on, the operator points the server at a requests
-  directory. A guest or client can only DROP a
-  `<name>.tool.request.json` file there (a request names a `.wasm`
-  inside that directory plus its signed manifest with `wasm_sha256`);
+  directory. Writing there is a HOST-SIDE filesystem action, not a guest
+  capability: no sandbox preopens it, so a running tool cannot drop a
+  proposal at all. Whoever does hold that write access can only DROP a
+  `<name>.tool.request.json` (a request names a `.wasm` inside that
+  directory plus its signed manifest with `wasm_sha256`) — and since 1.1.0
+  the server refuses to FOLLOW a link at such a name: the entry must be a
+  regular file, otherwise it is rejected with a reason instead of being
+  read through into the parser, or deferred forever as "unsettled".
   the server evaluates the requests directory before each incoming
   message (`Server.process_tool_requests()`, which verifies the
   manifest, re-hashes the module, checks the profile and installs
