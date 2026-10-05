@@ -1,13 +1,16 @@
-# Ephemora Cell
+# Ephemora-cell
 
-**Ephemora Cell is a lightweight security and execution primitive for running untrusted code inside AI agents, MCP tools, plugins, and applications.**
+**Ephemora-cell is an ephemeral, stateless, capability-bound execution boundary for untrusted AI and agent-generated code.**
 
 ```text
-Run untrusted code.
-Control its capabilities.
-Bound its resources.
-Record what happened.
+create → constrain → execute → prove → destroy
 ```
+
+Every execution starts from a clean state, runs under limits the host granted — fuel,
+memory, time, I/O, output size, filesystem and network capability — can produce signed
+evidence of what happened, and ends without carrying execution state into the next run.
+
+> **The evidence persists. The execution state does not.**
 
 Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads.**
 
@@ -19,7 +22,7 @@ AI Agent / Application
         │
         ▼
  ┌───────────────────────┐
- │     Ephemora Cell     │
+ │     Ephemora-cell     │
  │                       │
  │ Capabilities          │
  │ Resource budgets      │
@@ -97,22 +100,49 @@ AI Agent / Application
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
-    <img src="assets/hero-light.svg" alt="AI Agent → Ephemora Cell enforcement stack → bounded result">
+    <img src="assets/hero-light.svg" alt="AI Agent → Ephemora-cell enforcement stack → bounded result">
   </picture>
 </p>
 
-## What is Ephemora Cell?
+## What is Ephemora-cell?
 
-Ephemora Cell is an embeddable **execution and security primitive** for running untrusted WASM code: WASM/WASI isolation, explicit capability control, enforced CPU/fuel, memory, I/O and time limits, bounded output, and structured — optionally signed — execution records. Runtime + security primitive + accounting in one `pip install`. It uses Wasmtime to implement that boundary — WASM is the mechanism, the **controlled execution of untrusted code** is the product.
+Ephemora-cell is an embeddable **execution boundary** for running untrusted, often AI-generated code: WASM/WASI isolation, explicit capability control, enforced CPU/fuel, memory, I/O and time limits, bounded output, and structured — optionally signed — execution records. Runtime + security boundary + accounting in one `pip install`. It uses Wasmtime to implement that boundary — WASM is the mechanism, the **controlled execution of untrusted code** is the product.
 
-## Why Ephemora Cell?
+What the 1.1 boundary actually enforces, each of it behind a named test (see
+[SECURITY.md](SECURITY.md) for the claims and their limits):
+
+* **Capability, not convention.** A run sees only what it was granted: preopens are
+  revalidated at grant time, the guest never gets sockets, and the host does not
+  follow a file name the guest could have created (`O_NOFOLLOW` + regular-file check
+  + atomic publication on every shared path).
+* **Authenticated grants with real limits.** Egress is host-mediated after the run.
+  Each tool's grant must be a DSSE envelope signed by a key in an operator trust root
+  kept outside the grants directory, and its window, call cap and revocation are
+  enforced against an append-only ledger — intersected with the operator's own
+  allowlist, per request **and per redirect hop**, with the tighter resource cap
+  winning. `--egress-grants-required` removes the allowlist fallback entirely.
+* **Resolved addresses pinned.** A name that answers with loopback, RFC1918, CGNAT,
+  link-local or metadata space is refused at resolve time, and the vetted address is
+  the address connected to — no rebinding window between the two.
+* **Signed, one-of-one evidence.** Receipts sign the exact canonical bytes shown to the
+  caller and carry a fresh `report_id` plus issue time, so a receipt is evidence about
+  one execution; the verifier, outside Cell, decides whether it has been seen before.
+* **Fail-closed as a default posture.** A broken grant set, an unreadable ledger, an
+  empty authority directory or a malformed request artifact produces a refusal with an
+  audit line, not a silent pass — and refuses at startup where startup is the safe
+  moment.
+* **Nothing carried between runs.** No sandbox directory, no engine reuse of a
+  previous run's state, no inherited authority — measured over thousands of
+  consecutive runs ([`benchmarks/statelessness_probe.py`](benchmarks/statelessness_probe.py)).
+
+## Why Ephemora-cell?
 
 Wasmtime gives you a WASM runtime.
 
-Ephemora Cell builds an application-level execution boundary around it:
+Ephemora-cell builds an application-level execution boundary around it:
 
 ```text
-Wasmtime:            Ephemora Cell:
+Wasmtime:            Ephemora-cell:
     Execute WASM         Execute WASM
                          + define capabilities
                          + enforce budgets (fuel, memory, time, I/O)
@@ -124,7 +154,7 @@ Wasmtime:            Ephemora Cell:
 
 ### Why Cell for agent execution?
 
-Ephemora Cell is not trying to replace general-purpose containers or full development VMs. It targets a narrower execution path: high-frequency, untrusted agent and MCP workloads that benefit from a small capability surface, explicit resource accounting, and sub-millisecond warm sandbox execution. For agent infrastructure, this means Cell can act as a lightweight execution backend beneath an existing harness rather than requiring a new agent framework. The intended trade-off is explicit: less generality than a full Linux sandbox, in exchange for a smaller execution surface, tighter capability control, and lower per-call overhead.
+Ephemora-cell is not trying to replace general-purpose containers or full development VMs. It targets a narrower execution path: high-frequency, untrusted agent and MCP workloads that benefit from a small capability surface, explicit resource accounting, and sub-millisecond warm sandbox execution. For agent infrastructure, this means Cell can act as a lightweight execution backend beneath an existing harness rather than requiring a new agent framework. The intended trade-off is explicit: less generality than a full Linux sandbox, in exchange for a smaller execution surface, tighter capability control, and lower per-call overhead.
 
 **The problem this answers:** AI agents increasingly need to write and execute code, call tools, and run plugins. The question that decides whether that is safe: *how do you let an agent execute untrusted code without giving that code access to your host, your credentials, your network, or unlimited compute — with nothing pre-opened by default?* Raw runtimes leave that boundary to you. Cell **is** that boundary.
 
@@ -138,7 +168,7 @@ Agent-generated code is different from application code: it can be buggy, comput
 **Why now — 2026 evidence that detection and containers are not enough** *(literature — `measured:false` for Cell; the measured rows live in the [evidence ladder](#security) and never mix with these)*. [SABER — the SandboxEscapeBench program](https://arxiv.org/abs/2603.02277) (UK AI Security Institute & Oxford, ICML 2026) shows frontier models **reliably escaping Docker containers** through common misconfigurations — the same benchmark this repo maps to WASM in the [Security section](#security). Trail of Bits researchers (Judson & Hess, 2026) bypassed **five** agent-skill scanners and sandbox defenses in one study, and the DDIPE skill-poisoning attack ([arXiv 2604.03081](https://arxiv.org/abs/2604.03081)) measures 11.6–33.5% bypass rates against agent skill ecosystems. The pattern across all three: scanning and container defaults fail; the boundary that holds is the one **enforced between the code and the host** — the layer Cell ships (per-claim provenance: [docs/security_posture.md](docs/security_posture.md)).
 
 ```text
-AI Agent ──▶ Tool / MCP ──▶ Ephemora Cell ──▶ WASM ──▶ bounded result
+AI Agent ──▶ Tool / MCP ──▶ Ephemora-cell ──▶ WASM ──▶ bounded result
 ```
 
 Every execution answers three questions at once — attached to the result as `_meta.execution`, canonicalized (RFC 8785 JCS) and signable:
@@ -233,7 +263,7 @@ Scale check: the one-liner path sustains **~3M executions/hour** per core (n=500
 
 **Where to next:** agent/tool isolation → [MCP Integration](#mcp-integration) (3-line setup) · CI gating for untrusted PRs → [AI Agent Integration](#ai-agent-integration) · CLI reference and usage recipes → [docs/recipes.md](docs/recipes.md). Something failed? The usual suspects are venv not activated, `python3` vs `python` on Windows, or a wrong `.wasm` path — [docs/recipes.md](docs/recipes.md) covers them.
 
-![Ephemora Cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
+![Ephemora-cell demo — install, sandboxed runs with attested baselines, a fuel bomb stopped and fully accounted, attack blocked](assets/demo.gif)
 
 *Real CLI session: install, first run, `--json` report with the security baseline, a fuel bomb stopped at exactly 100/100 units, an attack module blocked at the WASI import layer. Every frame reproducible from a clone.*
 
@@ -270,7 +300,7 @@ Ask your agent for the current time: the answer comes from the bundled `clock` t
 
 - **Run untrusted, agent-built tools locally.** Every tool is a WASM module inside a Cell sandbox — no network, fuel- and memory-bounded, output-capped. If a tool misbehaves, it hits a wall, not your machine.
 - **Verify every call, not just the install.** Each result carries its execution record (`_meta.execution`), and the native `get-policy` tool reports the exact sandbox policy per tool — computed from the same code path that enforces it, so report and enforcement cannot drift. The protocol does not verify `_meta`, so with `--receipt-signing-key` each receipt additionally carries a DSSE signature (`_meta.attestation`) over the same bytes — verifiable out-of-band by the caller with the operator's public key (`execution_report.verify_execution_attestation`). Inside the signed bytes each receipt carries a one-of-one block (`report_id`, `issued_at`, the tool it answers for), so a receipt is evidence about one execution rather than about a shape that many calls could produce — and `max_age_seconds` lets a caller refuse a stale one. **Cell proves uniqueness; the verifier decides whether it has been seen before** — deduping `report_id` across presentations stays the caller's job, because the evidence persists while the execution state does not. Policy reads are tools; policy writes are host decisions ([ADR-006](docs/decisions/ADR-006-governed-tool-loading.md)): an agent cannot grant itself network or filesystem access, and no socket connect succeeds (Preview1 exposes no socket APIs; in the WASI 0.2 world connect is denied at call time — measured).
-- **Stateless by design (`2026-07-28` revision).** Clients on the current revision skip the `initialize` handshake entirely; results carry `resultType: "complete"` and `tools/list` answers with `ttlMs`/`cacheScope`. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras served from one process and tested side-by-side against the official MCP SDK in CI. Handshake-era traffic is ordered as the legacy revisions require: a `tools/list`/`tools/call` that arrives before `initialize` is refused with `-32600` before any WASM runs, and so is a repeated `initialize`; the exemption belongs to the stateless revision, not to the `_meta` key — declaring a handshake-era version there still requires the handshake. Details: [docs/mcp.md](docs/mcp.md).
+- **Stateless by design (`2026-07-28` revision).** Clients on the current revision skip the `initialize` handshake entirely; results carry `resultType: "complete"` and `tools/list` answers with `ttlMs`/`cacheScope`. Handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged — both eras served from one process and tested side-by-side against the official MCP SDK in CI. Handshake-era traffic is ordered as the legacy revisions require: a `tools/list`/`tools/call` that arrives before `initialize` is refused with `-32600` before any WASM runs, and so is a repeated `initialize`; the exemption belongs to the stateless revision, not to the `_meta` key — declaring a handshake-era version there still requires the handshake. The point of that split is the deployment shape: **an MCP server may be long-lived while every execution inside it is fresh.** A connection, a process or a session is not a place where authority or execution state accumulates — each request carries its own version and capabilities, each `tools/call` starts a new sandbox, and nothing from a previous call is inherited by the next. Details: [docs/mcp.md](docs/mcp.md).
 - **Isolation priced for every call** — three distinct numbers ([comparison](docs/comparison-mcp-servers.md)):
 
   | Path | Cost per call | Why |
@@ -414,7 +444,7 @@ Rows marked ❌ in-process are *documented-trusted*: the knob is honored as a de
 | 5 | [2026 probe classes](benchmarks/probe_classes_2026.py) | The CVE-2026-47261 companion FS vectors (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
 | 6 | [Cross-architecture determinism](docs/comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |
 
-**Row 2 in context.** The 18 scenarios are external (UK AI Security Institute, MIT — provenance note below). This mapping is the open-source execution-boundary slice of a broader benchmark and assurance program; the wider program — including the agentic escape evaluation the upstream benchmark actually runs — is part of the **Ephemora enterprise edition** ([docs/enterprise.md](docs/enterprise.md)).
+**Row 2 in context.** The 18 scenarios are external (UK AI Security Institute, MIT — provenance note below). This mapping is the source-available execution-boundary slice of a broader benchmark and assurance program; the wider program — including the agentic escape evaluation the upstream benchmark actually runs — is part of the **Ephemora enterprise edition** ([docs/enterprise.md](docs/enterprise.md)).
 
 > **Where the 18 scenarios come from.** Not ours: the UK AI Security Institute's *SandboxEscapeBench* ([arXiv 2603.02277](https://arxiv.org/abs/2603.02277), scenarios: [UKGovernmentBEIS/sandbox_escape_bench](https://github.com/UKGovernmentBEIS/sandbox_escape_bench), MIT) documents 18 ways code escapes container/Kubernetes sandboxes. This suite does something narrower: each scenario is mapped to its closest WASM/WASI equivalent and executed against Cell, no model in the loop. The primitives those escapes rely on (privileged modes, namespaces, cgroups, raw sockets) do not exist on the WASI surface; the scenarios with a WASM-expressible equivalent (filesystem, sockets) are denied by the live boundary. Prompt-injection and agent-behavior security are different layers — out of scope for an execution sandbox by design; the enterprise edition runs the wider assurance program ([docs/enterprise.md](docs/enterprise.md)).
 
@@ -422,7 +452,7 @@ Rows marked ❌ in-process are *documented-trusted*: the knob is honored as a de
 
 The guest receives only the capabilities explicitly made available to it. Live verification of eight attack classes ([`benchmarks/verify_8_vectors.py`](benchmarks/verify_8_vectors.py)) — measured against three boundaries, same intents, same measurement rule (exit code decides, nothing hardcoded):
 
-| Attack class | Docker | Docker (hardened¹) | Ephemora Cell | Layer |
+| Attack class | Docker | Docker (hardened¹) | Ephemora-cell | Layer |
 |---|---|---|---|---|
 | Shell (`os.system`) / fork | ALLOWED | ALLOWED | **BLOCKED** — APIs don't exist in WASI | 1 |
 | Network sockets | ALLOWED | ALLOWED — creation needs no capability | **BLOCKED** — APIs don't exist in WASI | 1 |
@@ -444,14 +474,14 @@ For context, the same eight intents were measured against **gVisor** (`runsc`, p
 
 ¹ Hardened = exactly these flags — tell us which to add: `--network none --read-only --cap-drop=ALL --security-opt no-new-privileges --pids-limit 64 --user 65534:65534` (image pinned by digest; Docker's default seccomp profile is active in **both** columns). Both hardened blocks are `--read-only` file-system effects — the flags wall the container *off*, not the guest *in*: socket creation, the container's own `/etc/passwd`, fork, threading and environment stay available to the guest.
 
-![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora Cell](assets/same-boundary.gif)
+![Same attack, different boundary — 8 attack primitives allowed in a stock Docker container, all 8 blocked by Ephemora-cell](assets/same-boundary.gif)
 
 *Same eight attack primitives, measured live: stock `python:3.12-slim` 0/8 blocked, hardened container 6/8 (both blocks are `--read-only` flag effects), Cell 8/8. Measured on two platforms with identical results — macOS arm64 (2026-09-18) and DGX Spark GB10 (2026-09-20, `benchmarks/results/2026-09-20/*-dgx-aarch64.json`). Reproduce:*
 
 ```bash
 python assets/demo_attack_probe.py          # stock Docker    ->  0/8 blocked
 python benchmarks/hardened_docker_probe.py  # hardened Docker ->  2/8 blocked
-python benchmarks/verify_8_vectors.py       # Ephemora Cell   ->  8/8 blocked
+python benchmarks/verify_8_vectors.py       # Ephemora-cell   ->  8/8 blocked
 ```
 
 **How the 8/8 is measured** — environment, probe-by-probe equivalence between the Docker probe body and the Cell WASM guest, raw-evidence file list and the positive-control rule: [docs/security_posture.md](docs/security_posture.md#how-the-88-is-measured--probe-equivalence-detail). In short: measured exit code decides, nothing hardcoded; every blocked vector pairs with a granted-capability control that must succeed.
@@ -557,9 +587,9 @@ ephemora-cell ledger    Verify a run chain: linkage and order, and what it canno
 
 ## Limitations
 
-**Cell is:** a WASM execution primitive · a capability-based isolation layer · a resource-bounded runtime · an embeddable Python library · a CLI · an MCP execution layer.
+**Cell is:** the minimal execution boundary for untrusted code — a WASM/WASI sandbox with explicit capabilities and budgets, a resource-accounted runtime, an embeddable Python library, a CLI, an MCP execution layer.
 
-**Cell is not:** a general VM · a container orchestrator · a malware detection system · a full multi-tenant cloud platform · an agent framework · an LLM · a code-generation system · a full VM replacement for every container workload.
+**Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It holds no state you are meant to come back to: name-value state is a bounded, per-session convenience (`max_state_entries` · bytes per value · per-session budget), not storage, and authority never survives a run.
 
 Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Do not use Cell for long-running I/O-heavy services — that is what the `--isolated` subprocess wall or a microVM is for (see [docs/performance.md](docs/performance.md) for the measured third-party comparison).
 
@@ -588,7 +618,7 @@ Real, gated items — no dates promised:
 
 ## Testing & Verification
 
-952 tests passing (4 skipped) · 89.9% statement coverage, shown as 90% (Cell + MCP, gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+**Release gate, measured on a fresh clone of the release commit** — not a per-host constant: 952 tests passing (4 skipped) · 89.9% statement coverage, shown as 90% (Cell + MCP, gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — plus, on that same clone: `pip-audit` clean against the pinned `wasmtime==47.0.1`, the statelessness probe at 0 leaks, a wheel-only smoke of 48 shipped-claim checks, and an sdist clean-room container run. Pass counts move with the host's toolchain mix and its load (see the skip breakdown below and the review record); the artifact-level claims do not — see [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 **What "the suite" means here — one canonical number.** 952/4 (956 collected) is what `pytest` reports on the environment CI uses on both legs: `requirements.txt` (the pinned `wasmtime`), the test deps, and the optional `tools-signing` extra (`cryptography>=42`) that every Ed25519 path needs. The 4 skips are toolchain gates in `tests/test_builder.py`: three run when a toolchain is MISSING (`WASI_SDK_PATH`, `asc`, `go`) and assert the guidance error, and the fourth is inverted — `.zig` guidance is skipped when zig IS installed, because then the build is real. On this host (zig present) that is 952 passed / 4 skipped; on a zig-free host the same commit reports 953 passed / 3 skipped and collection stays 956. A minimal install **in a checkout** — the same suite without `cryptography` — measures **845 passed / 66 skipped / 81% coverage** (911 collected): 62 skips are Ed25519 paths that `importorskip("cryptography")` (signed tool manifests, governed loading, signed receipts, grant authentication), and 61 of them are individual tests plus one module-level skip of `tests/test_grant_trust.py`, whose 46 tests leave the collection and are replaced by that one skip entry (956 − 46 + 1 = 911) — plus the same 4 toolchain gates. Neither number is the suite weakening: signing paths are unverified-by-absence, not passing. Unpacking the sdist and running it there skips additionally the nine repository-inspection modules by design: measured in a clean `python:3.12-slim` container: **770 passed / 138 skipped / 0 failures** at `7f9e860` on a quiet host, and 772 passed / 138 skipped / 0 errors with one failure at `3e3d32c` under concurrent load — the `io_cpu_seconds` watchdog can refuse legitimate isolated runs when the machine is busy, and each such test passes standalone and natively, which is recorded as an open accounting question in [docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md) rather than smoothed over — see [docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md), so three figures describe three installation states and none of them is the suite weakening. The count is machine-checked against `pytest --collect-only` by `scripts/check_test_count.py`, so these sentences cannot drift from the code.
 
@@ -614,11 +644,11 @@ Real, gated items — no dates promised:
 
 ## About Ephemora
 
-Ephemora Cell is the source-available isolation layer (BUSL 1.1, standalone — no Ephemora dependency). The Ephemora enterprise edition builds on Cell's isolation for production and regulated deployments. Cell is complete for isolation; the enterprise edition is complete for operation — see [docs/enterprise.md](docs/enterprise.md) for when that conversation is worth having.
+Ephemora-cell is the source-available isolation layer (BUSL 1.1, standalone — no Ephemora dependency). The Ephemora enterprise edition builds on Cell's isolation for production and regulated deployments. Cell is complete for isolation; the enterprise edition is complete for operation — see [docs/enterprise.md](docs/enterprise.md) for when that conversation is worth having.
 
 ## License
 
-Ephemora Cell is licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1) — source-available, not open source.
+Ephemora-cell is licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1) — source-available, not open source.
 
 - **Free for non-production use** — evaluation, development, research, testing.
 - **Business/production use requires a license from Ephemora** — see [docs/enterprise.md](docs/enterprise.md).
