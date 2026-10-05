@@ -2060,3 +2060,43 @@ class TestTransportWalls:
             assert "denied by egress policy" in outcome.response_doc["error"]
         finally:
             server.shutdown()
+
+
+class TestAlternateIPv4Spellings:
+    """`2130706433`, `0x7f000001`, `0177.0.0.1` and `127.1` are 127.0.0.1.
+
+    Every URL parser accepts them; the allowlist compares HOST STRINGS, so the
+    match must fail closed rather than let an alternate spelling of an address the
+    operator never named inherit the dotted form's permission. The reverse
+    direction matters just as much: an allowlist that does name the decimal form
+    must not admit the dotted one, because the resolve-time guard treats IP
+    literals as operator intent and does not filter them.
+    """
+
+    @staticmethod
+    def _decision(endpoint: str, url: str) -> str:
+        policy = EgressPolicy(allowed_endpoints=(endpoint,))
+        return validate_request(policy, _request(url)).decision
+
+    def test_alternate_spellings_of_an_allowlisted_host_are_denied(self):
+        allowed = "http://127.0.0.1:8080/v1"
+        for url in (
+            "http://2130706433:8080/v1",
+            "http://0x7f000001:8080/v1",
+            "http://0177.0.0.1:8080/v1",
+            "http://127.1:8080/v1",
+            "http://127.0.0.1:8080/v1/../v1",
+        ):
+            assert self._decision(allowed, url) == "denied", url
+
+    def test_a_decimal_allowlist_entry_does_not_admit_the_dotted_form(self):
+        assert (
+            self._decision("http://2130706433:8080/v1", "http://127.0.0.1:8080/v1")
+            == "denied"
+        )
+
+    def test_the_spellings_that_are_allowed_are_exact(self):
+        """Positive control: this is string comparison, not a blanket ban."""
+        allowed = "http://127.0.0.1:8080/v1"
+        assert self._decision(allowed, "http://127.0.0.1:8080/v1/data") == "allowed"
+        assert self._decision(allowed, "http://127.0.0.1:8080/v1") == "allowed"

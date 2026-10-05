@@ -638,7 +638,7 @@ how the engine consumed the day's grant objects.
 
 ### Tests
 
-- 9 gates from the round that audited this branch's documentation against its code:
+- 12 gates from the round that audited this branch's documentation against its code:
   a symlinked proposal is refused and its target never parsed, a directory at the
   proposal name is a refusal rather than a permanent "pending", an unreadable
   proposals directory reports an error (skipped for root), `read_stable_bytes`
@@ -651,7 +651,13 @@ how the engine consumed the day's grant objects.
   `"payload"` may only repeat the signed bytes — a same-value repeat verifies, an
   edited one is a bad signature — and a second `max_calls` inside the signed bytes,
   which would parse to the larger number, is refused because the payload is compared
-  as bytes.
+  as bytes. Three more pin the URL-parser
+  question the review asked: `2130706433`, `0x7f000001`, `0177.0.0.1` and `127.1` all
+  name 127.0.0.1, and none of them matches an allowlist entry written as
+  `127.0.0.1` — nor in the reverse direction, which is the one that matters, because
+  IP literals are operator intent and are not filtered at resolve time. An
+  exact-spelling positive control keeps the rule a string comparison, not a blanket
+  ban.
 - 31 gates for the three post-review decisions plus the round that audited them:
   `TestHandshakeOrder` in `tests/test_mcp_adapter.py` (11 — pre-initialize
   `tools/list`/`tools/call` refused with `-32600` and, proved separately, without
