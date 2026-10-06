@@ -542,7 +542,7 @@ tool supply chain.
 
 ## Security notes — what the Cell guarantees (and what it does not)
 
-**Guaranteed by the Cell for every tool execution:**
+**Enforced by the Cell for every tool execution:**
 
 - **No network** — WASI Preview1 has no socket imports; the sandbox engine
   enables no sockets, no shell, no process spawning.
