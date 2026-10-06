@@ -86,6 +86,15 @@ def test_pyproject_declares_busl_license():
     # to build a project that sets both. BUSL-1.1 is not OSI-approved, so the
     # expression is the whole machine-readable claim.
     assert "License ::" not in text, "remove the License classifier"
+    # license-files replaces setuptools auto-detection, so naming LICENSE is what
+    # keeps the BUSL text in the wheel; the notices file travels with it because
+    # the LICENSE appendix points at it.
+    assert (
+        'license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]' in text
+    ), "both license documents must be declared as license-files"
+    assert (
+        REPO / "THIRD_PARTY_NOTICES.md"
+    ).is_file(), "the notices file the LICENSE refers to is missing"
 
 
 def test_changelog_list_structure_is_intact():
