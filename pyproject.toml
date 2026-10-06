@@ -8,6 +8,10 @@ version = "1.1.0"
 description = "Ephemora Cell — The execution layer for untrusted AI-generated code. Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits."
 readme = "README.md"
 license = "BUSL-1.1"
+# PEP 639: both license documents travel with the wheel (dist-info/licenses/) and
+# the sdist. Setting license-files replaces setuptools' auto-detection, so LICENSE
+# has to be named explicitly — otherwise the BUSL text would drop out of artifacts.
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 authors = [
     {name = "Michael Soppa"},
 ]
