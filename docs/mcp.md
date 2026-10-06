@@ -298,13 +298,15 @@ tools directory if you want them alongside your own).
   read/write access to it; forbidden host locations (`/etc`, `/usr`, ...)
   are rejected by the Cell regardless.
 - **`--pooled` (trusted fast path)** — by default every call carries the
-  ADR-002 sandbox-dir I/O byte wall, which forces a per-run engine
-  (~12 ms/call). `--pooled` (or `Server(pooled=True)`) disables that wall
-  so the pooled engine serves each call (~0.5 ms/call, measured,
-  `benchmarks/results/`); fuel, memory cap, timeout and the 10 KB output
+  ADR-002 sandbox-dir I/O byte wall, which forces a per-run engine.
+  `--pooled` (or `Server(pooled=True)`) disables that wall so the pooled
+  engine serves each call; fuel, memory cap, timeout and the 10 KB output
   cap stay enforced. An explicit operator choice — the relaxed wall is
   attested in `get-policy` (`io_budget_bytes: null`), so report and
-  enforcement cannot drift.
+  enforcement cannot drift. The per-call cost figures this bullet used to carry
+  for both modes were withdrawn on 2026-10-06: no committed harness and no
+  `benchmarks/results/` artifact reproduces them, so the difference between the
+  two modes is stated as a mechanism until a measured MCP latency harness ships.
 - **`--require-signed-tools PUBKEY.pem` (ADR-006 verify-before-register)** —
   third-party tool directories can run in signed-tools mode: every
   `<toolname>.json` sidecar must carry an Ed25519 manifest signature and

@@ -108,6 +108,14 @@ to the guest.
 blocked with the same two intents blocked (`fsync`, symlink creation), Cell
 8/8.
 
+**Scope of those artifacts.** They are 2026-09-18 and 2026-09-20 measurements and predate the
+current release; they are the citable per-platform evidence for this row, and no newer per-platform
+artifact is published with them. What does run against the current release is the check itself:
+`benchmarks/verify_8_vectors.py` is a CI step on every push and every pull request
+(`.github/workflows/ci.yml`, job `test-bench`, ubuntu-latest), so enforcement on the shipped code
+is continuously verified rather than asserted from this page — on one runner platform, which is
+exactly why the dated two-platform artifacts above are named rather than generalized.
+
 **The WASI 0.2 component path is a separate boundary and does not carry the
 sync blockade today** — measured, not inferred:
 `python benchmarks/component_sync_probe.py` runs a real wasip2 guest whose
