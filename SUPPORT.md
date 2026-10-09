@@ -34,3 +34,12 @@
 Patch releases ship security fixes promptly (see the upgrade windows in
 [SECURITY.md](SECURITY.md)). The changelog is the source of truth for what
 changed and why: [CHANGELOG.md](CHANGELOG.md).
+
+
+## What support is not
+
+This is a source-available project maintained by one person. The response
+intervals in [SECURITY.md](SECURITY.md) and the upgrade windows it names are how
+we work, not a service level or a warranty: the Licensed Work is provided on an
+"AS IS" basis, as [LICENSE](LICENSE) states, and no reply time creates an
+obligation on the Licensor.
