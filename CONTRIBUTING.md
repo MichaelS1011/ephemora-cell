@@ -105,7 +105,9 @@ accepted under the project license (BUSL-1.1), and you confirm that:
 Contributions of code keep the project's SPDX header
 (`# SPDX-License-Identifier: BUSL-1.1`) — do not change it or add conflicting
 license notices. If your contribution pulls in third-party code, make sure
-its license is compatible and note it in the PR.
+its license is compatible, note it in the PR, and add it to
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — the BUSL-1.1 license covers
+the Licensed Work, not third-party material.
 
 ## Release Checklist
 
