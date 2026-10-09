@@ -190,7 +190,7 @@ Docker null (daemon off) — 143–154x from 2026-08-06 remain historical contex
 | Plugin Chain | 0.79ms | 0.76ms | 121.7ms | 154x |
 
 ## Tail & Cost
-p99 0.15ms p999 0.19ms warm (raw: `09_tail_*.json`) — an SLA of <0.2 ms at p99.9 is sustainable.
+p99 0.15ms p999 0.19ms warm (raw: `09_tail_*.json`) — a p99.9 target of <0.2 ms is sustainable (a measured target, not a service level we promise).
 Cost density (engine ~14 MB warm + <1 MB per guest vs ~50 MB per Docker container,
 throughput in the 10M calls/h/core class, savings 100–350x) comes from a local
 cost-density run whose raw log is not committed (`07_cost_density.log`, gitignored) —

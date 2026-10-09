@@ -5,7 +5,7 @@
 | Version | Supported | Notes |
 | ------- | --------- | ----- |
 | 1.1.x   | ✅ Yes | Current — source-available under BUSL-1.1 |
-| 1.0.x   | ✅ Yes | Mixed licence inside the line: ≤ 1.0.4.3 Apache-2.0, 1.0.5 BUSL-1.1 |
+| 1.0.x   | ✅ Yes | Mixed licence inside the line: ≤ 1.0.4.3 Apache-2.0, 1.0.5 and later BUSL-1.1 |
 
 Earlier internal milestones (pre-public, 2026-08) are not published and
 not supported — upgrade to the current release. Fixes are developed on the
@@ -41,6 +41,10 @@ Please include:
 - **Initial Assessment:** Within 5 business days
 - **Resolution Timeline:** Depends on severity (Critical: 7 days, High: 14 days, Medium: 30 days)
 - **Credit:** We acknowledge responsible disclosers in our security advisories (unless you prefer anonymity)
+
+These are the intervals we work to, not a contractual service level: the maintainer
+is a single person, the Licensed Work is provided on an "AS IS" basis, and nothing in
+this document creates a support obligation or a warranty of any kind.
 
 ### Scope
 
@@ -644,7 +648,7 @@ range. Triage per advisory:
   root: where that file
   comes from, and which issuer keys a caller trusts for receipts, stay the
   operator's trust channel (ADR-013 Roadmap). The no-socket
-  boundary stays the enforced guarantee. Three further walls were added
+  boundary stays enforced. Three further walls were added
   2026-10-05 after a red-team pass: a mediated fetch is bounded by **one
   wall-clock deadline** (per-op `timeout_seconds` let a peer trickling a byte every
   20 ms pin a host thread, once per hop), `http.client`'s own failures

@@ -103,3 +103,20 @@ applicable Change Date requires a commercial license from the Licensor.
 Versions of the Licensed Work distributed publicly under version numbers
 1.0.4.3 and earlier were published under the Apache License, Version 2.0 and
 remain available under that license.
+
+Licensor identity
+
+The Licensor named above is the natural person who authored and published every
+version of the Licensed Work. Versions 1.0.1 through 1.0.4.3 were distributed
+with a copyright line naming "Ephemora AG (in formation)"; that entity was being
+formed, was never incorporated, and never held rights in the Licensed Work.
+Copyright in those versions is held by the Licensor, and the Apache License,
+Version 2.0 terms under which they were published are unchanged. The naming was
+corrected in commit e9e0bcd (2026-09-29) before the first release under this
+License; the decision record is ADR-010 in docs/decisions/.
+
+Third-party material
+
+This License covers the Licensed Work. Third-party material distributed with it
+or referenced by it stays under its own license and is not relicensed, amended
+or overruled by this License; it is itemised in THIRD_PARTY_NOTICES.md.
