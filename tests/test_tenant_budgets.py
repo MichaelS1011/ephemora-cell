@@ -29,6 +29,7 @@ from ephemora_cell import (
     process_executor,
 )
 from ephemora_cell._sandbox_common import _MAX_OUTPUT_BYTES
+from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell.tenant import (
     Charge,
     CumulativeBudget,
@@ -451,6 +452,13 @@ class TestRunEnforcement:
             tenant="acme",
             tenant_budget=budget,
             tenant_store=store,
+            # WP-L4-1: this test pins the BILLING invariant (one dispatch,
+            # flags forwarded verbatim), not the isolation policy. Declaring
+            # the run trusted keeps the isolation gate neutral so a component
+            # dispatch is billed like any other; the gate's forced subprocess
+            # elevation for untrusted components has its own evidence in
+            # tests/test_isolation_gate.py.
+            trust=TRUST_TRUSTED,
             **flags,
         )
         assert len(calls) == 1, "run() must reach the guts through _execute only"

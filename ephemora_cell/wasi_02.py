@@ -136,6 +136,19 @@ def is_component_binary(path: str) -> bool:
 class ComponentSandbox:
     """WASI 0.2 component sandbox with the same resource limits as WASISandbox.
 
+    LOW-LEVEL PRIMITIVE — not a guaranteed execution path (WP-L4-1, CTO §3B).
+    This class runs a component guest DIRECTLY in the calling process. It does
+    NOT enforce the process-isolation mandate: that gate lives at the public
+    facade :meth:`WASISandbox.run` (and everything routed through it —
+    ``run_wasm``, ``run_isolated`` and the MCP ``CellToolEngine.execute``),
+    which is where an untrusted/unknown ``component`` is forced into the
+    disposable worker. The runtime resource walls (fuel, epoch, memory, the
+    per-call ``expected_sha256`` module binding) DO apply here, because those
+    are the engine's, but process isolation is a decision of the facade, not
+    of this primitive. Reach for :meth:`WASISandbox.run` unless you ARE the
+    host authorising a low-level in-process run; this class is what the gate
+    and the isolated worker themselves call to actually execute a component.
+
     Example:
         config = WASIConfig(max_memory_mb=128, max_fuel=1_000_000)
         sandbox = ComponentSandbox(config=config)
