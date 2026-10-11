@@ -21,6 +21,7 @@ import dataclasses
 import json
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,13 @@ from ephemora_cell.egress_sidecar import (
     EgressPolicy,
     mediate,
     mediate_with_grant,
+)
+from ephemora_cell.execution_report import (
+    ABI_COMPONENT,
+    ABI_PREVIEW1,
+    TRUST_TRUSTED,
+    TRUST_UNKNOWN,
+    isolation_required_for,
 )
 from ephemora_cell.grant_ledger import GrantLedger
 from ephemora_cell.profiles import get as get_profile
@@ -120,6 +128,8 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
         effective_preopens=result.effective_preopens,
         tenant=result.tenant,
         tenant_budget_ref=result.tenant_budget_ref,
+        execution_mode=result.execution_mode,
+        abi=result.abi,
     )
     return report
 
@@ -135,8 +145,16 @@ class CellToolEngine:
         egress_grants: dict[str, EgressGrant] | None = None,
         grant_ledger: GrantLedger | None = None,
         grants_required: bool = False,
+        trusted_tools: Iterable[str] = (),
     ) -> None:
         self.default_profile = profile
+        # WP-L4-1 (Option B): the HOST's explicit allowlist of tools authorised
+        # for the in-process fast path. Trust is host-declared and never read
+        # from a tool's own bytes or sidecar — a guest cannot elevate itself.
+        # Every component tool NOT named here runs under the ``unknown``
+        # posture, and the runtime gate then MANDATES process isolation for it.
+        # An empty set (default) is the strict posture: no tool is trusted.
+        self.trusted_tools = frozenset(trusted_tools)
         # Trusted fast path (decision D3, 2026-09-12): disabling the
         # sandbox-dir byte wall re-enables the pooled engine (~0.5 ms/call
         # instead of ~12 ms — ADR-002 forces a per-run engine while a byte
@@ -258,9 +276,18 @@ class CellToolEngine:
         and cell failures alike (fuel exhausted, timeout, memory
         exceeded, non-zero exit). Raises :class:`ToolExecutionError` only
         when execution cannot start (config or sandbox setup errors).
+
+        WP-L4-1: trust is the host's, never the tool's — a component tool
+        outside :attr:`trusted_tools` runs ``unknown``, and the runtime gate
+        then forces it into the isolated worker. A component that ALSO needs
+        host-sidecar egress is refused up front (egress is not supported
+        across the isolation boundary): no silent capability loss, no
+        in-process downgrade to keep it.
         """
         stdin = params_stdin(params)
         config = self._config_for(spec)
+        trust = TRUST_TRUSTED if spec.name in self.trusted_tools else TRUST_UNKNOWN
+        self._refuse_if_egress_conflicts_with_isolation(spec, trust)
         try:
             sandbox = WASISandbox(config=config)
         except ValueError as e:
@@ -270,8 +297,12 @@ class CellToolEngine:
             result = sandbox.run(
                 spec.wasm_path,
                 stdin_data=stdin,
+                # The isolation mandate is enforced at the runtime choke point:
+                # an untrusted/unknown component flips this to the worker here,
+                # so MCP dispatch cannot bypass it by pinning in-process.
                 use_subprocess=False,
                 abi="auto",
+                trust=trust,
                 # Signed mode: bind the executed bytes to the digest
                 # verified at register time (per-call module binding).
                 expected_sha256=spec.wasm_sha256,
@@ -288,6 +319,42 @@ class CellToolEngine:
             report=build_report(result, config),
             egress=egress,
         )
+
+    def _refuse_if_egress_conflicts_with_isolation(
+        self, spec: ToolSpec, trust: str
+    ) -> None:
+        """WP-L4-1 \u00a72: sidecar egress is not supported across the isolation
+        boundary, so a run that MUST be isolated and ALSO has an egress surface
+        is refused BEFORE it starts \u2014 never silently run isolated with the
+        egress capability dropped, and never downgraded to in-process to keep it.
+
+        A ``trusted`` component (host-authorised) keeps today's in-process
+        egress path unchanged, and a preview1 run is not the mandate class, so
+        the existing preview1 + egress deployment is untouched. Full egress
+        parity under isolation is a separate work package, documented as such.
+        """
+        if trust == TRUST_TRUSTED:
+            return
+        try:
+            component = is_component_binary(spec.wasm_path)
+        except OSError:
+            # Unreadable module: execution fails on its own; do not invent a
+            # refusal here (the real error surfaces from the run).
+            component = False
+        if not isolation_required_for(
+            trust, ABI_COMPONENT if component else ABI_PREVIEW1
+        ):
+            return
+        has_surface = self.egress_policy is not None or spec.name in self.egress_grants
+        if has_surface:
+            raise ToolExecutionError(
+                f"tool {spec.name!r} is an untrusted/unknown component (process "
+                "isolation mandatory) but also has a host-sidecar egress surface; "
+                "egress is not supported across the isolation boundary. Refusing "
+                "rather than silently dropping the egress capability or running "
+                "the component in-process to keep it (WP-L4-1; full egress parity "
+                "under isolation is a separate work package)."
+            )
 
     def _mediate_egress(
         self, sandbox_dir: str | None, tool_name: str
