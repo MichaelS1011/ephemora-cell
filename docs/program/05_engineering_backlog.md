@@ -22,8 +22,11 @@ Jede WP-Karte ist PDCA-PLAN: Befund · Zielverhalten · Akzeptanz (DoD) · Nachw
 
 ### WP-L4-1 · Untrusted-Component ⇒ Subprocess-Pflicht durchsetzbar machen (L4)
 - **Status: CLOSED — VERIFIED WITH DOCUMENTED LIMITATIONS (2026-10-11).**
-  CTO Final Evidence Gate: dedizierter Branch + PR mit commit-gebundener
-  CI (1022 passed / 4 skipped / 0 failed; black + ruff + mypy +
+  CTO Final Evidence Gate: dedizierter Branch + PR
+  [#22](https://github.com/MichaelS1011/ephemora-cell/pull/22) mit
+  commit-gebundener
+  CI (1022 passed / 4 skipped / 0 failed; GitHub Actions 17/17 green auf
+  `bbf2f6b`; black + ruff + mypy +
   test-count-guard strict), §2-Security-Grenzen abschließend dokumentiert
   (Trust-Autorität host-seitig · Modul-Bytes-Bindung fail-closed ·
   `ComponentSandbox`-Primitive ausdrücklich außerhalb der Gate-Garantie ·

@@ -307,11 +307,17 @@ CTO-Direktive „Final Evidence Gate & Formal Closure“ umgesetzt:
 
 - **Reproduzierbare Evidenz (§1):** Branch `wp-l4-1-central-enforcement-gate`
   mit nachvollziehbaren Commits (Fundament WP-L4-2/3 → Gate → MCP-Posture →
-  Tests → Bench → Doku → Count-Sync → Schließung); PR mit Architektur-
+  Tests → Bench → Doku → Count-Sync → Schließung); PR
+  [#22](https://github.com/MichaelS1011/ephemora-cell/pull/22) mit Architektur-
   entscheidung (ADR-015), Security-Invarianten und Testnachweisen; vollständige
-  CI auf dem exakten Head-Commit: **1022 passed / 4 skipped / 0 failed**,
+  CI auf dem exakten Head-Commit `bbf2f6b`: lokal **1022 passed / 4 skipped /
+  0 failed** im sauberen Worktree des Commits, GitHub Actions **17/17 Checks
+  green** (8er OS×Python-Matrix, coverage≥80, security/pip-audit/bandit,
+  mcp-sdk-interop, build-recipes, benchmark-guard, action-smoke, release-gate);
   black + ruff + mypy clean, test-count-guard (strict) OK, Integrations-
-  laufen (Hermes/NemoClaw) und benchmark-guard grün. Ungeprüfte Änderungen
+  laufen (Hermes/NemoClaw) und benchmark-guard grün. Die 4 skipped sind
+  ausschließlich `test_builder.py`-Toolchain-Checks (WASI_SDK/asc/go/zig),
+  ohne Bezug zur Isolations-/Trust-Grenze. Ungeprüfte Änderungen
   (`.gitignore`, interne BERICHT-/VORSCHLAG-Dateien) bleiben bewusst außerhalb
   des Abnahmeasts.
 - **Final Security Confirmation (§2):** Trust-Autorität ausschließlich
