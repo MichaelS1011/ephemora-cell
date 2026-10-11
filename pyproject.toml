@@ -52,8 +52,8 @@ Changelog = "https://github.com/MichaelS1011/ephemora-cell/blob/main/CHANGELOG.m
 Issues = "https://github.com/MichaelS1011/ephemora-cell/issues"
 
 [project.optional-dependencies]
-# pytest<9 keeps Python 3.11 support until CI moves off it.
-dev = ["pytest<9", "pytest-cov", "black>=24", "ruff>=0.5", "bandit>=1.7", "mypy>=1.8"]
+# pytest<10 keeps Python 3.11 support until CI moves off it.
+dev = ["pytest<10", "pytest-cov", "black>=24", "ruff>=0.5", "bandit>=1.7", "mypy>=1.8"]
 # Official MCP Python SDK — pulls pydantic/uvicorn, so it is kept out of the
 # core `dev` extra and `testpaths` and run only as an explicit interop gate.
 integration = ["mcp"]
