@@ -152,6 +152,18 @@ class TestSubprocessAttestation:
         assert "/sandbox" in result["effective_preopens"]
         assert result["security_baseline"]["preopens"] == [canon, "/sandbox"]
 
+    def test_isolated_run_attests_subprocess_mode(self, home_dir):
+        """WP-L4-2: a real subprocess run stamps its isolation path at the
+        SOURCE (the worker), on both the result field and the signed baseline
+        dict — so a verifier reads 'subprocess' without inferring it."""
+        data = home_dir / "data"
+        data.mkdir()
+        config = WASIConfig(max_fuel=1_000_000, allow_dirs=(str(data),))
+        result = run_isolated(str(_write_module(home_dir)), config)
+        assert result["status"] == ExecutionStatus.SUCCESS
+        assert result.execution_mode == "subprocess"
+        assert result["security_baseline"]["execution_mode"] == "subprocess"
+
 
 class TestGrantTimeRevalidation:
     """TOCTOU: an entry valid at config time must be re-checked at grant

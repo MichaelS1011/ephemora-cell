@@ -39,6 +39,98 @@ DSSE_TYPE_PRE_EXEC_RECORD = "https://ephemora.dev/pre-execution-record.v1"
 #: "this receipt predates the evidence field" apart from "this one is forged".
 EVIDENCE_SCHEMA = "ephemora-execution-evidence.v1"
 
+#: Which isolation path a run ACTUALLY took. This is a HOST-side fact, not a
+#: config value: the same WASIConfig executes with the documented-trusted
+#: in-process walls or with the subprocess OS walls (RLIMITs, per-file disk
+#: quota, io_cpu watchdog, hard kill). A signed receipt must state which guarantee
+#: it carries, so a verifier can tell an isolated execution from an in-process one
+#: WITHOUT inferring it from the deployment (WP-L4-2 / risk R-06).
+EXECUTION_MODE_IN_PROCESS = "in_process"
+EXECUTION_MODE_SUBPROCESS = "subprocess"
+_VALID_EXECUTION_MODES = frozenset(
+    {EXECUTION_MODE_IN_PROCESS, EXECUTION_MODE_SUBPROCESS}
+)
+
+#: Which ABI a run ACTUALLY executed under. Another HOST-side runtime fact:
+#: preview1 (``wasi_snapshot_preview1`` — the inline/worker path) and component
+#: (WASI 0.2 — ``ComponentSandbox``) share the sandbox construction but NOT the
+#: sync guarantee. The preview1 path traps ``fd_sync``/``fd_datasync``/
+#: ``fd_psync`` at the call layer when ``allow_fsync`` is False; the component
+#: path links ``wasi:filesystem`` through ``Linker.add_wasip2()``, where no such
+#: sync trap exists. A signed receipt must therefore name the executed ABI and
+#: say whether the sync blockade was ACTUALLY enforced, so ``allow_fsync: false``
+#: can no longer attest an intent a component run never carried (WP-L4-3 / R-07).
+ABI_PREVIEW1 = "preview1"
+ABI_COMPONENT = "component"
+_VALID_ABIS = frozenset({ABI_PREVIEW1, ABI_COMPONENT})
+
+
+def sync_blockade_holds(abi: str, allow_fsync: bool) -> bool:
+    """The one source of truth for the enforcement equation (the CTO directive
+    \u00a72 truth table): the sync blockade is effective ONLY on the preview1
+    path with ``allow_fsync`` closed. Both the stamping side
+    (``ExecutionReport.apply_config``) and the pre-execution gate
+    (``WASISandbox.run(require_sync_blockade=True)``) read this function, so
+    neither can drift into claiming a blockade the other denies.
+    """
+    return abi == ABI_PREVIEW1 and not allow_fsync
+
+
+def effective_sync_blockade(baseline: dict[str, Any]) -> bool:
+    """Whether a signed baseline ATTESTS an actually-effective sync blockade.
+
+    Fail-closed for verifier integrity: a record without the
+    ``sync_blockade_enforced`` key predates enforcement attestation and may
+    NEVER be read as proof the blockade held. Only an explicit ``True`` counts
+    as blocked. This is deliberately False for a legacy byte-identical record:
+    no guarantee was attested, so no guarantee may be inferred.
+    """
+    return bool(baseline.get("sync_blockade_enforced", False))
+
+
+def sync_blockade_attested(baseline: dict[str, Any]) -> bool:
+    """Whether a record EXPLICITLY states its sync-enforcement status at all.
+
+    Distinguishes 'the run declared enforcement (True or False)' from 'the run
+    predates enforcement attestation' — for callers that require an explicit
+    declaration (no silent downgrade) rather than merely checking the wall is
+    up. Absent means unattested, which a strict policy must treat as insufficient.
+    """
+    return "sync_blockade_enforced" in baseline
+
+
+#: The host-declared trust posture of one guest (WP-L4-1). This is NOT a
+#: property of the bytes and is NEVER read from the guest or its manifest: a
+#: guest that could classify itself could elevate its own guarantee, which is
+#: exactly the failure mode isolation exists to prevent. The host states it, the
+#: runtime enforces it.
+#:   trusted   -> the host explicitly authorised the in-process fast path
+#:   untrusted -> known-foreign code
+#:   unknown   -> not classified; MUST NOT be read as trusted (fail-closed)
+TRUST_TRUSTED = "trusted"
+TRUST_UNTRUSTED = "untrusted"
+TRUST_UNKNOWN = "unknown"
+VALID_TRUST = frozenset({TRUST_TRUSTED, TRUST_UNTRUSTED, TRUST_UNKNOWN})
+
+
+def isolation_required_for(trust: str, abi: str) -> bool:
+    """The one source of truth for the WP-L4-1 isolation mandate.
+
+    Process isolation is mandatory for the class the measurement proved fatal
+    in-process: a run that resolves to the WASI 0.2 ``component`` ABI under any
+    posture except an explicit ``trusted`` authorisation. ``unknown`` behaves
+    like ``untrusted`` -- an unclassified component is never silently trusted.
+    The preview1 ABI keeps its long-standing documented in-process baseline
+    (measured unaffected by the GHSA-j2g9 class), so the mandate never forces a
+    blanket subprocess flip the CTO directive rejects.
+
+    Both the runtime gate (``WASISandbox.run``) and the MCP trust posture read
+    this predicate, so enforcement and the record's ``execution_mode`` cannot
+    drift into claiming isolation the other did not perform.
+    """
+    return abi == ABI_COMPONENT and trust != TRUST_TRUSTED
+
+
 #: Clock skew a freshness check tolerates before it calls a receipt from the
 #: future a forgery. One minute: enough for an NTP hop, small enough that a
 #: deliberately long-lived replay cannot hide behind the skew.
@@ -192,6 +284,8 @@ class ExecutionReport:
         effective_preopens: tuple[str, ...] | None = None,
         tenant: str | None = None,
         tenant_budget_ref: str | None = None,
+        execution_mode: str | None = None,
+        abi: str | None = None,
     ) -> ExecutionReport:
         """Overlay the effective sandbox configuration into the baseline.
 
@@ -227,6 +321,38 @@ class ExecutionReport:
         baseline["stack_switching_enabled"] = False
         if effective_preopens is not None:
             baseline["preopens"] = list(effective_preopens)
+        # WP-L4-2 (R-06): attest the isolation path the run ACTUALLY took, so a
+        # verifier reads the guarantee off the signed record instead of inferring
+        # it from the deployment. Set only when the caller supplies it — the
+        # default posture of a bare report stays byte-identical to earlier releases
+        # (same rule as tenant/tenant_budget_ref). A value outside the known set
+        # would attest a guarantee the runtime cannot honour: refuse (fail-closed)
+        # rather than sign a claim about a path that does not exist.
+        if execution_mode is not None:
+            if execution_mode not in _VALID_EXECUTION_MODES:
+                raise ValueError(
+                    f"unknown execution_mode {execution_mode!r}; expected one of "
+                    f"{sorted(_VALID_EXECUTION_MODES)}"
+                )
+            baseline["execution_mode"] = execution_mode
+        # WP-L4-3 (R-07): the signed record must distinguish CONFIGURED intent
+        # from EFFECTIVE enforcement. allow_fsync alone cannot: it is the preview1
+        # sync-trap setting, and the component path (Linker.add_wasip2) has no such
+        # trap, so a component run signing allow_fsync: false attests an intent its
+        # execution path never performed. Stamp the ACTUALLY resolved ABI plus the
+        # enforcement that ABI+policy really deliver (truth table via
+        # sync_blockade_holds). Opt-in only: a run that resolved no ABI leaves both
+        # keys absent, so existing canonical bytes stay byte-identical (WP-L4-2
+        # compat pattern). The bit is derived here, never trusted from a caller.
+        if abi is not None:
+            if abi not in _VALID_ABIS:
+                raise ValueError(
+                    f"unknown abi {abi!r}; expected one of {sorted(_VALID_ABIS)}"
+                )
+            baseline["abi"] = abi
+            baseline["sync_blockade_enforced"] = sync_blockade_holds(
+                abi, baseline.get("allow_fsync", True)
+            )
         return self
 
     def to_dict(self) -> dict[str, Any]:

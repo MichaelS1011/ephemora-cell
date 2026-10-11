@@ -168,6 +168,8 @@ def run_isolated(
         io_bytes_written=base.io_bytes_written,
         io_budget_exceeded=base.io_budget_exceeded,
         state_bytes=base.state_bytes,
+        execution_mode=base.execution_mode,
+        abi=base.abi,
     )
     # Carry dict extras that tests expect: baseline_ms, security_baseline, etc.
     # raw dict may contain additional keys not in ExecutionResult

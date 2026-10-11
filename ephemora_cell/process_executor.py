@@ -257,6 +257,12 @@ def run_isolated(
         "io_budget_exceeded": bool(payload.get("io_budget_exceeded", False)),
         "baseline_ms": float(payload.get("baseline_ms", 0.0)),
     }
+    # WP-L4-3 (R-07): the ABI the worker ACTUALLY ran under is a top-level
+    # runtime fact (not only a baseline field) so _result_from_report can carry
+    # it back to the parent as ExecutionResult.abi. It stays in
+    # security_baseline too — the worker stamps both from one source decision.
+    if "abi" in payload:
+        report["abi"] = payload["abi"]
     if "security_baseline" in payload:
         report["security_baseline"] = payload["security_baseline"]
     return report

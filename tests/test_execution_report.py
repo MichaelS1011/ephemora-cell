@@ -22,7 +22,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ephemora_cell import ExecutionReport
+from ephemora_cell import ExecutionReport, WASIConfig
 from ephemora_cell.execution_report import canonical_bytes, jcs_canonicalize
 
 
@@ -545,3 +545,142 @@ class TestFuelUtilizationSemantics:
         )
         assert report.fuel_utilization == 0.0
         assert report.to_dict()["fuel_utilization"] == 0.0
+
+
+class TestExecutionModeAttestation:
+    """WP-L4-2 (risk R-06): the isolation path a run ACTUALLY took is a
+    signed host-side fact, so a verifier reads the guarantee off the record
+    instead of inferring it from the deployment."""
+
+    def _report(self):
+        return ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+
+    def test_in_process_mode_is_attested(self):
+        report = self._report().apply_config(WASIConfig(), execution_mode="in_process")
+        assert report.security_baseline["execution_mode"] == "in_process"
+
+    def test_subprocess_mode_is_attested(self):
+        report = self._report().apply_config(WASIConfig(), execution_mode="subprocess")
+        assert report.security_baseline["execution_mode"] == "subprocess"
+
+    def test_unset_mode_leaves_baseline_byte_identical(self):
+        """Opt-in only: a bare report keeps the exact pre-WP-L4-2 bytes, so
+        no existing signed record silently changes shape."""
+        without = self._report().apply_config(WASIConfig())
+        explicit_none = self._report().apply_config(WASIConfig(), execution_mode=None)
+        assert "execution_mode" not in without.security_baseline
+        assert canonical_bytes(without.to_dict()) == canonical_bytes(
+            explicit_none.to_dict()
+        )
+
+    def test_unknown_mode_is_refused(self):
+        """Fail-closed: attesting a path the runtime cannot honour would sign
+        a false guarantee — refuse rather than stamp it."""
+        with pytest.raises(ValueError, match="unknown execution_mode"):
+            self._report().apply_config(WASIConfig(), execution_mode="container")
+
+    def test_signed_mode_survives_verification(self):
+        report = self._report().apply_config(WASIConfig(), execution_mode="subprocess")
+        signed = report.sign(_sha256_signer, alg="HS256")
+        assert ExecutionReport.verify(signed, _sha256_verifier)
+
+    def test_mode_flip_breaks_the_signature(self):
+        """The tamper proof: flipping subprocess -> in_process (claiming
+        weaker walls than the run carried) changes the canonical bytes, so
+        the signature no longer fits — the downgrade cannot be forged."""
+        report = self._report().apply_config(WASIConfig(), execution_mode="subprocess")
+        signed = report.sign(_sha256_signer, alg="HS256")
+        flipped = dict(signed)
+        flipped["security_baseline"] = {
+            **signed["security_baseline"],
+            "execution_mode": "in_process",
+        }
+        assert not ExecutionReport.verify(flipped, _sha256_verifier)
+
+
+class TestSyncBlockadeEnforcement:
+    """WP-L4-3 (risk R-07): the signed baseline must describe EFFECTIVE
+    enforcement, not merely configured intent. allow_fsync is a preview1
+    setting the component path never honours, so a receipt that stopped at
+    allow_fsync would sign a guarantee its execution path cannot deliver. The
+    record now names the executed ABI and derives whether the sync blockade
+    actually held (CTO directive \u00a72 truth table)."""
+
+    def _report(self):
+        return ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+
+    @pytest.mark.parametrize(
+        "abi,allow_fsync,enforced",
+        [
+            ("preview1", False, True),
+            ("preview1", True, False),
+            ("component", False, False),
+            ("component", True, False),
+        ],
+    )
+    def test_truth_table(self, abi, allow_fsync, enforced):
+        """The four sanctioned rows. A component run with the default
+        allow_fsync=False is the bug this fixes: it must attest NOT enforced."""
+        report = self._report().apply_config(
+            WASIConfig(allow_fsync=allow_fsync), abi=abi
+        )
+        baseline = report.security_baseline
+        assert baseline["abi"] == abi
+        assert baseline["sync_blockade_enforced"] is enforced
+
+    def test_unknown_abi_is_refused(self):
+        """Fail-closed: attesting an ABI the runtime cannot execute would sign
+        a false enforcement claim — refuse rather than stamp it."""
+        with pytest.raises(ValueError, match="unknown abi"):
+            self._report().apply_config(WASIConfig(), abi="wasi03")
+
+    def test_absent_abi_attests_nothing_and_stays_byte_identical(self):
+        """Legacy compatibility (\u00a73): a run that resolves no ABI leaves both
+        keys off, so no historical signed record changes shape, AND a verifier
+        reading it must NOT infer an effective blockade from silence."""
+        without = self._report().apply_config(WASIConfig())
+        explicit_none = self._report().apply_config(WASIConfig(), abi=None)
+        assert "abi" not in without.security_baseline
+        assert "sync_blockade_enforced" not in without.security_baseline
+        assert canonical_bytes(without.to_dict()) == canonical_bytes(
+            explicit_none.to_dict()
+        )
+        # The verifier helpers fail closed on an unattested record.
+        from ephemora_cell.execution_report import (
+            effective_sync_blockade,
+            sync_blockade_attested,
+        )
+
+        assert effective_sync_blockade(without.security_baseline) is False
+        assert sync_blockade_attested(without.security_baseline) is False
+
+    def test_signed_enforcement_survives_verification(self):
+        report = self._report().apply_config(WASIConfig(), abi="preview1")
+        assert report.security_baseline["sync_blockade_enforced"] is True
+        signed = report.sign(_sha256_signer, alg="HS256")
+        assert ExecutionReport.verify(signed, _sha256_verifier)
+
+    def test_abi_flip_breaks_the_signature(self):
+        """Flipping the executed ABI (component -> preview1, i.e. claiming a
+        blockade the run never had) changes the canonical bytes — unforgeable."""
+        report = self._report().apply_config(WASIConfig(), abi="component")
+        signed = report.sign(_sha256_signer, alg="HS256")
+        flipped = dict(signed)
+        flipped["security_baseline"] = {
+            **signed["security_baseline"],
+            "abi": "preview1",
+        }
+        assert not ExecutionReport.verify(flipped, _sha256_verifier)
+
+    def test_enforcement_flip_breaks_the_signature(self):
+        """Flipping sync_blockade_enforced false -> true is the exact false
+        security attestation R-07 forbids; the signature catches it."""
+        report = self._report().apply_config(WASIConfig(), abi="component")
+        assert report.security_baseline["sync_blockade_enforced"] is False
+        signed = report.sign(_sha256_signer, alg="HS256")
+        flipped = dict(signed)
+        flipped["security_baseline"] = {
+            **signed["security_baseline"],
+            "sync_blockade_enforced": True,
+        }
+        assert not ExecutionReport.verify(flipped, _sha256_verifier)
