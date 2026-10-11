@@ -124,6 +124,19 @@ directory is granted, while the default component run gets no preopen at all,
 so the surface needs an operator grant first. Detail and code reference:
 [SECURITY.md](../SECURITY.md), "Sync refusal (P1 #12)".
 
+**Untrusted/unknown components are now forced into process isolation, not just
+documented-trusted** (WP-L4-1 / R-03, ADR-015): the GHSA-j2g9 datetime overflow
+aborts the HOST on the in-process component path, so a gate at the
+`WASISandbox.run()` choke-point mandates the subprocess worker for any
+`component` the host has not explicitly marked `trusted` (an unspecified value is
+`unknown` ≡ untrusted, fail-closed; no silent in-process fallback if the worker
+is unavailable — the run is refused). In-process component execution survives
+only behind an explicit host `trusted_tools` authorisation, and Preview1 stays
+on its in-process default (measured unaffected). This is process isolation, not
+full OS sandboxing, and does not add a component sync blockade — the
+`component → sync_blockade_enforced=false` attestation still holds. Detail:
+[SECURITY.md](../SECURITY.md), "Isolation is enforced, not just offered".
+
 Reproduce:
 
 ```bash

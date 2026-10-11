@@ -77,7 +77,7 @@ Ephemora-cell is an isolated WASM sandbox, not a full security enforcement platf
 - **GC heap not byte-bounded:** `Store.set_limits` limits linear memory only. `WASIConfig.max_gc_heap_mb` is recorded in the security baseline (observability); wasmtime-py 47 has no GC-heap limiter binding, so fuel remains the effective GC memory bound (see `benchmarks/pocs/README.md`)
 - **No memory zeroing:** WASM memory is reclaimed by the Python GC, not cryptographically wiped
 - **Single-tenant:** No multi-tenant isolation between concurrent modules in the same process. `--tenant`/`TenantStore` (ADR-012) attribute consumption to an account and refuse a run whose cumulative caps are spent — a tenant is a billing identity, never a security boundary, and nothing a guest can observe changes when one is attached
-- **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path.
+- **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path. **One class is now mandated, not merely recommended:** a WASI 0.2 `component` that the host has not explicitly marked `trusted` (i.e. `untrusted` or unspecified `unknown`) is forced onto the subprocess path by the central enforcement gate (WP-L4-1 / R-03, ADR-015) — see “Isolation is enforced, not just offered” below.
 - **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
 - **A grant speaks for the tool its signature names — on every path.** The engine
@@ -112,6 +112,41 @@ Cell has two isolation paths, and the difference is material. The default
 executes the guest **inside your process**; the subprocess path
 (`run_isolated()` / `use_subprocess=True`) adds OS-level walls around a
 disposable worker. For untrusted guests, use the subprocess path.
+
+#### Isolation is enforced, not just offered (WP-L4-1 / R-03, ADR-015)
+
+Some host-side defects only a **process** wall contains. GHSA-j2g9 is measured:
+a `component` guest calling `fd_filestat_set_times(u64::MAX)` raises `SIGABRT`
+**in the host** on the in-process path (the host dies); the same guest under the
+worker only kills the worker (`ERROR`, `worker_crashed=true`, parent survives).
+Fuel/wall/memory do not bite on that host-side call. So for this class the
+subprocess path is no longer a recommendation — a gate at the `WASISandbox.run()`
+choke-point **enforces** it, before any guest execution, across every entry point
+(CLI / MCP / `run_wasm` / `abi=auto`):
+
+- Trust is a host-side classification `∈ {trusted, untrusted, unknown}`; an
+  unspecified or unknown value is `unknown`, treated as untrusted (fail-closed).
+- A `component` that is not `trusted` is forced to `use_subprocess=True`; the
+  gate raises the flag, it never lowers it. If the worker is unavailable the run
+  is **refused** (`ERROR`), never downgraded to in-process — **no silent fallback**.
+- `trusted` in-process component execution requires **explicit host
+  authorisation** (the MCP `trusted_tools` allowlist); a guest cannot elevate its
+  own trust from its bytes or sidecar.
+- Preview1 is never a mandate class (measured unaffected), so the in-process
+  Preview1 default is unchanged.
+- The mandate guards the **guaranteed public paths** (`WASISandbox.run`,
+  `run_wasm`, `run_isolated`, the MCP engine, the CLI). Calling the low-level
+  `ComponentSandbox` primitive directly bypasses the gate **by design** — it is
+  the internal engine the gate and worker drive, explicitly not a guaranteed
+  execution path, and integrators must route untrusted components through the
+  facade, not the primitive.
+- The signed `execution_mode` proves **which path ran the guest**; it is not a
+  standalone cryptographic proof that a `trusted` in-process exception was
+  authorised — that authorisation lives in the host's `trusted_tools`
+  configuration, never in the receipt.
+- This is process isolation, **not** full OS sandboxing (no seccomp/pledge is
+  claimed), and it does **not** add a component sync blockade — see the
+  attestation truth table below. **No false guarantees.**
 
 ```python
 from ephemora_cell import run_isolated, WASIConfig
@@ -223,6 +258,50 @@ A signature is a claim about bytes, so the three questions get three answers:
   pass as evidence about an execution, or the other way round. Replay detection stays
   with the verifier: **Cell proves uniqueness; the verifier decides whether it has
   been seen before** — the evidence persists, the execution state does not.
+
+### Effective enforcement attestation — claim vs configured intent
+
+A signature proves the bytes it covers, but a *configured* knob is not the same as a
+*wall that actually held* on the path the guest ran. Two host-side runtime facts are
+therefore attested alongside the policy so a verifier reads EFFECTIVE enforcement,
+not intent (WP-L4-2 / R-06, WP-L4-3 / R-07):
+
+- **`execution_mode ∈ {in_process, subprocess}`** — which isolation path ran the
+  guest. The OS walls (RLIMITs, per-file disk quota, rusage watchdog, hard kill)
+  exist only under `subprocess`; an in-process receipt says so plainly instead of
+  letting a reader assume the deployment isolated it.
+- **`abi ∈ {preview1, component}`** and **`sync_blockade_enforced: bool`** — whether
+  the WASI sync blockade (P1 #12) was actually in effect. `allow_fsync` is a
+  PREVIEW1 setting: the sandbox traps `fd_sync`/`fd_datasync`/`fd_psync` at the call
+  layer only on that path. The WASI 0.2 component path links `wasi:filesystem`
+  through `Linker.add_wasip2()`, where no such trap exists (measured, not inferred),
+  so a component run that signed `allow_fsync: false` attested a guarantee its path
+  never carried. The enforcement is derived, never trusted from the caller, over a
+  fixed truth table:
+
+  | Execution | `allow_fsync` | `sync_blockade_enforced` |
+  |---|---|---|
+  | preview1 | `false` | `true` |
+  | preview1 | `true` | `false` |
+  | component | `false` | `false` |
+  | component | `true` | `false` |
+
+  With `abi="auto"` the receipt records the ABI ACTUALLY resolved from the binary's
+  magic bytes, never the requested mode.
+
+**Verifier semantics (fail-closed).** The fields are additive and opt-in: a run that
+resolved no ABI leaves them absent and its canonical bytes stay byte-identical to
+earlier releases, so no historical record changes shape. But a record WITHOUT
+`sync_blockade_enforced` predates enforcement attestation and may NEVER be read as
+proof the blockade held — silence is not a guarantee; only an explicit `true` counts
+as blocked.
+
+**No silent downgrade.** A caller that REQUIRES a provably effective sync blockade
+passes `require_sync_blockade=True`; a run on a path that cannot enforce it (any
+component run, or preview1 with `allow_fsync=True`) is refused BEFORE it starts — no
+guest executes, nothing is spawned. This is not a component ban: legitimate component
+workloads (including `componentize-py`) run unchanged unless a caller names the
+guarantee they cannot meet.
 
 ### Proposal policy — set, not inherited (2026-09-25)
 
