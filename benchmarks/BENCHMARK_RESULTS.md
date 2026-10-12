@@ -1,6 +1,6 @@
 # Agentic Workflow Benchmark Results
 
-| Generated: 2026-08-06 (historical baseline — pre-rework) | Machine: Mac M5 | N=50 calls × 10 repeats | NOT re-runnable from this repo, see Limitations |
+| Generated: 2026-08-06 (historical baseline — pre-rework) | Machine: Mac M5 | N=50 calls × 10 repeats | script runs today; the raw JSONs of that run are not retained |
 |---|---|---|
 
 > **Provenance:** every figure below comes from the 2026-08-06 run, before
@@ -58,6 +58,11 @@
   live Docker measurement, honest Docker payloads); figures may not reproduce
   with current tooling, and the raw per-run JSONs of that date are not
   retained in this repository.
+- The script itself does run on the current tree — verified 2026-10-06 from a
+  clean checkout of the release commit (`agentic_workflow.py --no-docker`). Its
+  output is not comparable with the table above and is not a measurement of the
+  released version, which is why the historical figures stay labelled as
+  historical rather than being re-stated.
 - The per-agent breakdowns file referenced by earlier revisions
   (`agentic-full-results.json`) is not retained; the tracked raw data for the
   cell-side re-runs is `results/agentic_workflow.json` and

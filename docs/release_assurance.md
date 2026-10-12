@@ -12,7 +12,9 @@ v1.1.0 (`75b7bc2`, signed tag, PyPI 1.1.0): **957 passed / 4 skipped**
 (961 collected) · **89.98 %** statement coverage, shown as 90 % (Cell + MCP, CI
 gate ≥ 80 %) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) ·
 72-pass official wasi-testsuite conformance (pinned, 0 fail) · `pip-audit` clean
-against the pinned `wasmtime==47.0.1` · statelessness probe at 0 leaks · wheel-only
+against the pinned `wasmtime==47.0.1` · statelessness probe at 0 leaks on the
+three execution paths it sweeps (engine pool, per-run engine, isolated
+subprocess — the MCP stdio path is not part of that probe) · wheel-only
 smoke against the installed artifact (48/48 checks, result recorded in the v1.1.0
 GitHub release body) · sdist clean-room container run. CI-enforced on every push:
 tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop
