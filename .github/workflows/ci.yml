@@ -181,6 +181,14 @@ jobs:
       - name: Version-sync guard (sources must agree; newest tag may lag the bump by design)
         run: python scripts/check_version_sync.py
 
+      # Public/private separation: the tracked tree must carry product,
+      # engineering and verifiable evidence — not internal governance words,
+      # personal home paths or credential shapes. Rules are structural and
+      # generic (scripts/public_content_guard.json); confidential specifics
+      # live only in an optional local overlay that never reaches the repo.
+      - name: Public-content guard (tracked tree)
+        run: python scripts/check_public_content.py
+
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
