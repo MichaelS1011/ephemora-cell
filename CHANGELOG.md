@@ -54,6 +54,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   were rewritten into plain engineering language — no technical statement
   changed.
 
+### Documentation
+
+- **README aligned with the enforced isolation posture.** The enforcement
+  section now states plainly that a WASI 0.2 component the host has not marked
+  `trusted` is forced onto the subprocess path by the central gate — refused,
+  not silently downgraded, when the worker is unavailable — while Preview1
+  modules keep the caller-chosen `--isolated` boundary, and that driving the
+  `ComponentSandbox` primitive directly bypasses the gate by design. A new
+  "evaluate it yourself" entry points an independent reviewer at the committed
+  verification scripts and their reproduce commands. Quick-start commands were
+  re-checked against the current CLI flags and the public Python API. No runtime
+  behavior changed and no new guarantee is claimed beyond what the tests show.
+
 ## [1.1.0] - 2026-10-05
 
 Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
