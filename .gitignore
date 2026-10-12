@@ -73,3 +73,16 @@ docs/threads_roadmap.md
 assets/carousel/
 assets/make_carousel.py
 benchmarks/workloads/hello_rust.wasm
+
+# internal social/content production — stays local, never ships with the repo
+social/
+videos/
+assets/boundary-receipt-meme.gif
+assets/escape-scoreboard.gif
+assets/fuel-bomb-meme.gif
+assets/make_boundary_receipt_meme.py
+assets/make_escape_scoreboard.py
+assets/make_fuel_bomb_meme.py
+
+# internal program records (planning, risk register, decision workflow) — stay local
+docs/program/

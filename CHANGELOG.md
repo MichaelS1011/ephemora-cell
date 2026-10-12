@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Security
+
+- **Untrusted WASI 0.2 components now run isolated — enforced, not
+  recommended.** A central gate at the single execution choke-point (every
+  entry point: CLI, MCP server, `run_wasm`, `abi="auto"`) forces any component
+  the host has not explicitly marked `trusted` into the isolated subprocess
+  worker; an unspecified classification counts as untrusted. If the worker is
+  unavailable the run is refused instead of silently downgrading to in-process.
+  The trigger is measured: a GHSA-j2g9-class guest aborts the host process on
+  the in-process component path — a runtime resource wall cannot bite on that
+  call, a process wall contains it ([ADR-015](docs/decisions/ADR-015-central-enforcement-gate.md)).
+  Preview1 keeps its in-process default (measured unaffected). The mandated
+  worker path costs roughly +66 ms per run (reproducible:
+  `benchmarks/isolation_overhead_probe.py`).
+- **Trust exceptions are host-owned and byte-bound.** The MCP engine takes a
+  `trusted_tools` allowlist only as a construction argument — tool requests,
+  client params, `ToolSpec` fields and manifests can never carry trust, and an
+  empty allowlist (the default) is the strict posture. A trusted in-process run
+  is bound to the registered module digest: a module swapped under a still-
+  trusted name fails closed. A component that also needs host-sidecar egress
+  is refused before it runs rather than losing the capability silently.
+- **Signed receipts now attest what actually held.** Every record names the
+  isolation path that actually ran the guest (`execution_mode`), the ABI
+  actually executed, and whether the sync blockade was *effective* on that
+  path — a component run honestly reports `sync_blockade_enforced: false`
+  instead of the previous situation where a configured-but-not-enforced knob
+  was signed as a guarantee. Callers who require a provable blockade can pass
+  `require_sync_blockade=True` and get a controlled refusal up front.
+  Records without the new fields stay byte-identical
+  ([ADR-014](docs/decisions/ADR-014-effective-enforcement-attestation.md)).
+
 ## [1.1.0] - 2026-10-05
 
 Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
