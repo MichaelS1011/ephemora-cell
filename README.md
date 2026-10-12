@@ -44,6 +44,7 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
   <a href="#what-cell-enforces">Enforcement</a> ·
   <a href="#stateless-by-construction">Statelessness</a> ·
   <a href="#security-evidence">Security evidence</a> ·
+  <a href="#evaluate-it-yourself">Evaluate</a> ·
   <a href="#mcp-integration">MCP</a> ·
   <a href="#performance">Benchmarks</a> ·
   <a href="#documentation">Docs</a>
@@ -158,7 +159,9 @@ Cell assumes **guest code is untrusted**. The host decides what the guest can re
 * **Signed evidence.** Receipts sign the exact canonical bytes shown to the caller and carry a fresh `report_id` plus issue time; the verifier, outside Cell, decides whether it has seen one before. A valid signature proves those bytes, not that the execution was safe, and grants no authority when the audience is wrong — a receipt is not a grant and a grant is not a receipt ([SECURITY.md](SECURITY.md#signature-semantics--what-is-signed-who-may-sign-what-that-proves)).
 * **Fail-closed as a default posture.** A broken grant set, an unreadable ledger, an empty authority directory or a malformed request produces an audited refusal, not a silent pass — and refuses at startup where startup is the safe moment.
 
-**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced fuel, memory, wall-clock and output limits: the caller sets their size, not their existence. Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load — 32 MiB everywhere except the `interpreter` profile, which raises it to 512 MiB for bring-your-own guests) and `allow_fsync` (whether WASI sync calls are permitted — no shipped profile turns it on; only an explicit `--allow-fsync` does). Both are attested in the signed baseline, so a widened run never reads like a default one. The baseline goes further than the configured knob: it names the isolation path actually taken (`execution_mode`), the ABI actually executed (`abi`), and whether the sync blockade was EFFECTIVE (`sync_blockade_enforced`) — so a WASI 0.2 component run, whose path carries no sync trap, attests the blockade as *not* enforced even under the default `allow_fsync: false`. A configured policy is never read as a verified guarantee ([SECURITY.md](SECURITY.md#effective-enforcement-attestation--claim-vs-configured-intent)). The one thing you choose is the process boundary: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code.
+**Security is never opt-in.** Every execution — in-process or isolated — runs under enforced fuel, memory, wall-clock and output limits: the caller sets their size, not their existence. Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load — 32 MiB everywhere except the `interpreter` profile, which raises it to 512 MiB for bring-your-own guests) and `allow_fsync` (whether WASI sync calls are permitted — no shipped profile turns it on; only an explicit `--allow-fsync` does). Both are attested in the signed baseline, so a widened run never reads like a default one. The baseline goes further than the configured knob: it names the isolation path actually taken (`execution_mode`), the ABI actually executed (`abi`), and whether the sync blockade was EFFECTIVE (`sync_blockade_enforced`) — so a WASI 0.2 component run, whose path carries no sync trap, attests the blockade as *not* enforced even under the default `allow_fsync: false`. A configured policy is never read as a verified guarantee ([SECURITY.md](SECURITY.md#effective-enforcement-attestation--claim-vs-configured-intent)).
+
+**Isolation is enforced for components, not just offered.** For WASI Preview1 **modules** the process boundary is a caller choice: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. For WASI 0.2 **components** it is not optional: any component the host has not explicitly marked `trusted` — an `untrusted` value, or an unspecified `unknown`, both treated as untrusted (fail-closed) — is **forced onto the subprocess path by a central gate** at the run entry point. The gate only ever *raises* isolation, never lowers it, and if the worker is unavailable the run is **refused** (`ERROR`) rather than silently downgraded to in-process — no silent fallback ([ADR-015](docs/decisions/ADR-015-central-enforcement-gate.md), [SECURITY.md](SECURITY.md#isolation-is-enforced-not-just-offered-adr-015)). One named exception: driving the low-level `ComponentSandbox` primitive **directly bypasses the gate by design** — it is the internal engine the gate and worker sit on, not a policy boundary; callers who use it own the policy themselves.
 
 The enforced defaults:
 
@@ -241,6 +244,21 @@ Six measured rungs, strongest first, each with its reproduce command and its com
 **What we do not compare — and why.** Prompt-injection suites (garak, InjecAgent) test the model and agent layer, not the execution boundary — out of scope for an execution sandbox. Cloud sandbox providers are cited from third-party sources with their source status, and third-party numbers never appear in the same table as our measured cells.
 
 **Can you break Cell?** Found an execution path that violates the documented security boundary — an escape, a budget bypass, an attestation gap? That is exactly the report we want: [SECURITY.md](SECURITY.md#reporting-a-vulnerability) (private disclosure, responsible handling). The [threat model](docs/threat-model.md) and its documented residual risks tell you where to aim; the methodology sections in [docs/security_posture.md](docs/security_posture.md) tell you how we measure. Security research on Cell is welcome.
+
+### Evaluate it yourself
+
+The claims above are built to be **falsified from a fresh clone** — no internal access, no secret keys, no private documents. Run them in a disposable environment (see the safety note before the last block):
+
+```bash
+pip install -e .                    # or install the release; disposable env only
+python benchmarks/verify_8_vectors.py                       # expect exit 0, "8/8 attack vectors blocked", positive controls included
+python -m pytest tests/test_isolation_gate.py tests/test_fs_escape_matrix.py tests/test_grant_trust.py   # the enforced-boundary negative tests
+python -m pytest                    # full suite — current count under "Testing & Verification"
+```
+
+Then bring your own guest: grant it a single temp directory and try to reach anything outside it — `..` traversal, a symlink pointing out, an absolute host path, a `/proc`-style read (the same matrix `tests/test_fs_escape_matrix.py` encodes). Each attempt should end in an errno denial or a clean refusal, and no host path outside the grant should ever be reached; **a deviation is a finding**, unless it is one of the gaps the docs already name.
+
+Read the boundaries first, so a documented gap does not read as a new defect: the [threat model](docs/threat-model.md), the six rungs and their reproduce commands in [docs/security_posture.md](docs/security_posture.md), and the known limitations in [SECURITY.md](SECURITY.md) — including that the WASI 0.2 component path carries no sync blockade today (measured), and that the upstream Wasmtime fixes for the 2026 advisory wave are still pending on PyPI. Destructive probes (known host-crash samples, deep fuzzing, kernel-escape attempts) are **out of scope** for this self-run: they belong in a dedicated isolated lab, not a live machine.
 
 ## Performance
 
