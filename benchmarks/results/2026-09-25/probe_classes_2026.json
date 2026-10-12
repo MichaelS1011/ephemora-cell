@@ -5,7 +5,7 @@
     "wasmtime": "47.0.1"
   },
   "provenance": {
-    "fs_class": "GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 companion vectors",
+    "fs_class": "GHSA-vqjp-4c8c-hfgg escape shapes + GHSA-2r75-cxrj-cmph / CVE-2026-47261 TRUNCATE vector",
     "worm_class": "2026 persistence-worm research (agent payloads via persistent storage); npx/uvx worm incidents (SANDWORM_MODE)",
     "control_plane_class": "OX Security CVE-2026-82533 (supervisor control-plane reachability)"
   },

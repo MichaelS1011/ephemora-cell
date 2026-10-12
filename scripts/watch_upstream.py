@@ -3,7 +3,7 @@
 
 Gate 1 — engine upgrade window: Python wheels on PyPI for the wasmtime
 patch releases covering the 2026 advisory batch (GHSA-m63x-6p34-q65x,
-GHSA-vqjp-4c8c-hfgg / CVE-2026-47261, GHSA-j2g9-4prp-pf6h,
+GHSA-vqjp-4c8c-hfgg, GHSA-j2g9-4prp-pf6h,
 GHSA-c9gc-w9vx-w86p, GHSA-jqpg-j7w6-42pr) **plus the 2026-10-02 wave**
 (GHSA-j366-h8gg-77pm, GHSA-gqmc-89g8-p25r, GHSA-96f6-r43r-8c24,
 RUSTSEC-2026-0324). The 48.0.4 / 49.0.2 targets cover the full batch;

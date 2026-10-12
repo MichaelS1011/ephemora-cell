@@ -189,8 +189,9 @@ pytest counterparts in `tests/test_fs_escape_matrix.py`,
 `tests/test_persistence_worm.py`, `tests/test_control_plane_reachability.py`,
 `tests/test_tool_signing.py::TestTrustHandoff`):
 
-- **FS escape matrix** — the companion vectors of
-  GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 (trailing-slash `path_open`,
+- **FS escape matrix** — the vectors of
+  GHSA-vqjp-4c8c-hfgg and the distinct GHSA-2r75-cxrj-cmph / CVE-2026-47261
+  (trailing-slash `path_open`,
   mixed dot-dot + trailing slash, hardlink across the preopen boundary,
   rename across the boundary, TRUNCATE without the write/set-size
   right), each with a granted positive control. Measured on the pinned
@@ -308,7 +309,7 @@ row is measured, the raw evidence is committed, and each run is reproducible:
 | 2 | [SandboxEscapeBench-18 mapping](../benchmarks/sandbox_escape_18.py) | 18 container/K8s escape scenarios mapped to WASM: **8 execution-tested and denied, 10 not expressible** on the WASI surface | Structural mapping + live attempts, granted-preopen positive control | `python benchmarks/sandbox_escape_18.py` |
 | 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (results table above: [The eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
 | 4 | [Official WASI conformance](../conformance/README.md) | 72 pass / 1 documented xfail / 0 fail against the pinned upstream suite — re-run weekly in CI (weekly ubuntu runs land 71–72 on varying fs tests; a documented runner quirk, not a Cell defect) | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
-| 5 | [2026 probe classes](../benchmarks/probe_classes_2026.py) | The CVE-2026-47261 companion FS vectors (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
+| 5 | [2026 probe classes](../benchmarks/probe_classes_2026.py) | The GHSA-vqjp FS-escape shapes and the GHSA-2r75 / CVE-2026-47261 TRUNCATE vector (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
 | 6 | [Cross-architecture determinism](comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |
 
 ### Where the 18 scenarios come from, and what the mapping does

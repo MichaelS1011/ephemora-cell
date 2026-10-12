@@ -203,7 +203,7 @@ retrieved 2026-10-03):**
    measurement, §3), no container latency (Docker wrapper: +490 ms, a
    third-party figure from EnkryptAI's walkthrough, not a Docker value).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 1032 CI-enforced
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 1033 CI-enforced
    tests (4 skipped) with security gates (pip-audit, SBOM, bandit) and an
    active release line; Wassette itself declares itself "not production ready".
    Status 2026-10-03: Wassette v0.8.0 lists memory, CPU-time and execution-time
@@ -460,8 +460,8 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 1036 collected tests today (measured 2026-10-12)
-— 1032 passing (4 skipped)
+comprises 1037 collected tests today (measured 2026-10-12)
+— 1033 passing (4 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.
@@ -567,7 +567,8 @@ Artifacts: `benchmarks/results/scale-results.json`, `scale_dgx_{100,500,1000}.js
   Trail of Bits skill-scanner bypasses (Judson & Hess, 2026) via
   https://tldrsec.com (2026-06-04 issue)
 - 2026 probe classes: https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-vqjp-4c8c-hfgg
-  (FS escape companions, CVE-2026-47261),
+  (filesystem escape), and https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-2r75-cxrj-cmph
+  (TRUNCATE FilePerms bypass, CVE-2026-47261),
   https://www.ox.security/blog/cve-2026-82533-deepseek-harness-ai-agent-sandbox-escape
   (supervisor control-plane reachability),
   https://arxiv.org/abs/2603.22489 (Securing the MCP: A Dual-Axis Survey —
