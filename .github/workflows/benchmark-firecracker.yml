@@ -29,7 +29,7 @@ jobs:
       # Pin the same tested wasmtime as CI (unresolved 'latest'
       # made benchmark results non-comparable across runs).
       - name: Install Cell
-        run: pip install -e . && pip install wasmtime==47.0.1
+        run: pip install -e . && pip install wasmtime==49.0.0
       - name: Run competitive benchmark (with Firecracker)
         run: BENCH_LABEL=ubuntu-24.04-kvm python benchmarks/competitive_benchmark.py | tee competitive.log
       - name: Upload results
