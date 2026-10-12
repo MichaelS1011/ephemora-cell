@@ -37,7 +37,12 @@ except ImportError:  # pragma: no cover — non-POSIX platforms
 if TYPE_CHECKING:
     from .wasi_02 import ComponentSandbox
 
-from .execution_report import ExecutionReport
+from .execution_report import (
+    ABI_COMPONENT,
+    ABI_PREVIEW1,
+    EXECUTION_MODE_SUBPROCESS,
+    ExecutionReport,
+)
 from .wasi_runtime import (
     DEFAULT_MAX_WASM_BYTES,
     ExecutionStatus,
@@ -156,6 +161,7 @@ def _build_report(
     *,
     io_cpu_used: float = 0.0,
     io_budget_exceeded: bool | None = None,
+    executed_abi: str = ABI_PREVIEW1,
 ) -> dict:
     """Convert a sandbox ExecutionResult into the JSON report payload.
 
@@ -173,6 +179,10 @@ def _build_report(
         "fuel_consumed": result.fuel_consumed,
         "sandbox_dir": result.sandbox_dir,
         "effective_preopens": list(result.effective_preopens),
+        # ADR-014: the ABI this worker ACTUALLY ran the guest under, as
+        # a top-level field so _result_from_report carries it back to the parent
+        # (which signs it) instead of re-inferring it from the request.
+        "abi": executed_abi,
         "io_cpu_used_seconds": round(io_cpu_used, 4),
         "io_bytes_written": result.io_bytes_written,
         "io_budget_exceeded": (
@@ -182,13 +192,25 @@ def _build_report(
         ),
         "baseline_ms": baseline_ms,
     }
+    # ADR-014: this process IS a subprocess worker, so the baseline it
+    # produces attests its own isolation path at the source. A caller that
+    # signs or reads this dict reads the guarantee the run actually carries
+    # (OS walls), never inferring it from the deployment.
+    # ADR-014: the executed ABI is stamped at the same source, so a
+    # component run's own baseline says sync_blockade_enforced: false — this
+    # worker, not a parent inference, decides what its receipt claims.
     report["security_baseline"] = (
         ExecutionReport(
             status=result.status.value,
             exit_code=result.exit_code,
             elapsed_ms=result.elapsed_ms,
         )
-        .apply_config(config, effective_preopens=result.effective_preopens)
+        .apply_config(
+            config,
+            effective_preopens=result.effective_preopens,
+            execution_mode=EXECUTION_MODE_SUBPROCESS,
+            abi=executed_abi,
+        )
         .security_baseline
     )
     return report
@@ -241,13 +263,16 @@ def run_worker(
     baseline_ms = (time.monotonic() - start) * 1000
 
     sandbox: WASISandbox | ComponentSandbox
+    executed_abi: str
     try:
         if abi == "preview1":
             sandbox = WASISandbox(config=config)
+            executed_abi = ABI_PREVIEW1
         elif abi == "component":
             from .wasi_02 import ComponentSandbox
 
             sandbox = ComponentSandbox(config=config)
+            executed_abi = ABI_COMPONENT
         else:  # auto
             from .wasi_02 import is_component_binary
 
@@ -255,8 +280,10 @@ def run_worker(
                 from .wasi_02 import ComponentSandbox
 
                 sandbox = ComponentSandbox(config=config)
+                executed_abi = ABI_COMPONENT
             else:
                 sandbox = WASISandbox(config=config)
+                executed_abi = ABI_PREVIEW1
     except ValueError as exc:
         return {
             "status": "error",
@@ -317,6 +344,7 @@ def run_worker(
         config,
         io_cpu_used=io_cpu_used,
         io_budget_exceeded=cpu_budget_breached or result.io_budget_exceeded,
+        executed_abi=executed_abi,
     )
 
 
