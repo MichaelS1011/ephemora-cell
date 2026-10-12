@@ -148,6 +148,15 @@ choke-point **enforces** it, before any guest execution, across every entry poin
   claimed), and it does **not** add a component sync blockade — see the
   attestation truth table below. **No false guarantees.**
 
+**Build scope.** Every bullet above describes the **current source**, not the
+published release: `1.1.0` was cut on 2026-10-05 (`75b7bc2`), before the gate
+merged (`5d3650a`, 2026-10-12), and `main` still reports the version string
+`1.1.0` until the next release bumps it. So the published wheel has no gate to
+verify, and a version number cannot tell the two builds apart. Verifying this
+section means cloning at a pinned commit and running the presence check — not
+`pip install ephemora-cell`. Per-build control matrix and discriminator:
+[docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).
+
 ```python
 from ephemora_cell import run_isolated, WASIConfig
 

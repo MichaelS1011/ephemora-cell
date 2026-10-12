@@ -20,7 +20,8 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
   <a href="https://pypi.org/project/ephemora-cell/"><img src="https://img.shields.io/pypi/v/ephemora-cell" alt="PyPI"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-blue" alt="License: BUSL-1.1 (source-available; each version converts to Apache-2.0 four years after its first publicly available distribution)"></a>
-  <a href="https://github.com/MichaelS1011/ephemora-cell"><img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/api-stable-blue" alt="Public API surface: stable, shipped and machine-gated since 1.0.0"></a>
+  <a href="docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where"><img src="https://img.shields.io/badge/security%20evaluation-pending-yellow" alt="Not a production-security approval for untrusted workloads: independent evaluation pending, and the newest isolation controls are on main — not in the published release"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/stargazers"><img src="https://img.shields.io/github/stars/MichaelS1011/ephemora-cell" alt="GitHub stars"></a>
 </p>
 
@@ -51,6 +52,8 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
 </p>
 
 **Latest release: [v1.1.0](https://github.com/MichaelS1011/ephemora-cell/releases/tag/v1.1.0) · [PyPI](https://pypi.org/project/ephemora-cell/) · [signed GitHub release](https://github.com/MichaelS1011/ephemora-cell/releases) · BUSL-1.1.** Release notes: [CHANGELOG.md](CHANGELOG.md) · supported versions and the 2026-09-24 wasmtime advisory wave, triaged with measured evidence: [SECURITY.md](SECURITY.md) · latest reproducible measurement: 2026-10-02 interpreter-guest run, [`benchmarks/results/`](benchmarks/results/) · measured counts per installation state: [docs/release_assurance.md](docs/release_assurance.md).
+
+**What “stable” is claimed for, and what it is not.** Stable here means the *public API surface and its release gate*: they are shipped, documented and machine-checked. It is **not** a production-security approval for untrusted workloads — no reviewer has signed off independently yet, the pinned Wasmtime line still carries advisories whose fix wheels are not on PyPI ([SECURITY.md](SECURITY.md#known-limitations)), and the newest isolation controls exist **on `main`, not in the published release**. Which build carries which control, per commit: [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).
 
 <p align="center">
   <picture>
@@ -97,6 +100,22 @@ Three commands: install Cell, run something untrusted, read its audited receipt.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 python -m pip install ephemora-cell
+```
+
+**Check which build you are actually holding** before reading any claim below as a property of it. The published release and the current source report the *same version string* (`1.1.0`) but do not carry the same controls — the component isolation gate and the receipt fields that attest it landed after the release was cut:
+
+```bash
+python -c "from ephemora_cell.execution_report import TRUST_UNKNOWN"; echo $?
+# 0 → source at main: the enforcement gate is present
+# 1 → published 1.1.0 wheel: no component isolation gate, no attestation fields
+```
+
+Anything that exercises those controls needs a source install at a pinned commit:
+
+```bash
+git clone https://github.com/MichaelS1011/ephemora-cell.git && cd ephemora-cell
+git checkout <full-commit-sha>     # pin what you are evaluating; record `git rev-parse HEAD`
+python -m pip install -e .
 ```
 
 **2 — Run something untrusted** (the repo ships examples, or bring any `.wasm`):
@@ -162,6 +181,8 @@ Cell assumes **guest code is untrusted**. The host decides what the guest can re
 **Security is never opt-in.** Every execution — in-process or isolated — runs under enforced fuel, memory, wall-clock and output limits: the caller sets their size, not their existence. Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load — 32 MiB everywhere except the `interpreter` profile, which raises it to 512 MiB for bring-your-own guests) and `allow_fsync` (whether WASI sync calls are permitted — no shipped profile turns it on; only an explicit `--allow-fsync` does). Both are attested in the signed baseline, so a widened run never reads like a default one. The baseline goes further than the configured knob: it names the isolation path actually taken (`execution_mode`), the ABI actually executed (`abi`), and whether the sync blockade was EFFECTIVE (`sync_blockade_enforced`) — so a WASI 0.2 component run, whose path carries no sync trap, attests the blockade as *not* enforced even under the default `allow_fsync: false`. A configured policy is never read as a verified guarantee ([SECURITY.md](SECURITY.md#effective-enforcement-attestation--claim-vs-configured-intent)).
 
 **Isolation is enforced for components, not just offered.** For WASI Preview1 **modules** the process boundary is a caller choice: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. For WASI 0.2 **components** it is not optional: any component the host has not explicitly marked `trusted` — an `untrusted` value, or an unspecified `unknown`, both treated as untrusted (fail-closed) — is **forced onto the subprocess path by a central gate** at the run entry point. The gate only ever *raises* isolation, never lowers it, and if the worker is unavailable the run is **refused** (`ERROR`) rather than silently downgraded to in-process — no silent fallback ([ADR-015](docs/decisions/ADR-015-central-enforcement-gate.md), [SECURITY.md](SECURITY.md#isolation-is-enforced-not-just-offered-adr-015)). One named exception: driving the low-level `ComponentSandbox` primitive **directly bypasses the gate by design** — it is the internal engine the gate and worker sit on, not a policy boundary; callers who use it own the policy themselves.
+
+*This paragraph describes the **current source**. The gate and the three attestation fields above (`execution_mode`, `abi`, `sync_blockade_enforced`) were merged after the 1.1.0 release was cut, so they are **not** in the published wheel — and `main` still carries the version string `1.1.0` until the next release bumps it. The one-line presence check in [Quick Start](#quick-start) separates the two builds; the per-commit control matrix is in [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).*
 
 The enforced defaults:
 
@@ -250,11 +271,17 @@ Six measured rungs, strongest first, each with its reproduce command and its com
 The claims above are built to be **falsified from a fresh clone** — no internal access, no secret keys, no private documents. Run them in a disposable environment (see the safety note before the last block):
 
 ```bash
-pip install -e .                    # or install the release; disposable env only
+git clone https://github.com/MichaelS1011/ephemora-cell.git && cd ephemora-cell
+git checkout <full-commit-sha>       # pin the commit under evaluation; record `git rev-parse HEAD`
+python -m pip install -e .           # source, not the published wheel — the gate lives only here
+python -m pip install --require-hashes -r requirements-dev.lock   # test tooling: the line above does not install pytest
+python -c "from ephemora_cell.execution_report import TRUST_UNKNOWN"   # ImportError ⇒ you are holding the wheel, not this source
 python benchmarks/verify_8_vectors.py                       # expect exit 0, "8/8 attack vectors blocked", positive controls included
 python -m pytest tests/test_isolation_gate.py tests/test_fs_escape_matrix.py tests/test_grant_trust.py   # the enforced-boundary negative tests
 python -m pytest                    # full suite — current count under "Testing & Verification"
 ```
+
+Install *from source at a pinned commit*, not from the package index: `pip install ephemora-cell` fetches the published release, which predates the isolation gate and will therefore neither contain nor disprove it. Record the commit SHA and the wheel/sdist digests with your results so a finding can be attributed to the build it was observed in.
 
 Then bring your own guest: grant it a single temp directory and try to reach anything outside it — `..` traversal, a symlink pointing out, an absolute host path, a `/proc`-style read (the same matrix `tests/test_fs_escape_matrix.py` encodes). Each attempt should end in an errno denial or a clean refusal, and no host path outside the grant should ever be reached; **a deviation is a finding**, unless it is one of the gaps the docs already name.
 

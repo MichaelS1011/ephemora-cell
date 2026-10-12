@@ -66,6 +66,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   verification scripts and their reproduce commands. Quick-start commands were
   re-checked against the current CLI flags and the public Python API. No runtime
   behavior changed and no new guarantee is claimed beyond what the tests show.
+- **Release-vs-source claim consistency gate for the docs.** The published
+  `1.1.0` wheel predates the enforcement gate and the attestation fields, while
+  `main` still reports the same version string — so the docs now name the build
+  each claim belongs to. The README hero replaces the single `status-stable`
+  badge with `api-stable` plus `security evaluation pending` (a stable API is not
+  a production-security approval for untrusted workloads); the quick start and the
+  evaluation entry point install from a pinned commit and carry a machine-checkable
+  presence check (`TRUST_UNKNOWN` import) that tells the two builds apart;
+  SECURITY.md's ADR-015 section states its build scope; and
+  [docs/release_assurance.md](docs/release_assurance.md) adds the per-control
+  matrix measured against the unpacked published artifact (wheel sha256 recorded).
+  `pyproject.toml` moves the PyPI classifier to `Development Status :: 4 - Beta`
+  so the next release stops publishing a production-readiness signal the project's
+  own gate withholds — an already-uploaded release file cannot be re-labelled
+  retroactively. No runtime behavior changed; no release was cut.
 
 ## [1.1.0] - 2026-10-05
 
