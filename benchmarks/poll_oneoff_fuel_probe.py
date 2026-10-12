@@ -124,7 +124,7 @@ def main() -> int:
         return 0
     print(
         "\n  NICHT reproduziert: entweder ist die Host-Arbeit jetzt bepreist"
-        "\n  (Engine gepatcht — dann M2 neu prüfen) oder der Lauf ist fehlgeschlagen."
+        "\n  (Engine gepatcht — dann mit dem geplanten Upgrade neu prüfen) oder der Lauf ist fehlgeschlagen."
         "\n  SECURITY.md-Triage aktualisieren, bevor diese Zahlen zitiert werden."
     )
     return 1

@@ -122,7 +122,7 @@ sync blockade today** — measured, not inferred:
 `wasi:filesystem/types` sync calls both complete into the host once a
 directory is granted, while the default component run gets no preopen at all,
 so the surface needs an operator grant first. Detail and code reference:
-[SECURITY.md](../SECURITY.md), "Sync refusal (P1 #12)".
+[SECURITY.md](../SECURITY.md), "Sync refusal".
 
 **Untrusted/unknown components are now forced into process isolation, not just
 documented-trusted** (ADR-015): the GHSA-j2g9 datetime overflow

@@ -47,6 +47,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   structural and generic by design; stricter project-private patterns can be
   overlaid locally without ever entering the public repo, and findings are
   classified by a human, never blind-deleted.
+- **Guard vocabulary extended.** The internal-wording rules now also catch
+  decision codes, work-package phrasing, audit-finding codes, defect-ledger
+  numbers and milestone shorthand in public text, and the corresponding
+  references in shipped docstrings, comments, CI labels and security documents
+  were rewritten into plain engineering language — no technical statement
+  changed.
 
 ## [1.1.0] - 2026-10-05
 
@@ -55,7 +61,7 @@ runs under the same boundary — but two hard refusals made that unreachable in
 practice, and both turned out to be implementation problems rather than
 policy: the 32 MiB module cap could not be raised through a profile, the
 library API or the CLI (it was enforced only in the subprocess worker), and
-the P1 #12 sync blockade rejected CPython-WASI at the **import** layer for a
+the sync blockade rejected CPython-WASI at the **import** layer for a
 symbol the guest never calls. The cap is a knob now; the blockade moved to the
 call layer, where the interpreter needs no exception at all. No default got
 weaker.
@@ -309,7 +315,7 @@ weaker.
   The upstream advisory stays open and is still tracked by
   `scripts/check_wasmtime_patch.py`; nothing about the exposure claim changed.
 - **`fd_sync` reached the host under the default config (gap closed).** The
-  P1 #12 blockade matched import names on the substrings
+  original blockade matched import names on the substrings
   `fsync`/`psync`/`datasync`, which never matched `fd_sync` — WASI Preview1's
   own sync entry point, the one a guest calls through `os.fsync`, and the one
   `define_wasi` wires to a real `fsync(2)`. Measured before the change: a
@@ -355,7 +361,7 @@ weaker.
   records derive from. `max_wasm_bytes: 0` means *no cap*, which a bare number
   reads as the strictest possible limit, so the baseline carries
   `max_wasm_bytes_unlimited` alongside it.
-- **The M2 gate would have opened one patch too early, and it never failed.**
+- **The engine-upgrade gate would have opened one patch too early, and it never failed.**
   `scripts/watch_upstream.py` and `scripts/check_wasmtime_patch.py` watched
   48.0.3/49.0.1 as the "fully patched" targets — true for the advisories known
   on 2026-09-24, false after the 2026-10-02 wave, which is patched only from
@@ -916,7 +922,7 @@ versions ≤ 1.0.4.3 remain Apache-2.0 (ADR-010). The 2026-09-24 wasmtime
 advisory wave — three GHSAs this repo did not previously track — is
 triaged against the 47.0.1 pin with measured evidence, the sandbox
 receives three security fixes, and the engine-config construction is
-consolidated so the blocked M2 engine upgrade touches one site instead
+consolidated so the blocked engine upgrade touches one site instead
 of three.
 
 ### Security
@@ -944,10 +950,10 @@ of three.
   fuel, epoch and memory caps do not apply inside the host call. Measured
   containment: the subprocess path survives (worker dies, parent reports
   a clean error) — run untrusted guests with `use_subprocess=True` until
-  the M2 engine upgrade. GHSA-c9gc-w9vx-w86p is structurally unreachable:
+  the planned engine upgrade. GHSA-c9gc-w9vx-w86p is structurally unreachable:
   guests are never linked against wasi-http (pinned in
   `tests/test_surface_audit.py`). GHSA-jqpg-j7w6-42pr does not apply as
-  read (statically-typed host, no dynamic-Val lifting); re-check at M2.
+  read (statically-typed host, no dynamic-Val lifting); re-check at the upgrade.
   Full table in SECURITY.md; fresh evidence in
   `benchmarks/results/2026-09-29/` (Preview1 + component CVE replays
   PASS, `datetime_overflow_ghsa_j2g9.json` PASS).
@@ -1129,7 +1135,7 @@ cycle produced.
   2026 advisories (incl. CVE-2026-47261, filesystem escape) in SECURITY.md.
 - `scripts/check_wasmtime_patch.py` added: watches PyPI for the pending
   patch wheels (48.0.3/49.0.1/47.0.4; all absent as of this release) and
-  signals when the full engine upgrade (security plan milestone M2) opens.
+  signals when the full engine upgrade opens.
 
 ### Fixed
 

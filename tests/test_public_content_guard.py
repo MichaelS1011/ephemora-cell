@@ -95,6 +95,23 @@ def test_detects_governance_references(tmp_path: Path) -> None:
     assert {"governance-role-ref", "internal-id-ref", "internal-process-ref"} <= rules
 
 
+def test_detects_management_wording_families(tmp_path: Path) -> None:
+    findings = _scan(
+        tmp_path,
+        {
+            "docs/x.md": (
+                "granted by decision D7 on 2026-09-12\n"
+                "shipped as a separate work package\n"
+                "fixed after audit F3 in a regression test\n"
+                "lands with the M2 engine upgrade\n"
+                "tracked as defect P1 #12 and OODA-4\n"
+            )
+        },
+    )
+    assert len(findings) == 5  # one finding per rule × line
+    assert {f.rule for f in findings} == {"internal-process-ref", "internal-id-ref"}
+
+
 def test_allow_marker_suppresses_line(tmp_path: Path) -> None:
     marker = CONFIG["allow_marker"]
     findings = _scan(
@@ -129,6 +146,23 @@ def test_allowlisted_guard_files_are_exempt_from_content_scan(tmp_path: Path) ->
             "docs/other.md": "the CTO pattern lives here too\n",
         },
     )
+    paths = {f.path for f in findings if f.rule == "governance-role-ref"}
+    assert paths == {"docs/other.md"}
+
+
+def test_overlay_findings_never_carry_snippets(tmp_path: Path) -> None:
+    private_word = "sensitive-partner-name"
+    (tmp_path / "leak.md").write_text(
+        f"talked to {private_word} today\n", encoding="utf-8"
+    )
+    findings = guard._scan_overlay(
+        ["leak.md"],
+        tmp_path,
+        [{"id": "private-contact", "regex": private_word}],
+    )
+    assert len(findings) == 1
+    assert findings[0].rule == "private-contact"
+    assert private_word not in findings[0].render()
     paths = {f.path for f in findings if f.rule == "governance-role-ref"}
     assert paths == {"docs/other.md"}
 

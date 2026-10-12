@@ -50,7 +50,7 @@ release; if anything moved, re-run the comparison's §4.3 and re-date every
 
 ---
 
-## O2 — the M2 engine wheel (patched wasmtime exists upstream; the Python binding lags)
+## O2 — the pending engine wheel (patched wasmtime exists upstream; the Python binding lags)
 
 **What we measured** (2026-10-02/03, [SECURITY.md](../SECURITY.md),
 [CHANGELOG](../CHANGELOG.md)): the 2026 advisory wave — GHSA-j366-h8gg-77pm
@@ -58,7 +58,7 @@ release; if anything moved, re-run the comparison's §4.3 and re-date every
 GHSA-96f6-r43r-8c24 (`fd_readdir` leaks host padding via any preopen),
 GHSA-gqmc-89g8-p25r (no exposure: we always install bounded sinks), and
 RUSTSEC-2026-0324. Upstream fixes land in the **48.0.4 / 49.0.2** engine lines —
-the watcher's M2 target, deliberately **one step above** the advisory wave's own
+the watcher's upgrade target, deliberately **one step above** the advisory wave's own
 48.0.3/49.0.1 fix line, because the 2026-10-02 wave is not closed at 48.0.3
 (SECURITY.md).
 
@@ -73,7 +73,7 @@ wasmtime-py; carrying a private patched build would diverge our "every number on
 this page is a Cranelift number" attestation from what anyone else can install,
 and is a larger honesty risk than waiting one wheel release.
 
-**Exit condition — a patch wheel exists and passes M2.** When
+**Exit condition — a patch wheel exists and passes the upgrade gate.** When
 `check_wasmtime_patch.py` stops exiting 1: install the patched line, re-run the
 full gate (tests + `verify_8_vectors.py` + the `poll_oneoff` and
 component-sync probes, which are self-checking), and only then retire the

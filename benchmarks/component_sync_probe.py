@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the sync surface of the WASI 0.2 component path (OODA-4).
+"""Measure the sync surface of the WASI 0.2 component path (the documented sync gap).
 
 Cell's sync blockade is a Preview1 control: `fd_sync`, `fd_datasync` and
 `fd_psync` are shadowed by trapping shims at the link layer. The component
@@ -108,7 +108,7 @@ def main() -> int:
         return 1
     print("  Dokumentation hält: kein Sync-Shim auf dem Component-Pfad, aber")
     print("  auch kein Preopen ohne Betreiber-Gabe. Geschlossen wird das mit")
-    print("  OODA-4 (Component-Blockade), nicht durch diese Messung.")
+    print("  Component-Blockade-Folgearbeit, nicht durch diese Messung.")
     return 0
 
 

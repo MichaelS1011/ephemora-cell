@@ -202,7 +202,7 @@ class TestRunWasm:
         assert result.elapsed_ms >= 0
 
     def test_fuel_exhaustion_reports_consumed_fuel(self, tmp_path):
-        """Regression (2026-09-12 audit F1): FUEL_EXHAUSTED used to report
+        """Regression (2026-09-12): FUEL_EXHAUSTED used to report
         fuel_consumed=None — the cost went unaccounted exactly on the most
         expensive runs. The trap itself proves the budget was spent."""
         loop = wasmtime.wat2wasm(b'(module (func (export "_start") (loop $l br $l)))')
@@ -213,7 +213,7 @@ class TestRunWasm:
         assert result.fuel_consumed == 100
 
     def test_run_wasm_config_overload(self, tmp_path):
-        """Decision D2 (audit F2b): run_wasm accepts a full WASIConfig —
+        """run_wasm accepts a full WASIConfig —
         the I/O-budget, disk-quota and GC-heap knobs are reachable from
         the convenience wrapper, not only from WASISandbox."""
         loop = wasmtime.wat2wasm(b'(module (func (export "_start") (loop $l br $l)))')

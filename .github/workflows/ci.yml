@@ -62,7 +62,7 @@ jobs:
           python -m black --check ephemora_cell/ ephemora_cell_mcp/ tests/
           python -m ruff check ephemora_cell/ ephemora_cell_mcp/ tests/
 
-      - name: Type check (mypy, non-strict — decision D4)
+      - name: Type check (mypy, non-strict)
         run: |
           python -m pip install "mypy==2.4.0"
           # bare `python -m mypy` had no targets/config and checked nothing (silent

@@ -1054,7 +1054,7 @@ def _pooled_spec():
 
 
 def test_engine_pooled_mode_disables_byte_wall():
-    """Decision D3: --pooled (trusted fast path) clears io_budget_bytes so
+    """--pooled (trusted fast path) clears io_budget_bytes so
     the pooled engine serves the run; the default stays walled."""
     spec = _pooled_spec()
     pooled = CellToolEngine(pooled=True)._config_for(spec)

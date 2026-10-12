@@ -90,7 +90,7 @@ ignore = ["BLE001", "S110", "E501"]
 "tests/*" = ["S110"]
 
 [tool.mypy]
-# Non-strict type gate (decision D4, 2026-09-12): production code only,
+# Non-strict type gate (introduced 2026-09-12): production code only,
 # pragmatic baseline — enforce, then tighten incrementally.
 python_version = "3.10"
 files = ["ephemora_cell", "ephemora_cell_mcp"]

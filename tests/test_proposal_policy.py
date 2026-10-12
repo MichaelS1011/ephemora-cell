@@ -48,7 +48,7 @@ def _hardened_engine(**overrides: bool) -> wasmtime.Engine:
 REJECTED_PROBES = {
     "shared_memory_threads": (
         '(module (memory 1 shared) (func (export "_start")))',
-        "threads proposal — shared memories (P1 #11)",
+        "threads proposal — shared memories (refused)",
     ),
     "call_ref_function_references": (
         "(module (type $t (func)) (table 1 funcref)"

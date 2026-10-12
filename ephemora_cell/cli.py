@@ -489,7 +489,7 @@ def main():
     p_run.add_argument(
         "--allow-fsync",
         action="store_true",
-        help="permit WASI fd_fsync/fd_datasync imports (the P1 #12 blockade "
+        help="permit WASI fd_fsync/fd_datasync imports (the sync blockade "
         "otherwise refuses such modules) — interpreter guests like "
         "CPython-WASI need this; --profile interpreter sets it",
     )

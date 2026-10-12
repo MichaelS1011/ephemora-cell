@@ -129,7 +129,7 @@ class TestJsonMode:
         assert "security_baseline" in doc
         assert doc["security_baseline"]["memory64"] is False
         assert "HELLO-CLI-STDOUT" in proc.stderr  # guest output moved to stderr
-        # Audit F5: the CLI document carries the ExecutionReport schema — the
+        # The CLI document carries the ExecutionReport schema — the
         # same shape machine readers get from the library and the MCP _meta.
         assert doc["fuel_budget"] == 1_000_000
         assert doc["fuel_utilization"] is not None
@@ -229,7 +229,7 @@ class TestProfileOverride:
         doc = json.loads(proc.stdout)
         assert doc["status"] == "fuel_exhausted"
         assert doc["security_baseline"]["fuel"] == 100
-        # Audit F1: the cost is accounted even when the budget is exhausted.
+        # The cost is accounted even when the budget is exhausted.
         assert doc["fuel_consumed"] == 100
         assert doc["fuel_budget"] == 100
 
