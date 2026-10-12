@@ -1,0 +1,86 @@
+{
+  "_readme": [
+    "Public-content guard rules - the STRUCTURAL layer.",
+    "Rules here are deliberately generic: path shapes, credential shapes and a",
+    "small vocabulary of internal-governance words. Project-private specifics",
+    "(real usernames, contact names, partner names) are NOT listed here - they go",
+    "in the optional local overlay named by EPHEMORA_PUBLIC_GUARD_RULES, which",
+    "stays out of the repository. Public CI runs only the patterns below. Findings",
+    "are verified and classified by a human, never blind-deleted."
+  ],
+  "scan_suffixes": [
+    ".py", ".md", ".yml", ".yaml", ".toml", ".json", ".txt", ".sh",
+    ".html", ".css", ".js", ".ts", ".wat", ".rs", ".c", ".go", ".ini", ".cfg"
+  ],
+  "forbidden_tracked_paths": [
+    "^docs/program/",
+    "^docs/internal/",
+    "^social/",
+    "^videos/",
+    "^\\.hermes",
+    "^\\.zcode",
+    "^\\.video_agent",
+    "^tmp_probe_dir/",
+    "^WORKPLAN_[^/]*\\.md$",
+    "^BERICHT_[^/]*\\.md$",
+    "^CEO_NOTE_[^/]*\\.md$",
+    "^CMO_NOTE_[^/]*\\.md$",
+    "^VORSCHLAG_[^/]*\\.md$",
+    "^RELEASE_FIXPLAN\\.md$",
+    "^RELEASE_AUDIT_[^/]*\\.md$",
+    "^TEST_FINDINGS_FIXPLAN_[^/]*\\.md$",
+    "^TEST_REPORT_[^/]*\\.md$",
+    "^SECURITY_ADVISORY_PLAN_[^/]*\\.md$",
+    "^ROADMAP_[^/]*\\.md$",
+    "^[^/]*_AUDIT_[^/]*\\.md$",
+    "docs/marketing_pr_drafts\\.md$",
+    "docs/threads_roadmap\\.md$",
+    "\\.log$"
+  ],
+  "content_rules": [
+    {
+      "id": "personal-home-path",
+      "regex": "/(?:Users|home)/(?P<user>[a-z][a-z0-9._-]{2,})/",
+      "benign_users": [
+        "runner", "github", "actions", "ci", "operator", "user", "username",
+        "name", "example", "sample", "vagrant", "admin", "test", "tests"
+      ]
+    },
+    {
+      "id": "secret-private-key",
+      "regex": "-----BEGIN [A-Z ]{0,24}PRIVATE KEY( BLOCK)?-----"
+    },
+    {
+      "id": "secret-github-token",
+      "regex": "gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}"
+    },
+    {
+      "id": "secret-slack-token",
+      "regex": "xox[baprse]-[A-Za-z0-9-]{10,}"
+    },
+    {
+      "id": "secret-aws-access-key",
+      "regex": "AKIA[0-9A-Z]{16}"
+    },
+    {
+      "id": "governance-role-ref",
+      "regex": "\\b(?:CTO|CMO|CEO)\\b"
+    },
+    {
+      "id": "internal-process-ref",
+      "regex": "\\bPDCA\\b|Working.?Backwards|CHECK\\s*/\\s*ACT|\\bTor\\s+[AB]\\b"
+    },
+    {
+      "id": "internal-id-ref",
+      "regex": "\\bWP-[A-Z]?\\d[\\w./-]*|\\bR-\\d{2}\\b|docs/program"
+    }
+  ],
+  "allow_files": [
+    "^scripts/check_public_content\\.py$",
+    "^scripts/public_content_guard\\.json$",
+    "^tests/test_public_content_guard\\.py$",
+    "^\\.gitignore$",
+    "^\\.dockerignore$"
+  ],
+  "allow_marker": "public-content-guard: allow"
+}

@@ -31,5 +31,27 @@ examples
 integration
 scripts
 action
+# Internal program records, content production and working reports — the
+# .gitignore mirrors for git never reach the image, but the build context is
+# the working directory, not the index: exclude them here too or COPY . .
+# bakes them into the image.
+social/
+videos/
+docs/program/
+docs/internal/
+docs/marketing_pr_drafts.md
+docs/threads_roadmap.md
+/*_AUDIT_*.md
+/*_NOTE_*.md
+/BERICHT_*.md
+/WORKPLAN_*.md
+/VORSCHLAG_*.md
+/RELEASE_FIXPLAN.md
+/RELEASE_AUDIT_*.md
+/TEST_FINDINGS_FIXPLAN_*.md
+/TEST_REPORT_*.md
+/SECURITY_ADVISORY_PLAN_*.md
+/ROADMAP_*.md
+*.log
 # Rust build caches (bundled tools ship prebuilt under ephemora_cell_mcp/tools/)
 ephemora_cell_mcp/tools_src/*/target

@@ -37,6 +37,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Records without the new fields stay byte-identical
   ([ADR-014](docs/decisions/ADR-014-effective-enforcement-attestation.md)).
 
+### Infrastructure
+
+- **Public-content guard in CI.** A new gate (`scripts/check_public_content.py`,
+  rules in `scripts/public_content_guard.json`) scans the tracked tree on every
+  push and PR for private-environment leaks — personal home paths, credential
+  shapes, accidentally committed working documents — so the repository keeps
+  carrying product, engineering and verifiable evidence only. The rules are
+  structural and generic by design; stricter project-private patterns can be
+  overlaid locally without ever entering the public repo, and findings are
+  classified by a human, never blind-deleted.
+
 ## [1.1.0] - 2026-10-05
 
 Interpreter-blocker release. ADR-009 Tier 2 says a bring-your-own interpreter
