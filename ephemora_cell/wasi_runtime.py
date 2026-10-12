@@ -77,6 +77,14 @@ from ephemora_cell._sandbox_common import (
 from ephemora_cell._sandbox_common import (
     validate_allow_dirs as _validate_allow_dirs_impl,
 )
+from ephemora_cell.execution_report import (
+    ABI_COMPONENT,
+    ABI_PREVIEW1,
+    TRUST_UNKNOWN,
+    VALID_TRUST,
+    isolation_required_for,
+    sync_blockade_holds,
+)
 from ephemora_cell.state import StateStore
 from ephemora_cell.tenant import Charge, CumulativeBudget, TenantId, TenantStore
 
@@ -359,6 +367,20 @@ class ExecutionResult:
     # Subprocess workers never see either value.
     tenant: str | None = None
     tenant_budget_ref: str | None = None
+    # ADR-014: which isolation path ACTUALLY ran the guest. A host-side
+    # fact, never guest-visible: every ExecutionResult comes from the sandbox's
+    # own process unless it arrived through the subprocess worker (which sets
+    # "subprocess" in _result_from_report). The report layer attests it into the
+    # signed security_baseline so a verifier reads the guarantee, not an inference.
+    execution_mode: str = "in_process"
+    # ADR-014: which ABI ACTUALLY ran the guest — "preview1" or
+    # "component". The two share the sandbox build but NOT the sync blockade:
+    # only preview1 traps fd_sync/fd_datasync/fd_psync when allow_fsync is
+    # closed, so a signed receipt must name the executed ABI for a verifier to
+    # read the REAL enforcement instead of trusting the configured policy.
+    # None means the run resolved no ABI (legacy/unattested); it is NEVER read
+    # as a blockade. Subprocess results carry the worker's own resolution.
+    abi: str | None = None
 
 
 class WASISandbox:
@@ -454,6 +476,8 @@ class WASISandbox:
         tenant: TenantId | str | None = None,
         tenant_budget: CumulativeBudget | None = None,
         tenant_store: TenantStore | None = None,
+        require_sync_blockade: bool = False,
+        trust: str = TRUST_UNKNOWN,
     ) -> ExecutionResult:
         """Execute a WASM module in the sandbox.
 
@@ -495,19 +519,58 @@ class WASISandbox:
                 to. Admission and settlement happen here, around every
                 execution path — including ``use_subprocess`` and
                 ``abi="component"`` — because the choke point is this method.
+            require_sync_blockade: When True the caller REQUIRES a provably
+                effective sync blockade (ADR-014). A run whose executed
+                ABI cannot enforce it — any component run, or a preview1 run
+                with ``allow_fsync=True`` — is refused BEFORE anything starts
+                (no spawn, no compile, no half-run guest). False (default)
+                keeps every legitimate workload, including componentize-py,
+                running exactly as before. This is not a component ban: it is
+                the no-silent-downgrade rule for callers who name the guarantee.
+            trust: HOST-declared trust posture of the guest (ADR-015): one of
+                ``"trusted"`` / ``"untrusted"`` / ``"unknown"`` (default).
+                Never inferred from the bytes and never settable by the guest.
+                ``unknown`` is NOT ``trusted`` (fail-closed). When the run
+                resolves to the WASI 0.2 component ABI under any posture but
+                ``trusted``, process isolation is mandatory: the guest is routed
+                through the disposable worker, and if that isolation is not
+                available the run is refused BEFORE it starts — never silently
+                downgraded to in-process. ``trusted`` keeps the in-process fast
+                path for workloads the host explicitly authorised. An invalid
+                value raises ``ValueError`` (a typo must not widen the guarantee).
 
         Returns:
             ExecutionResult with status, stdout, stderr, and timing. A refused
             admission is an ERROR whose stderr names the exhausted cap; nothing
             is started, no subprocess is spawned and no module is compiled.
         """
+        # ADR-014 security gate: a caller that REQUIRES a provably
+        # effective sync blockade must not get a silent pass on a path that
+        # cannot enforce it. Resolved BEFORE any spawn/compile so a refusal is
+        # free and never half-runs the guest. No blanket component ban: this
+        # fires only when the caller opts into the requirement.
+        if require_sync_blockade:
+            refusal = self._sync_blockade_refusal(wasm_path, abi)
+            if refusal is not None:
+                return refusal
+        # ADR-015 isolation mandate: an untrusted/unknown run that resolves to
+        # the component ABI MUST execute in the isolated worker. Decided here at
+        # the single choke point BEFORE dispatch, so no entry point (abi=auto,
+        # MCP, run_wasm, direct) can bypass it, and the flag can only be raised
+        # to subprocess — never lowered — so a forced run can never fall back to
+        # in-process on a worker error (the worker's own fail-closed ERROR holds).
+        use_subprocess, refusal = self._isolation_gate(
+            wasm_path, abi, trust, use_subprocess
+        )
+        if refusal is not None:
+            return refusal
         if tenant is None:
             if tenant_budget is not None or tenant_store is not None:
                 raise ValueError(
                     "tenant_budget/tenant_store without a tenant would record "
                     "nothing — pass tenant"
                 )
-            return self._execute(
+            result = self._execute(
                 wasm_path,
                 args=args,
                 stdin_data=stdin_data,
@@ -518,6 +581,7 @@ class WASISandbox:
                 state_store=state_store,
                 expected_sha256=expected_sha256,
             )
+            return self._attest_abi(result, wasm_path, abi)
         if tenant_store is None:
             raise ValueError(
                 f"tenant {tenant!r} has no tenant_store: an id without a book "
@@ -584,7 +648,7 @@ class WASISandbox:
         )
         result.tenant = str(tenant)
         result.tenant_budget_ref = tenant_budget.ref() if tenant_budget else None
-        return result
+        return self._attest_abi(result, wasm_path, abi)
 
     def reservation(self) -> Charge:
         """The most a run under THIS config could take, per dimension.
@@ -600,6 +664,126 @@ class WASISandbox:
             fuel=self._config.max_fuel or 0,
             output_bytes=2 * _MAX_OUTPUT_BYTES + (self._config.io_budget_bytes or 0),
             wall_ms=int(self._config.timeout_seconds * 1000),
+        )
+
+    def _resolve_executed_abi(self, wasm_path: str, abi: str) -> str:
+        """The ABI this run WILL actually execute under, resolved the SAME way
+        :meth:`_execute` routes it: an explicit component is component, an
+        explicit preview1 is preview1, and auto is component iff the binary
+        carries component magic. Subprocess workers resolve identically in the
+        child, so the parent's view matches what the worker attests.
+        """
+        if abi == ABI_COMPONENT:
+            return ABI_COMPONENT
+        if abi == ABI_PREVIEW1:
+            return ABI_PREVIEW1
+        from .wasi_02 import is_component_binary
+
+        try:
+            return ABI_COMPONENT if is_component_binary(wasm_path) else ABI_PREVIEW1
+        except OSError:
+            # Unreadable module: _execute fails on it anyway. Fall toward
+            # preview1 so the gate never invents a refusal for a run that does
+            # not happen; the real error surfaces from _execute.
+            return ABI_PREVIEW1
+
+    def _attest_abi(
+        self, result: ExecutionResult, wasm_path: str, abi: str
+    ) -> ExecutionResult:
+        """Stamp the ACTUALLY executed ABI at the single public choke point.
+        The subprocess path already carries the worker's own resolution
+        (non-None) and is left untouched; in-process results are filled here so
+        direct, component and auto runs all attest their real path without
+        threading the value through every return inside _execute.
+        """
+        if result.abi is None:
+            result.abi = self._resolve_executed_abi(wasm_path, abi)
+        return result
+
+    def _sync_blockade_refusal(
+        self, wasm_path: str, abi: str
+    ) -> ExecutionResult | None:
+        """Pre-execution gate for ``require_sync_blockade`` callers.
+        Returns None when the run WOULD enforce the blockade, else a controlled
+        ERROR that starts nothing. The verdict comes from the SAME
+        ``sync_blockade_holds`` the signed record is stamped with, so claim and
+        enforcement cannot drift apart.
+        """
+        resolved = self._resolve_executed_abi(wasm_path, abi)
+        if sync_blockade_holds(resolved, self._config.allow_fsync):
+            return None
+        return ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            stderr=(
+                "refused: run requires an effective sync blockade, but the "
+                f"'{resolved}' execution path cannot enforce it "
+                f"(allow_fsync={self._config.allow_fsync}). The blockade exists "
+                "only on the preview1 path with allow_fsync=False; run there or "
+                "drop the requirement."
+            ),
+            abi=resolved,
+        )
+
+    def _isolation_available(self) -> bool:
+        """Whether process isolation can actually be honoured for this run.
+
+        The mandate is only satisfiable through the disposable worker
+        (``python -m ephemora_cell.process_worker``). It is available while that
+        launcher module is importable; a stripped/broken install that cannot
+        spawn it must make the gate REFUSE an untrusted component rather than
+        run it in-process. A cheap, real, environment-consulted check — not a
+        permanent True that would mask the very downgrade it exists to stop.
+        """
+        import importlib.util
+
+        try:
+            return importlib.util.find_spec("ephemora_cell.process_worker") is not None
+        except (ImportError, ValueError):
+            return False
+
+    def _isolation_gate(
+        self, wasm_path: str, abi: str, trust: str, use_subprocess: bool
+    ) -> tuple[bool, ExecutionResult | None]:
+        """ADR-015 central enforcement gate (Option A).
+
+        Returns ``(effective_use_subprocess, refusal)``. A refusal is a
+        controlled ERROR returned BEFORE any spawn/compile so the guest never
+        starts in-process. ``trusted`` (explicit host authorisation) and any run
+        that does not resolve to the component ABI are passed through unchanged
+        — the mandate is the measured fatal class, not a blanket subprocess
+        flip. An untrusted/unknown component is forced to ``use_subprocess=True``
+        whenever isolation is available, and refused (never downgraded) when it
+        is not. The verdict reads the SAME ``isolation_required_for`` the record
+        attests through ``execution_mode``, so claim and enforcement cannot drift.
+        """
+        if trust not in VALID_TRUST:
+            raise ValueError(
+                f"unknown trust {trust!r}; expected one of {sorted(VALID_TRUST)} "
+                "(a mis-set posture must never widen the isolation guarantee)"
+            )
+        if trust == "trusted":
+            # Host explicitly authorised the in-process fast path.
+            return use_subprocess, None
+        resolved = self._resolve_executed_abi(wasm_path, abi)
+        if not isolation_required_for(trust, resolved):
+            # preview1 keeps its documented baseline; nothing to enforce here.
+            return use_subprocess, None
+        if self._isolation_available():
+            # Force the worker. Never lowered again — no in-process fallback.
+            return True, None
+        return (
+            use_subprocess,
+            ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                stderr=(
+                    f"refused: '{trust}' component requires process isolation, "
+                    "but the isolated worker is unavailable in this environment. "
+                    "Running it in-process would silently drop the guarantee the "
+                    "posture demands — no in-process fallback is attempted. "
+                    "Install/enable the subprocess worker or run a preview1 module."
+                ),
+                abi=resolved,
+            ),
         )
 
     def _execute(
@@ -1349,6 +1533,8 @@ class WASISandbox:
             effective_preopens=tuple(report.get("effective_preopens", ())),
             io_bytes_written=report.get("io_bytes_written"),
             io_budget_exceeded=bool(report.get("io_budget_exceeded", False)),
+            execution_mode="subprocess",
+            abi=report.get("abi"),
         )
 
 
@@ -1367,6 +1553,7 @@ def run_wasm(
     abi: str = "auto",
     memory64: bool | None = None,
     max_wasm_bytes: int | None = None,
+    trust: str = TRUST_UNKNOWN,
 ) -> ExecutionResult:
     """Convenience wrapper for single-shot WASM execution.
 
@@ -1410,6 +1597,7 @@ def run_wasm(
         stdin_data=stdin_data,
         use_subprocess=use_subprocess,
         abi=abi,
+        trust=trust,
     )
     sandbox.cleanup()
     # The sandbox dir no longer exists — do not hand the caller a dangling
