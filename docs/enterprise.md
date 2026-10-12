@@ -1,10 +1,13 @@
 # Ephemora for Enterprise
 
-[Ephemora Cell](../README.md) is the source-available, BUSL-1.1 WASM sandbox
-— complete for **isolation**. The Ephemora enterprise edition builds on
-Cell's isolation for teams whose question is not "does the sandbox hold?"
-but "how do I run, attest and operate it at scale?" Cell is complete for
-isolation; the enterprise edition is complete for operation.
+[Ephemora Cell](../README.md) is the source-available, BUSL-1.1 WASM sandbox whose
+whole scope is the **isolation boundary** — it carries no operational layer. The
+Ephemora enterprise edition builds on Cell's isolation for teams whose question is
+not "does the sandbox hold?" but "how do I run, attest and operate it at scale?"
+Cell owns the boundary; the enterprise edition owns operating it. That boundary is
+measured, not assured — see "No certification, no warranty" below, and which build
+carries which control in
+[release assurance](release_assurance.md#published-wheel-vs-current-source-which-control-is-where).
 
 ## When Cell is enough
 

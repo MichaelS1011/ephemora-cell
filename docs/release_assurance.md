@@ -34,6 +34,44 @@ installation states.
 Signing paths in the second row are *unverified-by-absence*, not passing. That is
 the difference between a skip and a green.
 
+## Published wheel vs. current source: which control is where
+
+The two builds answer to the **same version string** and do not carry the same
+controls. `1.1.0` was cut on 2026-10-05 (`75b7bc2`, signed tag, the wheel on
+PyPI); the isolation-gate and attestation work merged to `main` afterwards
+(`5d3650a` gate, `ec5d3d3` attestation, both 2026-10-12), and `main` keeps
+reporting `1.1.0` until the next release bumps it. **A version number therefore
+cannot tell the two apart — only a commit SHA can.** Anyone reproducing a
+security claim installs from source at a pinned commit, never from the index.
+
+Measured on 2026-10-12 by unpacking the published artifact
+(`ephemora_cell-1.1.0-py3-none-any.whl`, sha256
+`94cf392f8c984414dfe912d7f98b2aaf262758e49508ab9650748492ec989d58`, 30 Python
+modules) and grepping it, against `git grep` on the same names at the tag:
+
+| Control | Published `1.1.0` wheel | `main` after the release |
+|---|---|---|
+| Fuel / memory / wall-clock / output walls, Preview1 + component execution, egress grant signing (ADR-013) | present | present |
+| Central enforcement gate — untrusted/unknown `component` forced to subprocess, run refused if the worker is gone (ADR-015) | **absent** (`TRUST_UNKNOWN`: 0 of 30 modules) | present |
+| Host-owned trust allowlist, byte-bound, empty-by-default (`trusted_tools`) | **absent** | present |
+| Receipt names the path/ABI that actually ran, and whether the sync blockade was effective (`execution_mode`, `abi`, `sync_blockade_enforced`) | **absent** | present |
+| The gate's own negative test (`tests/test_isolation_gate.py`) | **not in the release tree** (added on `main`) | present |
+
+Machine-checkable discriminator (exit `0` = source build with the gate, exit `1`
+= published wheel). Note that no installed artifact ships tests — the wheel
+contains `ephemora_cell/` and `ephemora_cell_mcp/` only — so every gate or
+escape-matrix check needs a repository clone, whatever build is under test:
+
+```bash
+python -c "from ephemora_cell.execution_report import TRUST_UNKNOWN"; echo $?
+```
+
+This is a **documentation-and-evidence gap, not a defect in the release**: the
+1.1.0 wheel does what its own release notes say. The gap matters only when a
+claim written against `main` is read back onto the installed package — which is
+why README's claims about the gate carry their build scope, and why the next
+release must re-stamp this table with its own tag and digests.
+
 ## The four toolchain skips are not symmetric
 
 Of the 4 toolchain skips in [`tests/test_builder.py`](../tests/test_builder.py),

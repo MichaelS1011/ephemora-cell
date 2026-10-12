@@ -19,7 +19,14 @@ requires-python = ">=3.10"
 dependencies = ["wasmtime>=43.0.1,<48"]  # floor = oldest line carrying the April 2026 advisory fixes (CVE-2026-34971 class); the next lock refresh (48.0.3/49.0.1 wheels) must carry the wasip3 advisory fix line (GHSA-x84v-gj2h-g759, patched 47.0.4/46.0.3) — gate criteria in docs/decisions/ADR-009-language-support.md
 
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    # 4 - Beta, deliberately not 5 - Production/Stable: the PyPI classifier is read
+    # as a production-readiness signal, and this project's own release gate withholds
+    # that verdict for untrusted workloads (independent security evaluation not
+    # complete; upstream Wasmtime advisories still open on the pinned line). Restore
+    # 5 - Production/Stable only once that evaluation has closed. An already
+    # published release file cannot be re-labelled, so this takes effect with the
+    # next release upload — see docs/release_assurance.md.
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
