@@ -36,7 +36,7 @@ Separate distributions, each carrying its own license; not part of our wheel.
 
 | Component | How it arrives | License |
 |---|---|---|
-| `wasmtime` 47.0.1 | required runtime dependency (`pyproject.toml:15`, pinned in `requirements.txt`) | Apache-2.0 WITH LLVM-exception |
+| `wasmtime` 49.0.0 | required runtime dependency (`pyproject.toml:15`, pinned in `requirements.txt`) | Apache-2.0 WITH LLVM-exception |
 
 ## Installed only with an optional extra
 

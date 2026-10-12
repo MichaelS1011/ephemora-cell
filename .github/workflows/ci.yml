@@ -30,9 +30,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # requirements.txt pins the exact tested wasmtime (47.0.1) for CI
+          # requirements.txt pins the exact tested wasmtime (49.0.0) for CI
           # and pip-audit; pyproject.toml declares the supported range
-          # (>=43.0.1,<48). --no-deps keeps the pinned version instead of
+          # (>=43.0.1,<50). --no-deps keeps the pinned version instead of
           # downgrading.
           python -m pip install -r requirements.txt
           python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
