@@ -2,7 +2,8 @@
 """Is the OUTER wall-timeout enforced even when the guest is busy
 inside a SINGLE, non-returning hostcall (preview1 `poll_oneoff`)?
 
-Background (GHSA-j366 poll_oneoff exposure): the preview1 `poll_oneoff` host
+Background (preview1 `poll_oneoff` host-work observation, kept separate from the
+preview0 GHSA-j366): the preview1 `poll_oneoff` host
 work is wall-bounded, NOT fuel-bounded (measured: flat fuel / growing
 wall). The open question for a worker-isolated run is whether the deadline still
 fires when the guest never returns to a WASM safepoint — the case where an

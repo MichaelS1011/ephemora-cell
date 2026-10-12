@@ -9,18 +9,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Security
 
 - **Runtime dependency moved to wasmtime 49.0.0.** The single runtime
-  dependency was raised from `47.0.1` to `49.0.0` (pyproject range `<48` → `<50`,
-  requirements pin + regenerated hash-locked `.lock`) to **reduce exposure to
+  dependency was raised from `47.0.1` to `49.0.0` (pyproject floor `>=43.0.1` →
+  `>=49.0.0`, ceiling `<48` → `<50`, requirements pin + regenerated hash-locked
+  `.lock`) so the improvement also holds for the supported install path — PyPI ships
+  one wheel per major, so `>=49.0.0,<50` resolves only to 49.0.0 — to **reduce exposure to
   specific previously affected engine vulnerabilities**. This is not a claim that
   all Wasmtime vulnerabilities are fixed. The 49.0.0 pin closes the advisories
   patched in engine 47.0.3/47.0.4 (the 47.0.0 window) — GHSA-vqjp-4c8c-hfgg
-  (filesystem escape, CVE-2026-47261) and GHSA-x84v-gj2h-g759 (WASIp3 stream heap
+  (wasmtime-wasi filesystem sandbox escape; no CVE asserted — CVE-2026-47261 is the
+  distinct GHSA-2r75-cxrj-cmph TRUNCATE bypass) and GHSA-x84v-gj2h-g759 (WASIp3 stream heap
   allocation). Advisories whose fix line is 48.0.3/49.0.1 or 48.0.4/49.0.2 remain
   **open** because 49.0.0 predates both patch releases and no Python wheel exists
   for them (PyPI ships one wheel per major): GHSA-j2g9 (datetime overflow),
   GHSA-m63x (fuel amplification), and the 2026-10-02 wave (GHSA-j366, GHSA-gqmc,
   GHSA-96f6) — each still carries its documented mitigation (worker isolation,
-  proposals enforced-off, bounded output sinks). Full test suite, lint/type, guards,
+  proposals enforced-off, bounded output sinks). The Critical GHSA-32h6-97mm-8q3c
+  (async component surface, CVSS 9.3) is **not** touched by this pin — the pinned
+  engine stays within its affected versions and its reachability is classified
+  UNKNOWN (residual risk), documented in SECURITY.md. Full test suite, lint/type, guards,
   wasi-testsuite conformance and the security evidence probes were re-run green on
   the new pin; see SECURITY.md "Dependency upgrade truth".
 
@@ -348,10 +354,10 @@ weaker.
   opener with `ProxyHandler({})` — a mediated egress goes direct to the
   allowlisted origin, and a deployment that needs a proxy has to say so
   explicitly instead of inheriting it from the shell.
-- **The FS escape matrix is a strict CI gate now.** The five
-  GHSA-vqjp-4c8c-hfgg vectors in `tests/test_fs_escape_matrix.py`
-  (trailing-slash `path_open`, mixed dot-dot + trailing slash, hardlink and
-  rename across the preopen boundary, TRUNCATE without the set-size right)
+- **The FS escape matrix is a strict CI gate now.** The five FS-escape vectors in
+  `tests/test_fs_escape_matrix.py` (trailing-slash `path_open`, mixed dot-dot +
+  trailing slash, hardlink and rename across the preopen boundary — the GHSA-vqjp
+  class — plus TRUNCATE without the set-size right, the GHSA-2r75-cxrj-cmph class)
   ran `xfail(condition=engine < 47.0.4, strict=False)`. On the pinned 47.0.1
   they measure **blocked**, so the marker's only remaining effect was to hide
   a future regression: a vector that re-opened would report `xfailed` and CI
@@ -500,11 +506,13 @@ how the engine consumed the day's grant objects.
   path's sync surface is measured rather than asserted. Self-checking like the
   other probes — it exits non-zero if the documented posture stops holding.
 - `benchmarks/poll_oneoff_fuel_probe.py` + the **2026-10-02 advisory triage**
-  in SECURITY.md: GHSA-j366-h8gg-77pm (`poll_oneoff` host work charges no
-  fuel) is measured on our own pinned engine — 5 605 fuel at every
+  in SECURITY.md: a **preview1** `poll_oneoff` host-work observation (the host
+  work charges no fuel) is measured on our own pinned engine — 5 605 fuel at every
   subscription count (n = 0 … 20 000) while wall time on the same run goes
   ≈1.5 ms → ≈1.25 s — which is the qualifier "deterministic fuel accounting"
   needs: guest instructions are accounted, host work inside a WASI call is not.
+  This is a preview1 finding, kept separate from GHSA-j366-h8gg-77pm (a preview0
+  advisory Cell does not link).
   The probe is self-checking: it exits non-zero the day the flat fuel line
   disappears, i.e. when an engine patch closes it. GHSA-gqmc-89g8-p25r does not
   apply (our runs always install bounded stdout/stderr sinks);
@@ -1124,9 +1132,9 @@ cycle produced.
 
 ### Added
 
-- **2026 probe classes with measured evidence:** FS escape matrix (all
-  CVE-2026-47261 companion vectors — trailing-slash/hardlink/rename/
-  TRUNCATE — denied on the pinned engine, with positive controls; dated
+- **2026 probe classes with measured evidence:** FS escape matrix (the
+  GHSA-vqjp FS-escape shapes plus the GHSA-2r75 / CVE-2026-47261 TRUNCATE
+  vector — trailing-slash/hardlink/rename/TRUNCATE — denied on the pinned engine, with positive controls; dated
   JSON `benchmarks/results/2026-09-25/`), persistence/worm (a marker
   written by run N is invisible to run N+1), supervisor/control-plane
   reachability (env deny-by-default, request injection impossible, no
@@ -1179,7 +1187,7 @@ cycle produced.
   `function_references_enabled`, `exceptions_enabled`, `gc_enabled`,
   `tail_calls_enabled` (all `false`) — a signed record cannot claim
   features the engine would reject. Exposure statement for both September
-  2026 advisories (incl. CVE-2026-47261, filesystem escape) in SECURITY.md.
+  2026 advisories (GHSA-m63x fuel amplification, GHSA-vqjp filesystem escape) in SECURITY.md.
 - `scripts/check_wasmtime_patch.py` added: watches PyPI for the pending
   patch wheels (48.0.3/49.0.1/47.0.4; all absent as of this release) and
   signals when the full engine upgrade opens.

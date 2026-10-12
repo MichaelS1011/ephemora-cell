@@ -128,3 +128,32 @@ def test_wasmtime_version_floor_covers_april_2026_advisories():
         digits = "".join(ch for ch in chunk if ch.isdigit())
         parts.append(int(digits or 0))
     assert tuple(parts) >= (43, 0, 1), f"wasmtime {raw} below the advisory floor"
+
+
+def test_declared_install_floor_guarantees_vqjp_fix():
+    """The security improvement must hold for the *supported install path*, not
+    only the internal CI pins. GHSA-vqjp is fixed in engine 47.0.4, and PyPI
+    ships one wasmtime wheel per major (47.0.1 / 48.0.0 / 49.0.0), so the
+    pyproject floor must be >= 49.0.0: a fresh ``pip install`` then resolves only
+    to a wheel past the GHSA-vqjp window and can never pull an affected engine.
+    requirements.txt must pin the exact tested revision."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    m = re.search(r"wasmtime\s*>=\s*(\d+)\.(\d+)\.(\d+)\s*,\s*<\s*(\d+)", pyproject)
+    assert m, "no wasmtime>=x,<y range found in pyproject.toml"
+    floor = tuple(int(g) for g in m.groups()[:3])
+    ceiling = int(m.group(4))
+    assert floor >= (
+        49,
+        0,
+        0,
+    ), f"pyproject floor {floor} is below the 49.0.0 GHSA-vqjp guarantee"
+    assert ceiling == 50, f"unexpected wasmtime ceiling {ceiling}"
+
+    reqs = (repo / "requirements.txt").read_text(encoding="utf-8")
+    assert re.search(
+        r"wasmtime==49\.0\.0", reqs
+    ), "requirements.txt must pin wasmtime==49.0.0"

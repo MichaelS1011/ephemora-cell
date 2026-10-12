@@ -17,7 +17,7 @@
   "detail": {
     "run": {
       "status": "timeout",
-      "wall_ms": 7004.0,
+      "wall_ms": 7003.8,
       "fuel": null,
       "stderr": "Worker process timed out after 7s (config timeout 2s + margin)"
     }

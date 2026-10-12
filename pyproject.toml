@@ -16,7 +16,7 @@ authors = [
     {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
-dependencies = ["wasmtime>=43.0.1,<50"]  # floor = oldest line carrying the April 2026 advisory fixes (CVE-2026-34971 class); ceiling <50 admits the 49.x engine. Pinned 49.0.0 (requirements.txt) closes the 47.0.0-window advisories fixed by 47.0.3/47.0.4 (GHSA-vqjp High FS-escape, x84v, 2hw9, hgjw); the Sept-24/Oct-2 waves need 48.0.3+/49.0.1+ wheels that do not exist on PyPI (48.0.5/49.0.2 are Rust-only), so those remain open — engine-upgrade gate in docs/decisions/ADR-009-language-support.md, public advisory status in SECURITY.md
+dependencies = ["wasmtime>=49.0.0,<50"]  # floor 49.0.0 = the tested wheel that carries both the April-2026 CVE-2026-34971 fixes and the GHSA-vqjp filesystem-escape fix (engine 47.0.4), so the declared support contract — not only the internal CI pins — guarantees the improvement. PyPI ships one wheel per major (47.0.1 / 48.0.0 / 49.0.0); a fresh install from this range therefore resolves only to 49.0.0 and can never pull an older, GHSA-vqjp-affected engine. requirements.txt / requirements.lock pin the exact tested 49.0.0. Any future wheel inside <50 (e.g. 49.0.1 / 49.0.2 once they exist) must be re-qualified against the fuel / epoch / egress invariants before it can be trusted — engine-upgrade gate in docs/decisions/ADR-009-language-support.md, public advisory status in SECURITY.md
 
 classifiers = [
     # 4 - Beta, deliberately not 5 - Production/Stable: the PyPI classifier is read

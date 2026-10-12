@@ -1,9 +1,10 @@
 """FS escape matrix — trailing-slash / hardlink / rename / TRUNCATE vectors.
 
-The four companion vectors of GHSA-vqjp-4c8c-hfgg (CVE-2026-47261,
-CVSS 7.5): wasmtime-wasi ``open_at`` mishandles trailing slashes, and the
-same FS layer carries the hardlink / rename-across-boundary / TRUNCATE-
-without-write-right companion classes. The preopen test matrix promised
+The trailing-slash / hardlink / rename vectors ride GHSA-vqjp-4c8c-hfgg
+(CVSS 7.5): wasmtime-wasi ``open_at`` mishandles trailing slashes, and the
+same FS layer carries the hardlink / rename-across-boundary classes. The
+TRUNCATE-without-write-right shape is the distinct GHSA-2r75-cxrj-cmph
+(CVE-2026-47261, CVSS 7.5 HIGH). The preopen test matrix promised
 in SECURITY.md ("will gain trailing-slash/hardlink/rename/TRUNCATE
 vectors with positive controls") lives here.
 
