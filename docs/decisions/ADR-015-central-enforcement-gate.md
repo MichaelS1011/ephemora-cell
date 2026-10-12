@@ -85,7 +85,18 @@ following make the authority host-originated and the exception auditable:
   call; the digest is checked against the bytes actually read before compiling
   (no re-read gap). A module swapped under a still-`trusted` name therefore
   **fails closed** ("module hash mismatch") rather than silently inheriting the
-  in-process classification.
+  in-process classification. Name-level identity is protected too: a governed
+  tool request that collides with an already-registered name — trusted or not —
+  is **rejected** (`server._evaluate_tool_request`), and dynamic loads require
+  signed-tools mode outright, so a trusted name cannot be re-registered over
+  different bytes. Distinction to keep honest: the **authorisation of a module
+  state** is the manifest signature over its digest (given at signing time by
+  the key holder), the **per-call binding** is the `expected_sha256` re-check.
+  In unsigned/legacy registry mode there is no digest to bind — a `trusted`
+  name there is pure disk-truth (filesystem write = host privilege, and tool
+  requests are refused in this mode); pair any `trusted_tools` entry with
+  signed-tools mode — that combination is the only one where the exception is
+  both host-authorised and byte-bound.
 - **The exception is auditable.** The signed record carries the real
   `execution_mode`, so a host-authorised in-process run reads `in_process` —
   visible to a verifier as "no OS wall", never hidden behind an isolated label.
