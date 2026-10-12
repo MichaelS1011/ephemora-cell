@@ -90,7 +90,7 @@ class TestPreExecutionChain:
         assert not PreExecutionRecord.verify({}, _verifier)
         assert not PreExecutionRecord.verify({"signature": "zz"}, _verifier)
 
-    # === WP-B2: alg pinning (alg-confusion audit finding) ===
+    # === alg pinning (alg-confusion audit finding) ===
 
     def test_verify_expected_alg_match(self):
         signed = _pre_exec()

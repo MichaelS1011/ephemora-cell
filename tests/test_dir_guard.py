@@ -1,4 +1,4 @@
-"""WP-B1 regression: ONE dir-guard denylist policy on BOTH ABI paths.
+"""Regression: ONE dir-guard denylist policy on BOTH ABI paths.
 
 The Preview1 sandbox (``WASISandbox._filter_dangerous_dirs``) splits
 ``host::guest`` mapping entries FIRST and applies the canonical allowlist +
