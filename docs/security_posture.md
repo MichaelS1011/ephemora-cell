@@ -108,6 +108,14 @@ to the guest.
 blocked with the same two intents blocked (`fsync`, symlink creation), Cell
 8/8.
 
+**Scope of those artifacts.** They are 2026-09-18 and 2026-09-20 measurements and predate the
+current release; they are the citable per-platform evidence for this row, and no newer per-platform
+artifact is published with them. What does run against the current release is the check itself:
+`benchmarks/verify_8_vectors.py` is a CI step on every push and every pull request
+(`.github/workflows/ci.yml`, job `test-bench`, ubuntu-latest), so enforcement on the shipped code
+is continuously verified rather than asserted from this page — on one runner platform, which is
+exactly why the dated two-platform artifacts above are named rather than generalized.
+
 **The WASI 0.2 component path is a separate boundary and does not carry the
 sync blockade today** — measured, not inferred:
 `python benchmarks/component_sync_probe.py` runs a real wasip2 guest whose
@@ -115,6 +123,19 @@ sync blockade today** — measured, not inferred:
 directory is granted, while the default component run gets no preopen at all,
 so the surface needs an operator grant first. Detail and code reference:
 [SECURITY.md](../SECURITY.md), "Sync refusal (P1 #12)".
+
+**Untrusted/unknown components are now forced into process isolation, not just
+documented-trusted** (ADR-015): the GHSA-j2g9 datetime overflow
+aborts the HOST on the in-process component path, so a gate at the
+`WASISandbox.run()` choke-point mandates the subprocess worker for any
+`component` the host has not explicitly marked `trusted` (an unspecified value is
+`unknown` ≡ untrusted, fail-closed; no silent in-process fallback if the worker
+is unavailable — the run is refused). In-process component execution survives
+only behind an explicit host `trusted_tools` authorisation, and Preview1 stays
+on its in-process default (measured unaffected). This is process isolation, not
+full OS sandboxing, and does not add a component sync blockade — the
+`component → sync_blockade_enforced=false` attestation still holds. Detail:
+[SECURITY.md](../SECURITY.md), "Isolation is enforced, not just offered".
 
 Reproduce:
 
