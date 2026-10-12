@@ -173,7 +173,7 @@ result["security_baseline"]   # attested limits, incl. wasmtime_version
 |---|---|---|
 | Fuel metering (guest CPU) | ✅ | ✅ |
 | Memory cap (`Store.set_limits`) | ✅ | ✅ |
-| Wall-clock timeout (epoch) | ✅ | ✅ + hard process kill |
+| Wall-clock timeout (epoch) | ✅ epoch at safepoints | ✅ outer wall (`communicate()` + `SIGKILL` at `max(timeout_seconds+5, 5)`) |
 | 10 KB output cap | ✅ | ✅ |
 | I/O byte wall (`io_budget_bytes`, sandbox dir) | ✅ watcher + epoch interrupt | ✅ |
 | I/O CPU wall (`io_cpu_seconds`) | ❌ documented-trusted * | ✅ worker rusage watchdog |
@@ -186,6 +186,19 @@ result["security_baseline"]   # attested limits, incl. wasmtime_version
 there would cap your application itself, so these knobs are honored as
 declared capabilities, not enforced walls (guest code is still fuel-,
 memory-, timeout- and byte-wall-bounded in-process).
+
+**Timeout semantics (2026-10-12).** `timeout_seconds` is the *configured* budget,
+not a hard kill instant. On the subprocess path the parent bounds the run with
+`subprocess.communicate(timeout=max(timeout_seconds + 5, 5))` and only then
+`SIGKILL`s the worker — so the enforced outer wall sits **up to 5 s above** the
+configured value (measured: a `timeout_seconds=2` blocking-hostcall run was killed
+at ≈7 s, `benchmarks/poll_oneoff_wall_hostcall_probe.py`, no fuel trap). No public
+claim here should be read as a hard cutoff at the configured number. Tightening the
+kill to fire exactly at the configured limit is **not** current behavior and is
+treated as a separate security-design change. On the in-process path the epoch timer
+interrupts only at WASM safepoints, so a guest blocked inside a single non-returning
+host call is *not* guaranteed to be caught there — the guaranteed outer kill exists
+only on the subprocess (worker) path.
 
 Backed by tests: `tests/test_run_io_budgets.py` (byte wall on both paths,
 CPU wall on the worker path), `tests/test_disk_quota.py` (RLIMIT_FSIZE),
@@ -505,21 +518,36 @@ fuel/wall accounting before it can ship.
 ## Dependency & Upgrade Policy
 
 **Runtime dependency:** `wasmtime` is the only runtime dependency. It is declared
-as a range in `pyproject.toml` (`>=43.0.1,<50`) and pinned to the exact tested
-revision in `requirements.txt` (`wasmtime==49.0.0`).
+as a range in `pyproject.toml` (`>=49.0.0,<50`) and pinned to the exact tested
+revision in `requirements.txt` / `requirements.lock` (`wasmtime==49.0.0`).
+
+**Install guarantee (2026-10-12).** The `>=49.0.0` floor is set so the security
+improvement holds for the *supported install path*, not only the internal CI pins:
+PyPI ships one `wasmtime` wheel per major (47.0.1 / 48.0.0 / 49.0.0 today), so a
+fresh `pip install` of this package resolves only to 49.0.0 and can never pull an
+engine from the older GHSA-vqjp-affected window. Because the ceiling is `<50`, any
+future 49.x wheel that lands on PyPI would be picked up automatically — such a wheel
+must be re-qualified against the fuel / epoch / egress invariants (engine-upgrade
+gate) before it can be trusted; the floor is only raised deliberately.
 
 **Dependency upgrade truth (2026-10-12).** The runtime dependency was moved
 from `47.0.1` to `49.0.0` to reduce exposure to specific previously affected engine
 vulnerabilities. This is **not** a claim that all Wasmtime vulnerabilities are fixed —
 that statement would be false. What the new pin changes, by category:
 - **Classes closed by this pin:** advisories patched in engine 47.0.3/47.0.4 (the
-  47.0.0 window) are now behind the pin — GHSA-vqjp-4c8c-hfgg (filesystem escape,
-  CVE-2026-47261) and GHSA-x84v-gj2h-g759 (WASIp3 stream heap allocation).
+  47.0.0 window) are now behind the pin — GHSA-vqjp-4c8c-hfgg (wasmtime-wasi
+  filesystem sandbox escape via trailing-slash/symlink `path_open`) and
+  GHSA-x84v-gj2h-g759 (WASIp3 stream heap allocation). No CVE ID is asserted for
+  GHSA-vqjp: CVE-2026-47261 belongs to the distinct `GHSA-2r75-cxrj-cmph`
+  (`path_open` TRUNCATE bypass), documented under the 2026 advisories below.
 - **Paths still affected:** every advisory whose fix line is 48.0.3/49.0.1 or
   48.0.4/49.0.2 still applies, because `49.0.0` predates both patch releases and no
   Python wheel exists for them (PyPI carries one wheel per major). That set includes
   GHSA-j2g9 (datetime overflow), GHSA-m63x (fuel amplification) and the 2026-10-02
-  wave (GHSA-j366, GHSA-gqmc, GHSA-96f6).
+  wave (GHSA-gqmc, GHSA-96f6). GHSA-j366 is also unpatched in the engine at this
+  line, but it is a WASI **Preview0** advisory and Cell does not link preview0, so
+  it is an unpatched-but-unreachable class rather than a live path (see the
+  advisory triage below).
 - **Functions effectively excluded:** engine-default proposals (function-references /
   exceptions / GC / tail-call / threads, WASIp3 worlds, wasi-http) stay enforced-off or
   unlinkable through the Cell configuration regardless of version — independent of this
@@ -529,6 +557,9 @@ that statement would be false. What the new pin changes, by category:
   wall can bound; unchanged by the version move.
 - **Open native sandbox risks:** an in-process engine 0-day remains part of the threat
   surface; the version pin and the worker boundary reduce but do not eliminate it.
+  GHSA-32h6-97mm-8q3c (Critical, CVSS 9.3, async component surface) is **unresolved**
+  at this pin — reachability is classified UNKNOWN (see the advisory triage below),
+  not closed by the move to 49.0.0.
 
 Full regression against the new pin is required by the engine-upgrade gate (below).
 
@@ -623,8 +654,10 @@ GHSA-vqjp is closed (fixed in 47.0.4) and GHSA-m63x still applies (fix line 48.0
   watcher's upgrade target line is **48.0.4 / 49.0.2**, one step above this
   advisory's own fix, because the 2026-10-02 wave below is not closed at
   48.0.3.
-- **GHSA-vqjp-4c8c-hfgg** (CVE-2026-47261, CVSS 7.5, wasmtime-wasi filesystem
-  escape via trailing-slash/symlink paths in `path_open`): **Cell's exposure:**
+- **GHSA-vqjp-4c8c-hfgg** (CVSS 7.5, wasmtime-wasi filesystem sandbox escape via
+  trailing-slash/symlink paths in `path_open`; no CVE ID is asserted for this
+  advisory — CVE-2026-47261 belongs to the distinct `GHSA-2r75-cxrj-cmph`
+  documented immediately below): **Cell's exposure:**
   every Preview1 run grants the `/sandbox` scratch preopen by design, so the
   affected code path is reachable even in the default posture; operator-granted
   `allow_dirs` widen the reachable scope. No config-level workaround exists
@@ -645,6 +678,17 @@ GHSA-vqjp is closed (fixed in 47.0.4) and GHSA-m63x still applies (fix line 48.0
   closed by the pin; the strict escape matrix stays wired as a regression tripwire
   so a future engine move that re-opens the shape turns CI red rather than relying
   on the version number alone.
+- **GHSA-2r75-cxrj-cmph** (CVE-2026-47261, RUSTSEC-2026-0149, CVSS 7.5 HIGH —
+  `path_open` / `open-at` opened with only the `TRUNCATE` oflag set bypasses the
+  `FilePerms::WRITE` host restriction and truncates a read-only file): verified
+  against the public OSV / GitHub advisory record. This is a **distinct** advisory
+  from GHSA-vqjp; the two were previously conflated on the shared CVE. **Not
+  applicable to Cell:** the fix shipped in wasmtime-wasi 24.0.9 / 36.0.10 / 44.0.2,
+  so the pinned 49.0.0 engine sits well past the affected range, and the bug needs
+  an embedding that grants `DirPerms::MUTATE` together with `FilePerms::READ`, which
+  the Cell preopen posture does not. The `TRUNCATE`-without-write-right shape in the
+  escape matrix is this advisory's subject (not a GHSA-vqjp companion), and it is
+  measured denied on the pinned engine.
 
 **2026-09-24 advisory batch, second wave — triage (2026-09-29):** three further
 wasmtime advisories published 2026-09-24 (none carries a CVE ID — upstream marked
@@ -822,36 +866,43 @@ RustSec's own database files plus the GitHub advisory pages; the GitHub
 global-advisory REST endpoint returned 404 for several of these IDs even though
 the advisories exist, which is why the citations name RustSec.
 
-- **GHSA-j366-h8gg-77pm** (`poll_oneoff` performs O(n) host work over the
-  subscription array **without consuming fuel or checking exhaustion**, Low,
-  CVSS 4.0, availability-only): **Cell's exposure: YES, and it is measured.**
-  `benchmarks/poll_oneoff_fuel_probe.py` runs the identical guest instruction
-  count (400 rounds) against a growing subscription array on the pinned
-  engine: **fuel is 5 605 at every count — n = 0, 1, 500, 5 000 and 20 000 —
-  while wall time on the same run goes ≈1.5 ms → ≈1.25 s** (re-run
-  2026-10-03: 1 226 ms and 1 308 ms on two consecutive passes; the floor is
-  noisy, the flat fuel line is not). The host work is therefore real
-  and uncharged — this is the one place where "deterministic fuel accounting"
-  needs its qualifier: accounting is deterministic for *guest instructions*,
-  and a WASI host call that scales with guest-supplied data is not covered by
-  it. What does bound it: the epoch-interruption wall clock on both paths, and
-  on the isolation path `io_cpu_seconds`, which measures worker CPU — and this
-  work IS worker CPU, unlike the sync case below. **Measured on the worker path
-  (2026-10-12):** a guest blocked inside a *single* long `poll_oneoff`
-  clock hostcall is still terminated by the outer wall-clock timeout — the
-  executor's `communicate()` + `SIGKILL` is delivered by the OS regardless of WASM
-  safepoints and interrupts the blocking hostcall, which the in-process epoch timer
-  cannot (`benchmarks/poll_oneoff_wall_hostcall_probe.py`: wall 7.0 s on a
-  `timeout_seconds=2` run, no fuel trap). The unbounded *host work* is therefore
-  bounded by the process wall on the isolation path even when it is not charged as
-  fuel. Upstream's named mitigation
-  (`-Spreview0=n`) is **not reachable from wasmtime-py**: neither `Config` nor
-  `WasiConfig` exposes a preview-version switch (re-probed against the installed
-  49.0.0 binding — still none). **Patch plan: engine upgrade to a
-  48.0.4/49.0.2 wheel (still pending on PyPI as of 2026-10-12); `49.0.0` is not past
-  the fix line, so this advisory stays open under the current pin.** The probe file is
-  the interim evidence; it is not in CI because it needs no guest binary but
-  does need the pinned engine version to be meaningful.
+- **GHSA-j366-h8gg-77pm** (WASI **Preview0** `poll_oneoff`: the preview0 host call
+  performs O(n) host work over the subscription array without consuming fuel or
+  checking exhaustion, **Low, CVSS 4.0, availability-only**; patched in
+  36.0.17 / 48.0.4 / 49.0.2): **Cell's exposure to the preview0 advisory: NO —
+  the surface is not linked.** Cell's Preview0 review is bounded to the interfaces
+  it actually exports/links, and it links `wasi_snapshot_preview1` and the WASI 0.2
+  component world — never preview0. The advisory's own named workaround
+  (`-Spreview0=n`) is not even reachable from wasmtime-py (neither `Config` nor
+  `WasiConfig` exposes a preview-version switch — re-probed against the installed
+  49.0.0 binding), which confirms the preview0 path sits outside the shipped
+  runtime's reach. **Version-boundary note:** `49.0.0` still predates the
+  48.0.4 / 49.0.2 fix line, so the engine is unpatched for this advisory — but
+  unpatched-and-unreachable is not the same as exposed, and Cell does not carry
+  the preview0 surface.
+- **Preview1 `poll_oneoff` host-work observation (separate from GHSA-j366).** The
+  probes previously cited under this advisory measure the **preview1** host call,
+  not the preview0 vulnerability: they establish a hostcall resource/deadline
+  characteristic, not reachability of GHSA-j366. Two facts, each with its own
+  artifact:
+  - **Fuel-vs-wall** (`benchmarks/poll_oneoff_fuel_probe.py`, dated JSON): on
+    preview1 the same guest instruction count (400 rounds) against a growing
+    subscription array holds fuel flat — **5 605 at n = 0, 1, 500, 5 000 and
+    20 000** — while wall time on the same run grows ≈1.5 ms → ≈1.25 s. So a
+    preview1 host call that scales with guest-supplied data is not covered by
+    "deterministic fuel accounting" (accounting is deterministic for *guest
+    instructions*).
+  - **Outer-deadline under a blocking host call**
+    (`benchmarks/poll_oneoff_wall_hostcall_probe.py`, dated JSON): a guest stuck
+    inside one long preview1 `poll_oneoff` clock call is still terminated by the
+    worker's outer wall (`communicate()` + `SIGKILL`, delivered by the OS
+    regardless of WASM safepoints); the epoch timer in the in-process path cannot
+    interrupt a blocking host call. On the isolation path the process wall bounds
+    the uncharged *host work* even though fuel does not.
+  This is a preview1 accounting/deadline finding kept separate so it is never
+  read as proof of the preview0 advisory. The probes are interim evidence and are
+  not in CI (no guest binary, but they need the pinned engine version to be
+  meaningful).
 - **GHSA-gqmc-89g8-p25r** (unbounded host allocation when a guest has **no
   configured stdout**, via the default `SinkOutputStream` write-zeros path,
   Moderate, CVSS 5.9): **Cell's exposure: NO — by construction.** Every run
@@ -881,6 +932,26 @@ the advisories exist, which is why the citations name RustSec.
 - **RUSTSEC-2026-0324** (host panic on a filesystem timestamp before the epoch,
   wasip3 surface): **Cell's exposure: NO** — WASI 0.3 is gate-off by decision
   (ADR-009 D3) and no wasip3 surface is linked for guests.
+
+**Critical advisory with unresolved reachability — GHSA-32h6-97mm-8q3c.** This is a
+**Critical (CVSS 9.3)** advisory in the engine's **async component execution**
+surface, called out separately so the public record does not imply it is closed: the
+pinned `49.0.0` sits within the advisory's affected upstream versions, and **this pin
+movement does not fix it.**
+- **What the configuration evidence shows:** the `wasmtime` Python binding exposes no
+  async component entrypoint and Cell never enables an async store/future, so on the
+  shipped surface no guest path reaches an async component call — attested by the
+  policy- and surface-audit checks (`tests/test_surface_audit.py`, engine-config
+  assertions) and re-checked against the installed 49.0.0 binding.
+- **What that does NOT prove (residual risk):** whether wasmtime's internal C API can
+  route a component call through the async path is a Rust-internal detail **not
+  verifiable from the installed Python package**. The configuration defense therefore
+  holds only as far as concrete config/build evidence carries it, and it does not
+  conclusively exclude internal C-API reachability. This advisory is classified
+  **UNKNOWN — residual risk**, deliberately **not** NOT-REACHABLE.
+- **Testing boundary:** no exploit-style reproduction is attempted on a normal
+  development machine. Closure depends on an upstream fix line past 49.0.0 plus a
+  reachability re-check at the engine-upgrade gate.
 
 
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —

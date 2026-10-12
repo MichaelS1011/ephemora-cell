@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Does GHSA-j366-h8gg-77pm (poll_oneoff host work without fuel) bite Cell?
+"""Preview1 poll_oneoff host-work observation: fuel-vs-wall on the pinned engine.
 
-The advisory: wasmtime's WASI p1 poll_oneoff performs O(n) host work over the
-subscription array without consuming fuel or checking exhaustion. Fixed in
-48.0.4 / 49.0.2; the named workaround (-Spreview0=n) is not reachable from
-wasmtime-py, so the only lever a Python host has is its own walls.
+This probe measures the WASI **preview1** `poll_oneoff` host call, NOT the
+preview0 vulnerability of GHSA-j366-h8gg-77pm. GHSA-j366 is a **preview0**
+advisory (Low, CVSS 4.0, availability-only) and Cell links only preview1 / WASI
+0.2, so preview0 is out of reach. The finding here is a separate preview1
+accounting characteristic: preview1 poll_oneoff performs O(n) host work over the
+subscription array without consuming fuel or checking exhaustion. Upstream
+charges it from 48.0.4 / 49.0.2; the preview0 workaround (-Spreview0=n) is not
+reachable from wasmtime-py anyway, so the only lever a Python host has is its
+own walls.
 
 Probe: same guest instruction count, different subscription count n. If fuel
 stays flat while wall time grows with n, the bypass is real on this engine and
@@ -119,7 +124,7 @@ def main() -> int:
     if len(fuels) == 1 and biggest["wall_ms"] >= 10 * max(floor, 0.1):
         print(
             "\n  Reproduziert: gleichbleibender Fuel-Verbrauch, wachsende Host-Zeit."
-            "\n  Die Wall bounded hier — Fuel nicht (GHSA-j366-h8gg-77pm)."
+            "\n  Die Wall bounded hier — Fuel nicht (preview1 poll_oneoff, separat von GHSA-j366 preview0)."
         )
         return 0
     print(

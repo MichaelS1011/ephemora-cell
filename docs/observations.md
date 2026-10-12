@@ -54,7 +54,9 @@ release; if anything moved, re-run the comparison's §4.3 and re-date every
 
 **What we measured** (2026-10-02/03, [SECURITY.md](../SECURITY.md),
 [CHANGELOG](../CHANGELOG.md)): the 2026 advisory wave — GHSA-j366-h8gg-77pm
-(`poll_oneoff` host work charges no fuel, reproduced on our pin),
+(a **preview0** `poll_oneoff` advisory, unpatched at our pin but not reachable —
+Cell links preview1/WASI 0.2 only; the preview1 host-work observation is tracked
+separately in SECURITY.md),
 GHSA-96f6-r43r-8c24 (`fd_readdir` leaks host padding via any preopen),
 GHSA-gqmc-89g8-p25r (no exposure: we always install bounded sinks), and
 RUSTSEC-2026-0324. Upstream fixes land in the **48.0.4 / 49.0.2** engine lines —

@@ -2,15 +2,16 @@
 """Watch PyPI for the wasmtime patch releases this project is waiting on.
 
 GHSA-m63x-6p34-q65x (fuel amplification via call_ref/try_table) is patched
-in wasmtime 48.0.3 / 49.0.1; GHSA-vqjp-4c8c-hfgg (CVE-2026-47261,
-filesystem escape) in 47.0.4. The 2026-10-02 wave (GHSA-j366-h8gg-77pm,
+in wasmtime 48.0.3 / 49.0.1; GHSA-vqjp-4c8c-hfgg (filesystem
+escape) in 47.0.4. The 2026-10-02 wave (GHSA-j366-h8gg-77pm,
 GHSA-gqmc-89g8-p25r, GHSA-96f6-r43r-8c24, RUSTSEC-2026-0324) is patched only
 one step further: 36.0.17 / 48.0.4 / 49.0.2. So 47.0.4 and 48.0.3 close
 individual advisories but NOT the whole set — only the 48.0.4 / 49.0.2 lines
 do. As of 2026-10-03 none of these exist as Python wheels on PyPI (the
 binding publishes one wheel per major: 47.0.1, 48.0.0, 49.0.0 — no patch
-releases at all), so Ephemora Cell runs its interim posture on wasmtime
-47.0.1 with the affected proposals enforced-off (see SECURITY.md).
+releases at all), so Ephemora Cell pins wasmtime 49.0.0 — past the GHSA-vqjp
+window but still inside the 48.0.4 / 49.0.2 fix lines — with the affected
+proposals enforced-off (see SECURITY.md).
 
 Run this (manually or from CI) to learn when the planned engine upgrade opens:
 

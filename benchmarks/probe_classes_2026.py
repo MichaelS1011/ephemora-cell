@@ -5,7 +5,8 @@ Runs the 2026 probe classes as a measured, dated experiment (same
 convention as mcp_cve_replay.py: exit-code rule, positive controls,
 benchmarks/results/<date>/*.json with measured:true):
 
-  1. FS escape matrix (GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 companions):
+  1. FS escape matrix (GHSA-vqjp-4c8c-hfgg escape shapes + the distinct
+     GHSA-2r75-cxrj-cmph / CVE-2026-47261 TRUNCATE vector):
      trailing-slash path_open, mixed dot-dot trailing slash, hardlink
      across the boundary, rename across the boundary, TRUNCATE without
      the write/set-size right — each with a granted positive control;
@@ -234,7 +235,8 @@ def main() -> int:
             "wasmtime": _pkg_version("wasmtime"),
         },
         "provenance": {
-            "fs_class": "GHSA-vqjp-4c8c-hfgg / CVE-2026-47261 companion vectors",
+            "fs_class": "GHSA-vqjp-4c8c-hfgg escape shapes + GHSA-2r75-cxrj-cmph "
+            "/ CVE-2026-47261 TRUNCATE vector",
             "worm_class": "2026 persistence-worm research (agent payloads via "
             "persistent storage); npx/uvx worm incidents (SANDWORM_MODE)",
             "control_plane_class": "OX Security CVE-2026-82533 (supervisor "
