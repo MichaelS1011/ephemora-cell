@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# setup_firecracker.sh — PDCA Do: Firecracker vs Cell
+# setup_firecracker.sh — Firecracker comparison baseline for the sandbox benchmarks
 # Downloads Firecracker v1.11.0 + kernel + rootfs, checks KVM, pins versions
-# Auf Mac M5: erwartet FAIL (kein /dev/kvm) — dann Fallback Literaturwert
+# On Apple Silicon: expected to fail (no /dev/kvm); the probe then falls back to literature values
 set -euo pipefail
 
 FIRECRACKER_VERSION="v1.11.0"
 KERNEL_VERSION="6.1"
 ARCH=$(uname -m)
 
-echo "=== Firecracker Setup — PDCA Do ==="
+echo "=== Firecracker Setup ==="
 echo "Arch: $ARCH, OS: $(uname -s), KVM: $(ls -l /dev/kvm 2>&1 | head -1)"
 
 if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then

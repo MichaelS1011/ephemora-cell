@@ -1,7 +1,7 @@
 {
   "title": "Cross-platform verification: escape-bench harness + test suite on DGX Spark (Grace arm64)",
   "date": "2026-08-20",
-  "method": "PDCA",
+  "method": "measured",
   "machines": {
     "macos": {
       "name": "macOS local (Mac M5)",
