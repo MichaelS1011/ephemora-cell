@@ -86,3 +86,7 @@ assets/make_fuel_bomb_meme.py
 
 # internal program records (planning, risk register, decision workflow) — stay local
 docs/program/
+BERICHT_*.md
+VORSCHLAG_*.md
+TEST_REPORT_*.md
+*_DIRECTIVE_*.md
