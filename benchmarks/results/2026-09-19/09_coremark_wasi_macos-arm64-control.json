@@ -18,14 +18,14 @@
         "wasmer",
         "run",
         "--enable-tail-call",
-        "/Users/mimiai/ephemora-cell/benchmarks/workloads/coremark.wasm"
+        "benchmarks/workloads/coremark.wasm"
       ]
     },
     "wasm3": {
       "version": "Wasm3 v0.9.0 on arm64-v8a",
       "command": [
         "wasm3",
-        "/Users/mimiai/ephemora-cell/benchmarks/workloads/coremark.wasm"
+        "benchmarks/workloads/coremark.wasm"
       ]
     }
   },

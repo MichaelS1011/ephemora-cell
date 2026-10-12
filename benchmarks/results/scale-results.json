@@ -1,7 +1,7 @@
 {
   "title": "Scale probe: parallel sandbox executions - scale probe snapshot",
   "date": "2026-08-20",
-  "method": "PDCA",
+  "method": "measured",
   "driver": "multiprocessing spawn harness, 1 sandbox call per task (driver script of this snapshot not retained; raw per-N files: scale_dgx_100/500/1000.json)",
   "workload": "ephemora_cell_mcp/tools/echo.wasm, wasmtime 47.0.1, WASIConfig(mem=128MB, fuel=1M)",
   "results": {
