@@ -165,7 +165,7 @@ class TestAnalyticalProfileCLI:
         assert config.timeout_seconds == 120
 
     def test_profile_io_knobs_survive_cli_resolution(self):
-        """Regression (2026-09-12 audit F2): _resolve_config rebuilt the
+        """Regression (2026-09-12): _resolve_config rebuilt the
         config and silently reset every knob the CLI has no flag for —
         analytical's io_cpu_seconds=10.0 became the 2.0 default via the CLI
         while the profile's memory/fuel values carried through."""

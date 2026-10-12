@@ -166,7 +166,7 @@ class Server:
             transport: Object with ``read_line() -> str|None`` and
                 ``send(dict)``. Defaults to real stdio.
             engine: Cell execution engine (injectable for tests).
-            pooled: Trusted fast path (decision D3) — disable the
+            pooled: Trusted fast path (operator decision) — disable the
                 sandbox-dir I/O byte wall so the pooled engine serves each
                 call (~0.5 ms/call). Explicit operator choice; ``get-policy``
                 attests the relaxed wall. Ignored when ``engine`` is given.

@@ -155,7 +155,7 @@ class CellToolEngine:
         # posture, and the runtime gate then MANDATES process isolation for it.
         # An empty set (default) is the strict posture: no tool is trusted.
         self.trusted_tools = frozenset(trusted_tools)
-        # Trusted fast path (decision D3, 2026-09-12): disabling the
+        # Trusted fast path (operator decision, 2026-09-12): disabling the
         # sandbox-dir byte wall re-enables the pooled engine (~0.5 ms/call
         # instead of ~12 ms — ADR-002 forces a per-run engine while a byte
         # wall is active). An explicit operator choice; the default stays
@@ -331,7 +331,7 @@ class CellToolEngine:
         A ``trusted`` component (host-authorised) keeps today's in-process
         egress path unchanged, and a preview1 run is not the mandate class, so
         the existing preview1 + egress deployment is untouched. Full egress
-        parity under isolation is a separate work package, documented as such.
+        parity under isolation is separate follow-up work, documented as such.
         """
         if trust == TRUST_TRUSTED:
             return
@@ -353,7 +353,7 @@ class CellToolEngine:
                 "egress is not supported across the isolation boundary. Refusing "
                 "rather than silently dropping the egress capability or running "
                 "the component in-process to keep it (ADR-015; full egress parity "
-                "under isolation is a separate work package)."
+                "under isolation is separate follow-up work)."
             )
 
     def _mediate_egress(

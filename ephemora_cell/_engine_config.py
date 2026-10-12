@@ -14,7 +14,7 @@ Kept honest by tests/test_threads_baseline.py (the ``_SpyConfig`` recording
 ``Config`` subclass inspects every constructed engine config) and
 tests/test_proposal_policy.py (compile-probe matrix against this posture).
 
-NOTE for the wasmtime M2 engine upgrade: flipping a proposal default now
+NOTE for the planned wasmtime engine upgrade: flipping a proposal default now
 happens HERE — one site instead of three.
 """
 
@@ -48,7 +48,7 @@ def build_engine_config(*, max_fuel: int | None, memory64: bool) -> wasmtime.Con
     if max_fuel is not None:
         engine_config.consume_fuel = True
     engine_config.epoch_interruption = True
-    # P1 #11: Disable threads (single-thread only for security)
+    # Disable threads (single-thread only for security)
     engine_config.wasm_threads = False
     # P1/K2: Freeze the baseline — multi-memory stays off; memory64
     # is a per-config opt-in (WASIConfig.memory64).

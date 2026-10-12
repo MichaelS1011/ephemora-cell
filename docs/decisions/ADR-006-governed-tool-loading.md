@@ -1,6 +1,6 @@
 # ADR-006: Governed Dynamic Tool Loading (Request-File, Verify-Before-Register)
 
-- **Status:** Adopted (2026-09-12, decision D1) — the verify-before-
+- **Status:** Adopted (2026-09-12) — the verify-before-
   register gate (`tool_registry.sign_manifest`/`verify_manifest` over
   RFC 8785 JCS, signed-tools registry enforcement fail-closed, server
   flag `--require-signed-tools`, `sign_tool` utility) AND the request-

@@ -12,7 +12,7 @@ binding publishes one wheel per major: 47.0.1, 48.0.0, 49.0.0 — no patch
 releases at all), so Ephemora Cell runs its interim posture on wasmtime
 47.0.1 with the affected proposals enforced-off (see SECURITY.md).
 
-Run this (manually or from CI) to learn when the upgrade path M2 opens:
+Run this (manually or from CI) to learn when the planned engine upgrade opens:
 
     python scripts/check_wasmtime_patch.py
 
@@ -28,7 +28,7 @@ import urllib.request
 
 # Candidate targets, most preferred first. The first two close every advisory
 # in the set above; 47.0.4 is listed because it removes the filesystem-escape
-# class, but it is NOT an M2 trigger on its own.
+# class, but it is NOT an upgrade trigger on its own.
 TARGETS = ("48.0.4", "49.0.2", "47.0.4")
 FULLY_PATCHED = TARGETS[:2]
 REQUIRED_WHEEL_MARKERS = ("macosx", "manylinux")  # Cell ships macOS + Linux

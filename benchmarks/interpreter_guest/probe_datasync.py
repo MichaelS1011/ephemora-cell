@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Why the sync blockade refuses CALLS, not IMPORTS — measured.
 
-The original P1 #12 blockade rejected a module that IMPORTED fd_datasync,
+The original import-layer blockade rejected a module that IMPORTED fd_datasync,
 which is why CPython-WASI could not run without an opt-in. This harness
 establishes, against the pinned guest and the shipped posture, that the
 import is not the harm:

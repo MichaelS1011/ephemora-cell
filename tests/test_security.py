@@ -535,7 +535,7 @@ class TestSecurity4_4_Dangerous_Dir_Bypass:
             WASISandbox(config=config)
 
     def test_macos_tmp_parity_allowed(self):
-        """Regression (2026-09-12 audit F3): /tmp realpaths to /private/tmp on
+        """Regression (2026-09-12): /tmp realpaths to /private/tmp on
         macOS, so tempfile.mkdtemp() dirs used to hard-fail the canonical
         allowlist while Linux /tmp was always allowed. The macOS temp roots
         (/private/tmp, /private/var/folders) are now allowed explicitly;

@@ -198,7 +198,7 @@ Ephemora-cell relies on:
 - **WASM Memory Safety:** Bounds-checked memory access (no buffer overflows)
 - **WASI Preview1 / WASI 0.2:** Capability-based filesystem access (only preopened directories; the effective per-ABI grant is attested in the execution report's `security_baseline.preopens`)
 - **Resource Limits:** Fuel metering (CPU), memory caps (128MB default), wall-clock timeout (30s default)
-- **Sync refusal (P1 #12):** `fd_sync`, `fd_datasync` and `fd_psync` are shadowed with a trapping shim at the link layer, so a guest that CALLS one fails closed instead of driving a host `fsync(2)`. Importing them stays legal — every wasm32-wasi Zig binary imports `fd_sync` and every CPython-WASI guest imports `fd_datasync`, in both cases without calling it (measured: `benchmarks/interpreter_guest/probe_datasync.py`, cold and warm stdlib tree). The earlier design rejected these at the IMPORT layer, which refused interpreters and toolchains while `fd_sync` — the name its matcher never saw — still reached the host under the default configuration. `allow_fsync=True` is the opt-out for a caller that needs real durability; it is attested in the report's `security_baseline` and it is **not** bounded by `io_cpu_seconds`, because a sync storm is kernel and device work that keeps the guest under its own CPU budget while host I/O throughput collapses ([arXiv 2509.11242](https://arxiv.org/html/2509.11242v1), USENIX Security '25). `fd_psync` stays trapped either way — Preview1 has no implementation to serve it. **Scope: this covers the WASI Preview1 path. The WASI 0.2 component path carries no sync blockade today, and that is measured rather than inferred** — `benchmarks/component_sync_probe.py` runs a wasip2 guest that calls `wasi:filesystem/types` `sync` and `sync-data`: with an operator-granted directory both calls complete into the host (`SYNC-ALL:OK`, `SYNC-DATA:OK`, artifact written), and in the default posture the component route grants no preopen at all (`ephemora_cell/wasi_02.py:293-294`), so the surface needs an explicit `allow_dirs` before a guest can reach it. Closing it is OODA-4 work, not this release's (see the attack-vector table's path note and `docs/threat-model.md`).
+- **Sync refusal:** `fd_sync`, `fd_datasync` and `fd_psync` are shadowed with a trapping shim at the link layer, so a guest that CALLS one fails closed instead of driving a host `fsync(2)`. Importing them stays legal — every wasm32-wasi Zig binary imports `fd_sync` and every CPython-WASI guest imports `fd_datasync`, in both cases without calling it (measured: `benchmarks/interpreter_guest/probe_datasync.py`, cold and warm stdlib tree). The earlier design rejected these at the IMPORT layer, which refused interpreters and toolchains while `fd_sync` — the name its matcher never saw — still reached the host under the default configuration. `allow_fsync=True` is the opt-out for a caller that needs real durability; it is attested in the report's `security_baseline` and it is **not** bounded by `io_cpu_seconds`, because a sync storm is kernel and device work that keeps the guest under its own CPU budget while host I/O throughput collapses ([arXiv 2509.11242](https://arxiv.org/html/2509.11242v1), USENIX Security '25). `fd_psync` stays trapped either way — Preview1 has no implementation to serve it. **Scope: this covers the WASI Preview1 path. The WASI 0.2 component path carries no sync blockade today, and that is measured rather than inferred** — `benchmarks/component_sync_probe.py` runs a wasip2 guest that calls `wasi:filesystem/types` `sync` and `sync-data`: with an operator-granted directory both calls complete into the host (`SYNC-ALL:OK`, `SYNC-DATA:OK`, artifact written), and in the default posture the component route grants no preopen at all (`ephemora_cell/wasi_02.py:293-294`), so the surface needs an explicit `allow_dirs` before a guest can reach it. Closing it is planned follow-up work, not this release's (see the attack-vector table's path note and `docs/threat-model.md`).
 
 ### Host-side file boundaries — the host never follows what the guest can write (2026-10-05)
 
@@ -271,7 +271,7 @@ not intent (ADR-014):
   exist only under `subprocess`; an in-process receipt says so plainly instead of
   letting a reader assume the deployment isolated it.
 - **`abi ∈ {preview1, component}`** and **`sync_blockade_enforced: bool`** — whether
-  the WASI sync blockade (P1 #12) was actually in effect. `allow_fsync` is a
+  the WASI sync blockade was actually in effect. `allow_fsync` is a
   PREVIEW1 setting: the sandbox traps `fd_sync`/`fd_datasync`/`fd_psync` at the call
   layer only on that path. The WASI 0.2 component path links `wasi:filesystem`
   through `Linker.add_wasip2()`, where no such trap exists (measured, not inferred),
@@ -561,7 +561,7 @@ CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
   Python binding (component linker exposes only `add_wasip2`/
   `add_wasi_http`, asserted in `tests/test_surface_audit.py`), and the
   async base is gated off (`wasm_stack_switching=False`). The full fix
-  lands with the M2 engine upgrade; the WASI 0.3 position stays gate-off
+  lands with the planned engine upgrade; the WASI 0.3 position stays gate-off
   until that line ships and the 0.3 surface gets its own budget
   qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
 
@@ -583,7 +583,7 @@ advisories affect the pinned 47.0.1 line:
   trade-off for keeping "deterministic fuel accounting" honest. Full fix:
   upgrade to wasmtime 48.0.3/49.0.1 (Python wheels pending on PyPI — tracked
   by `scripts/check_wasmtime_patch.py`), then re-qualify fuel determinism. The
-  watcher's M2 target line is **48.0.4 / 49.0.2**, one step above this
+  watcher's upgrade target line is **48.0.4 / 49.0.2**, one step above this
   advisory's own fix, because the 2026-10-02 wave below is not closed at
   48.0.3.
 - **GHSA-vqjp-4c8c-hfgg** (CVE-2026-47261, CVSS 7.5, wasmtime-wasi filesystem
@@ -636,11 +636,11 @@ range. Triage per advisory:
   errno 0/44 with no panic (a single u64 nanoseconds value cannot overflow the
   host's seconds+subsecond split). The advisory page does not detail the
   wasip1 mechanics, so the advisory stays authoritative and the residual
-  wasip1 question is re-examined at M2. **Mitigation:** the subprocess path
+  wasip1 question is re-examined at the engine upgrade. **Mitigation:** the subprocess path
   contains the abort — measured: worker dies, parent survives with a clean
   `ExecutionStatus.ERROR` ("worker crashed: … overflow in Duration::new");
-  for untrusted guests use `run_isolated()`. **Patch plan: M2 engine upgrade
-  (48.0.3+).** Evidence: `benchmarks/results/2026-09-29/datetime_overflow_ghsa_j2g9.json`
+  for untrusted guests use `run_isolated()`. **Patch plan: engine upgrade to
+  48.0.3+.** Evidence: `benchmarks/results/2026-09-29/datetime_overflow_ghsa_j2g9.json`
   (measured:true; fixture `benchmarks/component_probes/times_probe.wasm`, source
   under `benchmarks/component_probes/src/times_probe/`, harness
   `benchmarks/datetime_overflow_probe.py`). The probe is deliberately NOT wired
@@ -763,7 +763,7 @@ range. Triage per advisory:
   bounded by `Store.set_limits` (`wasi_02.py:221`). Honesty note: whether
   wasmtime's C API routes component calls through `component::Val` internally
   is a Rust-internal detail not verifiable from the Python package — the
-  class is re-checked at the M2 upgrade. No config change required now.
+  class is re-checked at the planned engine upgrade. No config change required now.
 
 **2026-10-02 advisory wave — triage (2026-10-03).** Four further `wasmtime-wasi`
 advisories were published on 2026-10-02 (RustSec `RUSTSEC-2026-0321…0324`). All
@@ -793,7 +793,7 @@ the advisories exist, which is why the citations name RustSec.
   work IS worker CPU, unlike the sync case below. Upstream's named mitigation
   (`-Spreview0=n`) is **not reachable from wasmtime-py**: neither `Config` nor
   `WasiConfig` exposes a preview-version switch (probed against the installed
-  47.0.1 binding). **Patch plan: M2 (48.0.4/49.0.2 wheels).** The probe file is
+  47.0.1 binding). **Patch plan: engine upgrade to 48.0.4/49.0.2 (wheels pending).** The probe file is
   the interim evidence; it is not in CI because it needs no guest binary but
   does need the pinned engine version to be meaningful.
 - **GHSA-gqmc-89g8-p25r** (unbounded host allocation when a guest has **no
@@ -813,7 +813,7 @@ the advisories exist, which is why the citations name RustSec.
   is disclosure *into* the guest, not an escape: the guest still cannot read a
   host path it was not granted, but what it can read from a granted directory is
   no longer only file data. Upstream states there is **no workaround** short of
-  the patch, so this is documented exposure with M2 as the fix, not a config
+  the patch, so this is documented exposure with the engine upgrade as the fix, not a config
   claim. Guests that never call `fd_readdir` do not hit it; Cell does not
   dispatch directory listings on a guest's behalf.
 - **RUSTSEC-2026-0324** (host panic on a filesystem timestamp before the epoch,

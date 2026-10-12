@@ -22,7 +22,7 @@ only linear memory is bounded via `Store.set_limits`). Checked in the
 installed package and in the wasmtime-py main branch.
 
 Run (manually or from CI; supersedes ad-hoc PyPI checks for gate 1 —
-scripts/check_wasmtime_patch.py stays for the M2 go/no-go):
+scripts/check_wasmtime_patch.py stays for the engine-upgrade go/no-go):
 
     python scripts/watch_upstream.py [--json]
 
@@ -41,7 +41,7 @@ import urllib.error
 import urllib.request
 
 # First two close the whole 2026 advisory set (incl. the 2026-10-02 wave);
-# 47.0.4 is informational — it does not open the M2 gate on its own.
+# 47.0.4 is informational — it does not open the upgrade gate on its own.
 WASMTIME_PATCH_TARGETS = ("48.0.4", "49.0.2", "47.0.4")
 REQUIRED_WHEEL_MARKERS = ("macosx", "manylinux")  # Cell ships macOS + Linux
 
@@ -130,7 +130,7 @@ def gate_engine_upgrade() -> tuple[str, str]:
         if wheels_ok(wheel_files):
             return (
                 GATE_OPEN,
-                f"wasmtime {version} auf PyPI verfügbar (M2-Upgradepfad offen)\n"
+                f"wasmtime {version} auf PyPI verfügbar (Upgradepfad offen)\n"
                 + "\n".join(lines),
             )
     return GATE_CLOSED, "kein vollständig gepatchtes Ziel auf PyPI\n" + "\n".join(lines)
@@ -243,7 +243,7 @@ def main() -> int:
         return 2
     if statuses == {GATE_OPEN}:
         print(
-            "Ergebnis: alle drei Gates offen — M2/WASI-0.3/GC-Folgearbeit kann starten."
+            "Ergebnis: alle drei Gates offen — Engine-Upgrade/WASI-0.3/GC-Folgearbeit kann starten."
         )
         return 0
     print("Ergebnis: noch wartend — gehärtete Interim-Posture bleibt aktiv.")

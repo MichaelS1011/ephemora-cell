@@ -68,11 +68,11 @@
     },
     {
       "id": "internal-process-ref",
-      "regex": "\\bPDCA\\b|Working.?Backwards|CHECK\\s*/\\s*ACT|\\bTor\\s+[AB]\\b"
+      "regex": "\\bPDCA\\b|Working.?Backwards|CHECK\\s*/\\s*ACT|\\bTor\\s+[AB]\\b|[Dd]ecision\\s+D\\d+|[Ww]ork package|[Aa]udit F\\d|\\bM[123] (?:engine|gate|target|trigger|milestone|upgrade|Upgradepfad)\\b"
     },
     {
       "id": "internal-id-ref",
-      "regex": "\\bWP-[A-Z]?\\d[\\w./-]*|\\bR-\\d{2}\\b|docs/program"
+      "regex": "\\bWP-[A-Z]?\\d[\\w./-]*|\\bR-\\d{2}\\b|docs/program|\\bP1 #\\d+|\\bOODA-\\d"
     }
   ],
   "allow_files": [

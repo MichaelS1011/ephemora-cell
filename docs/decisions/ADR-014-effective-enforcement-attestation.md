@@ -15,7 +15,7 @@ enforcement-gap findings turned on this gap:
   disk quota, rusage watchdog, hard kill). A verifier had to *infer* the
   guarantee from the deployment.
 - **The blockade gap** — `allow_fsync: false` was attested on **every** ABI, but the WASI
-  sync blockade (P1 #12) exists **only on the preview1 path**: the sandbox
+  sync blockade exists **only on the preview1 path**: the sandbox
   traps `fd_sync`/`fd_datasync`/`fd_psync` at the call layer there. The WASI 0.2
   component path links `wasi:filesystem` through `Linker.add_wasip2()`, where no
   such trap exists. A component run signing `allow_fsync: false` therefore
@@ -78,7 +78,7 @@ Supporting rules, binding:
 - Accepted limitation (kept explicit, NOT faked as covered): the component path
   still has no sync blockade. This ADR makes that *honest and machine-checkable*;
   a real component-side trap would require an engine capability wasmtime-py 47 does
-  not expose, and is deferred to the M2 engine line (see ADR-013 WASIp3 gate-off
+  not expose, and is deferred to the planned engine-upgrade line (see ADR-013 WASIp3 gate-off
   posture and `scripts/check_wasmtime_patch.py`).
 - Test surface: `tests/test_sync_enforcement_attestation.py` (behavioural truth
   table incl. real blocked/reached sync, component write reaching the host, auto

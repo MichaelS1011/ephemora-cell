@@ -53,7 +53,7 @@ SUITE_URL = "https://github.com/WebAssembly/testsuite.git"
 ENGINE_KWARGS = dict(
     consume_fuel=False,
     epoch_interruption=True,
-    wasm_threads=False,  # security baseline: no threads (P1 #11)
+    wasm_threads=False,  # security baseline: no threads
     wasm_memory64=False,  # opt-in per run (WASIConfig.memory64)
     wasm_multi_memory=False,  # frozen baseline (P1/K2)
     # GHSA-m63x-6p34-q65x: call_ref/try_table can discard callee fuel;

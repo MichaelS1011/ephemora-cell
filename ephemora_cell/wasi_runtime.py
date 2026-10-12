@@ -176,7 +176,7 @@ def module_size_cap_error(path: Path, max_wasm_bytes: int) -> str | None:
     return None
 
 
-#: Sync entry points the P1 #12 blockade traps at the LINK layer. All three
+#: Sync entry points the blockade traps at the LINK layer. All three
 #: carry ``(i32) -> (i32)`` and all three reach real host work: ``fd_sync`` is
 #: Preview1's own sync call — the one a guest reaches through ``os.fsync``,
 #: which ``define_wasi`` wires to a real ``fsync(2)`` — ``fd_datasync`` is its
@@ -281,7 +281,7 @@ class WASIConfig:
             that wants one raises this value or sets it to 0 — see the
             interpreter profile.
         allow_fsync: Permit WASI sync calls instead of trapping them
-            (default: False). Off keeps the P1 #12 disk-DoS posture on:
+            (default: False). Off keeps the sync-blockade disk-DoS posture on:
             ``fd_sync``, ``fd_datasync`` and ``fd_psync`` are shadowed with a
             trap at the link layer, so a guest that calls one is refused. On
             restores ``define_wasi``'s real implementation for callers that
@@ -1012,7 +1012,7 @@ class WASISandbox:
                         ),
                     )
 
-            # P1 #12, call layer: shadow the sync entry points with a trap, so
+            # Sync blockade, call layer: shadow the sync entry points with a trap, so
             # a guest that actually syncs cannot hammer the host disk.
             # Importing them stays legal for every guest — which is the whole
             # point: the harm is the call, not the symbol. fd_psync is

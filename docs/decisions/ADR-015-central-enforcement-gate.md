@@ -68,7 +68,7 @@ itself. An empty set (the default) is the strict posture: no tool is trusted.
 Where an untrusted/unknown **component** also carries a host-sidecar **egress**
 surface, `execute()` **refuses the run** rather than drop the capability silently
 or downgrade to in-process. Full egress-across-isolation parity is deferred to a
-separate work package, so the honest interim behaviour is an explicit
+separate follow-up effort, so the honest interim behaviour is an explicit
 refusal.
 
 ### Authority, binding, and path separation (sign-off conditions)

@@ -3,7 +3,7 @@
 Both used to be hard refusals with no opt-in, and each one alone stopped a
 bring-your-own interpreter guest (docs/languages.md): the cap rejected
 interpreter-scale modules with no way to raise it through profile, API or
-CLI, and the P1 #12 sync blockade rejected CPython-WASI because it imports
+CLI, and the sync blockade rejected CPython-WASI because it imports
 ``fd_datasync`` during startup. The cap is configurable and attested now. The
 blockade did not need an opt-in at all — it was refusing an IMPORT that no
 mainstream guest ever calls, and the measurement (probe_datasync.py) shows
@@ -50,7 +50,7 @@ HELLO_WAT = '(module (func (export "_start")))'
 _SMALL = dict(max_fuel=2_000_000, timeout_seconds=30)
 
 #: Creates a file in the first preopen (fd 3) and syncs it — the startup
-#: behaviour CPython-WASI has, and the call class the P1 #12 blockade
+#: behaviour CPython-WASI has, and the call class the sync blockade
 #: rejects. Traps on a nonzero errno, so SUCCESS here means the sync reached
 #: the host and returned success.
 SYNC_WAT = """
@@ -370,7 +370,7 @@ class TestInterpreterProfile:
 
 
 class TestFsyncBlockadeOptIn:
-    """The second interpreter blocker: P1 #12 rejected every module that
+    """The second interpreter blocker: the old blockade rejected every module that
     IMPORTED a sync call, and CPython imports one at startup. That layer is
     gone — all three sync entry points (``fd_sync``, ``fd_datasync``,
     ``fd_psync``) are now refused at the CALL layer, where the harm is, and

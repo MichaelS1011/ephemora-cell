@@ -65,7 +65,7 @@ def test_source_exposes_gc_limiter(wu):
 
 
 def test_patch_targets_cover_the_2026_advisory_batch(wu):
-    """The first two entries open the M2 gate; the rest are informational.
+    """The first two entries open the engine-upgrade gate; the rest are informational.
 
     The 2026-10-02 wave (GHSA-j366-h8gg-77pm, GHSA-gqmc-89g8-p25r,
     GHSA-96f6-r43r-8c24, RUSTSEC-2026-0324) is patched only from
