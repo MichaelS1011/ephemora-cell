@@ -460,7 +460,7 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 1026 collected tests today (measured 2026-10-11, post-WP-L4 hardening)
+comprises 1026 collected tests today (measured 2026-10-11)
 — 1022 passing (4 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
