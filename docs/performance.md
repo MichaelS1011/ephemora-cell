@@ -196,14 +196,26 @@ throughput in the 10M calls/h/core class, savings 100–350x) comes from a local
 cost-density run whose raw log is not committed (`07_cost_density.log`, gitignored) —
 treat it as an order-of-magnitude indicator, not committed evidence.
 
-## Sandbox tax on an industry-standard workload (EEMBC CoreMark 1.01)
+## Sandbox tax on an industry-standard workload (EEMBC CoreMark 1.01) — measured on 1.0.1
 
 Moved out of the README on 2026-10-05 so the landing page carries one number
 instead of a matrix; the measurement and its reading live here.
 
+**Version scope (2026-10-06).** Everything in this section is a measurement of
+`ephemora_cell` 1.0.1, taken 2026-09-19. It is not a measurement of the current release:
+
+> Current v1.1.0 Cell execution is not measured with this CoreMark artifact because the artifact
+> requires the WebAssembly tail-call feature, which the current security policy disables.
+
+Since commit `e30cd0a` (2026-09-25, GHSA-m63x-6p34-q65x) every engine configuration Cell builds
+sets `wasm_tail_call=False`, so from 1.0.4.2 onward the Cell rows refuse to compile this artifact
+at all. The bare-engine and external-engine rows still run. The security policy is deliberately
+not relaxed to make the benchmark work again, no substitute percentage is published, and finding a
+standardised workload without a tail-call dependency is an open item.
+
 The same committed `coremark.wasm` (EEMBC CoreMark 1.01, pinned sources,
-wasi-sdk-34) runs interleaved under three Cell configurations and, when their
-CLIs are on PATH, under external engines — every run must pass CoreMark's own
+wasi-sdk-34) ran interleaved under three Cell configurations and, when their
+CLIs are on PATH, under external engines — every run passed CoreMark's own
 self-validation. Scores are CoreMark's self-timed "Iterations/Sec":
 
 | Median score (n=3 interleaved) | macOS arm64 (wasmtime 47.0.1, wasmer 7.4.2, wasm3 0.9.0) | DGX Spark GB10 aarch64 (artifact header: Wasm3 v0.9.1 on arm64-v8a) |
@@ -214,14 +226,18 @@ self-validation. Scores are CoreMark's self-timed "Iterations/Sec":
 | wasmer (external control) | 63,798 (+15.57% vs bare) | 53,735 (+9.98% vs bare) |
 | wasm3 (external control, interpreter) | 5,566 (−89.92% vs bare) | 5,747 (−88.24% vs bare) |
 
-Read as facts, not a ranking: on this workload the engine choice spans a ~9–12×
-range depending on platform, the Cell sandbox layer costs 8.6% (macOS arm64) to
-9.9% (DGX Spark GB10) over the bare engine on the same machine, and
-instruction-level fuel metering a further 12.6–14.7%. External engines are context, not competitors measured by Cell's
-API; wasmer requires `--enable-tail-call` (the build ships the upstream
-Lime1+tail-call feature set). Evidence with verbatim commands, versions and
-per-run scores: `benchmarks/results/2026-09-19/09_coremark_wasi_*.json`.
-Reproduce: `python benchmarks/coremark_wasi.py --rounds 3`.
+Read as facts about 1.0.1, not as a ranking and not as current figures: on this workload the engine
+choice spans a ~9–12× range depending on platform, and on that version the Cell sandbox layer cost
+8.6% (macOS arm64) to 9.9% (DGX Spark GB10) over the bare engine on the same machine, with
+instruction-level fuel metering a further 12.6–14.7%. External engines are context, not competitors
+measured by Cell's API; wasmer requires `--enable-tail-call` (the build ships the upstream
+Lime1+tail-call feature set) — the same feature the current policy refuses. Evidence with verbatim
+commands, versions and per-run scores:
+`benchmarks/results/2026-09-19/09_coremark_wasi_macos-arm64-control.json` and
+`…_dgx-aarch64-control.json`. Reproducing the historical run means checking out 1.0.1;
+`python benchmarks/coremark_wasi.py --rounds 3` on the current release exits 1 with
+`ALL CONTROLS FAILED` on the two Cell rows — that is the compile refusal above, not a broken
+harness.
 
 ## Throughput per core (2026-09-14, Mac M5)
 
@@ -235,16 +251,20 @@ paths relative to each other, not against other products.
 
 ## Latency by execution path
 
-Five different paths, five different numbers — the README's MCP section quotes
-this table, so it is stated once here with what each row costs and why:
+Three library paths, three different numbers, stated once here with what each row
+costs and why:
 
 | Path | Per call | Why |
 |---|---|---|
 | Library, pooled engine (`io_budget_bytes=None`) | ~0.5 ms | cached engine, trusted workloads |
 | Library, default per-run engine | ~0.9 ms | fresh engine per run so the I/O wall holds |
 | Library, `run_isolated()` | ~10–100 ms | disposable worker process, OS rlimits, hard kill |
-| MCP stdio server, default | ~12 ms | fresh sandbox per `tools/call` — the ADR-002 I/O wall enforced via a per-run engine, measured end-to-end |
-| MCP stdio server, `--pooled` | ~0.5 ms | verified tools on the pooled engine; the relaxed I/O wall is attested in `get-policy` |
 
-Sources: `benchmarks/pool_vs_budget.py`, `benchmarks/results/2026-09-14/`, and
-the MCP numbers in [mcp.md](mcp.md).
+**MCP stdio rows withdrawn (2026-10-06).** The two per-call figures previously
+published in this table — one for the default server path, one for `--pooled` — are removed rather
+than relabelled, and they are not repeated here. No committed benchmark script produces them and no
+artifact under `benchmarks/results/` carries them, so they were not reproducible from this
+repository. Per-call cost on the server path will be published again only together with a committed
+MCP latency harness and its raw output.
+
+Sources: `benchmarks/pool_vs_budget.py`, `benchmarks/results/2026-09-14/`.
