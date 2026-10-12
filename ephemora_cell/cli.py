@@ -203,6 +203,8 @@ def cmd_run(args):
             effective_preopens=result.effective_preopens,
             tenant=result.tenant,
             tenant_budget_ref=result.tenant_budget_ref,
+            execution_mode=result.execution_mode,
+            abi=result.abi,
         )
         payload = report.to_dict()
         payload["stdin_capped"] = (

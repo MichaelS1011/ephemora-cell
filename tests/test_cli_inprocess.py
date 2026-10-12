@@ -53,6 +53,28 @@ class TestRunInProcess:
         assert doc["status"] == "success"
         assert "security_baseline" in doc
 
+    def test_json_mode_attests_in_process_mode(self, monkeypatch, capsys, tmp_path):
+        """ADR-014: the default (in-process) run attests its own path in the
+        signed report — the guarantee is read off the record, not inferred."""
+        wasm = _write_module(tmp_path, PRINTING_WAT)
+        code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--json"])
+        assert code == 0
+        doc = json.loads(out.out)
+        assert doc["security_baseline"]["execution_mode"] == "in_process"
+
+    def test_json_mode_isolated_attests_subprocess_mode(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        """ADR-014: --isolated stamps 'subprocess' through the CLI wiring too
+        (result.execution_mode -> apply_config), matching the worker source."""
+        wasm = _write_module(tmp_path, PRINTING_WAT)
+        code, out = _run(
+            monkeypatch, capsys, ["run", str(wasm), "--json", "--isolated"]
+        )
+        assert code == 0
+        doc = json.loads(out.out)
+        assert doc["security_baseline"]["execution_mode"] == "subprocess"
+
     def test_missing_module_clean_error(self, monkeypatch, capsys, tmp_path):
         code, out = _run(monkeypatch, capsys, ["run", str(tmp_path / "nope.wasm")])
         assert code == 1
