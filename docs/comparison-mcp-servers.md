@@ -20,12 +20,16 @@
 
 `ephemora-cell-mcp` runs tools as **WASM modules inside a Wasmtime
 sandbox** (no host FS, no env, no network, fuel metering, 10 KB output
-cap) instead of in-process with full user privileges — at
-**~0.5 ms pooled warm execution / ~12 ms per stdio
-`tools/call`** (2026-09-14, `measured:true`,
-[`benchmarks/results/2026-09-14/`](../benchmarks/results/2026-09-14/); the
-one-time 2026-08-20 snapshot in §2 measured 0.89 ms on a persistent channel)
-with a small footprint (52 MB RSS, 1 runtime dependency).
+cap) instead of in-process with full user privileges. **Its per-call cost is
+not published here.** The figures previously given at this place were
+attributed to 2026-09-14 and `measured:true`, but they came from the
+*library* measurement in
+[`benchmarks/results/2026-09-14/`](../benchmarks/results/2026-09-14/), not
+from an MCP end-to-end harness, and they were withdrawn on 2026-10-06
+([docs/performance.md](performance.md#latency-by-execution-path)) instead of
+being relabelled. The one-time 2026-08-20 snapshot in §2 measured 0.89 ms on a
+persistent channel and stays there as a dated snapshot. Footprint: 52 MB RSS,
+1 runtime dependency.
 
 Against the market's real incidents this is now measured, not argued: the
 [MCP CVE replay harness](../benchmarks/mcp_cve_replay.py) (2026-09-17) replays
@@ -199,7 +203,7 @@ retrieved 2026-10-03):**
    measurement, §3), no container latency (Docker wrapper: +490 ms, a
    third-party figure from EnkryptAI's walkthrough, not a Docker value).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 957 CI-enforced
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 1022 CI-enforced
    tests (4 skipped) with security gates (pip-audit, SBOM, bandit) and an
    active release line; Wassette itself declares itself "not production ready".
    Status 2026-10-03: Wassette v0.8.0 lists memory, CPU-time and execution-time
@@ -215,8 +219,11 @@ retrieved 2026-10-03):**
 - **~13× slower than an unsecured in-process tool** (0.89 ms vs.
   0.07 ms) — that is the measurable price of isolation. The 0.89 ms figure is
   the **warm persistent channel** (§2); the shipped stdio server builds a fresh
-  sandbox per `tools/call`, so its steady-state is higher (~12 ms/call measured,
-  Apple arm64) — the io-budget/epoch-deadline of ADR-002 requires a per-run
+  sandbox per `tools/call`, so its steady-state is higher — the per-call
+  figure previously stated here was withdrawn on 2026-10-06 because no
+  committed MCP harness reproduces it
+  ([docs/performance.md](performance.md#latency-by-execution-path)); the
+  io-budget/epoch-deadline of ADR-002 requires a per-run
   engine and bypasses the pool. Sub-millisecond holds only for pooled warm runs
   (`io_budget_bytes=None`, see `benchmarks/pool_vs_budget.py`).
 - **1 runtime dep** (wasmtime) instead of 0 — won back by the sandbox.
@@ -453,7 +460,8 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 961 collected tests today (measured 2026-10-05) — 957 passing (4 skipped)
+comprises 1026 collected tests today (measured 2026-10-11, post-WP-L4 hardening)
+— 1022 passing (4 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.
