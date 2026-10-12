@@ -314,7 +314,7 @@ guarantee they cannot meet.
 
 ### Proposal policy — set, not inherited (2026-09-25)
 
-wasmtime 47 ships several proposals **enabled by engine default** (Wasm GC,
+Cell's wasmtime line ships several proposals **enabled by engine default** (Wasm GC,
 exceptions, function-references — per the Bytecode Alliance's July 2026
 default-on rollout). That default-on set is exactly where the 2025/26
 divergence incidents cluster: fuel accounting dropped across
@@ -476,8 +476,9 @@ by default and treated as an attack surface**, not a feature:
   (`memory_size=`) on committed bytes. Multi-memory and threads stay frozen
   even when memory64 is on.
 - A guest module with a shared memory is rejected **at parse/compile time**:
-  `wasm_threads = False` makes the wasmtime 47 parser refuse `shared`
-  memories immediately. (Verified: threads defaults to *True* in wasmtime 47
+  `wasm_threads = False` makes the wasmtime parser refuse `shared`
+  memories immediately. (Verified on the 47 line and re-attested on the 49.0.0 pin:
+  threads defaults to *True*
   — without our flag the module compiles; instantiation would then still be
   blocked by wasmtime's separate `Config.shared_memory = False` default, a
   second host-side barrier.) `max_threads` > 1 in `WASIConfig` is currently
@@ -487,14 +488,14 @@ by default and treated as an attack surface**, not a feature:
   channel and cross-instance memory state; fuel metering does not bound
   `memory.atomic.wait` spin/blocking, so the wall-clock timeout (epoch
   interruption) and process-level rlimits are the binding DoS backstops.
-- This freeze is not an engine limitation: wasmtime 47 supports shared memory +
+- This freeze is not an engine limitation: wasmtime supports shared memory +
   atomics server-side (the core threads proposal is Phase 4), but its own
   stability docs mark it "Finished: 🚧" — **shared memories are not well
   integrated with `Store` resource limits and unsupported in the pooling
   allocator**, the exact primitives Cell's memory/fuel accounting relies on.
   WASI-level thread *spawning* is not standardized in 2026 at all
   (`wasi-threads` withdrawn Aug 2023; shared-everything-threads unimplemented
-  in wasmtime 47; not part of WASI 0.3).
+  in the shipped wasmtime line; not part of WASI 0.3).
 
 The thread posture is phased: Phase 0 (shipped) = disabled by default;
 any opt-in phase requires its own security review covering the
@@ -504,8 +505,32 @@ fuel/wall accounting before it can ship.
 ## Dependency & Upgrade Policy
 
 **Runtime dependency:** `wasmtime` is the only runtime dependency. It is declared
-as a range in `pyproject.toml` (`>=36.0.12,<48`) and pinned to the exact tested
-revision in `requirements.txt` (`wasmtime==47.0.1`).
+as a range in `pyproject.toml` (`>=43.0.1,<50`) and pinned to the exact tested
+revision in `requirements.txt` (`wasmtime==49.0.0`).
+
+**Dependency upgrade truth (2026-10-12).** The runtime dependency was moved
+from `47.0.1` to `49.0.0` to reduce exposure to specific previously affected engine
+vulnerabilities. This is **not** a claim that all Wasmtime vulnerabilities are fixed —
+that statement would be false. What the new pin changes, by category:
+- **Classes closed by this pin:** advisories patched in engine 47.0.3/47.0.4 (the
+  47.0.0 window) are now behind the pin — GHSA-vqjp-4c8c-hfgg (filesystem escape,
+  CVE-2026-47261) and GHSA-x84v-gj2h-g759 (WASIp3 stream heap allocation).
+- **Paths still affected:** every advisory whose fix line is 48.0.3/49.0.1 or
+  48.0.4/49.0.2 still applies, because `49.0.0` predates both patch releases and no
+  Python wheel exists for them (PyPI carries one wheel per major). That set includes
+  GHSA-j2g9 (datetime overflow), GHSA-m63x (fuel amplification) and the 2026-10-02
+  wave (GHSA-j366, GHSA-gqmc, GHSA-96f6).
+- **Functions effectively excluded:** engine-default proposals (function-references /
+  exceptions / GC / tail-call / threads, WASIp3 worlds, wasi-http) stay enforced-off or
+  unlinkable through the Cell configuration regardless of version — independent of this
+  bump (proposal-policy table above).
+- **Additional worker mitigation:** mandatory subprocess isolation for untrusted
+  components contains host-side aborts (GHSA-j2g9 class) that no in-process resource
+  wall can bound; unchanged by the version move.
+- **Open native sandbox risks:** an in-process engine 0-day remains part of the threat
+  surface; the version pin and the worker boundary reduce but do not eliminate it.
+
+Full regression against the new pin is required by the engine-upgrade gate (below).
 
 **Upgrade windows:**
 - Security/CVE fixes: within **14 days** of upstream release
@@ -533,7 +558,7 @@ The April 2026 Bytecode Alliance advisory batch (2026-04-09; 12 advisories, two
 critical sandbox escapes, both aarch64-specific: RUSTSEC-2026-0096 / CVE-2026-34971,
 a Cranelift miscompiled guest heap access enabling host memory access, and
 RUSTSEC-2026-0095, a Winch-backend memory access — fixed in 36.0.7 / 42.0.2 / 43.0.1
-/ 24.0.7; the pinned 47.0.1 contains the fixes) demonstrated that engine 0-days are
+/ 24.0.7; the pinned 49.0.0 contains the fixes) demonstrated that engine 0-days are
 a real in-process risk. Cell's answer is layered: security claims are bound to the
 tested engine version (`requirements.txt` pin, `wasmtime_version` attested in every
 execution record), CI watches RUSTSEC/bytecodealliance alongside pip-audit, and
@@ -564,18 +589,21 @@ CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
 - **GHSA-x84v-gj2h-g759** (WASIp3 streams, CVSS 6.9 — added 2026-09-25):
   guest-controlled-size host heap allocation when writing to WASIp3
   streams; affects wasmtime 46.0.0–46.0.2 and 47.0.0–47.0.3, patched in
-  47.0.4 (Python wheel pending on PyPI — tracked by
+  47.0.4 — **closed by the current `wasmtime==49.0.0` pin** (49.0.0 is past
+  47.0.4, which supersedes the earlier "wheel pending" state tracked by
   `scripts/check_wasmtime_patch.py`). **Cell's exposure: the surface is
   structurally unreachable** — WASIp3 worlds cannot be linked through the
   Python binding (component linker exposes only `add_wasip2`/
   `add_wasi_http`, asserted in `tests/test_surface_audit.py`), and the
-  async base is gated off (`wasm_stack_switching=False`). The full fix
-  lands with the planned engine upgrade; the WASI 0.3 position stays gate-off
+  async base is gated off (`wasm_stack_switching=False`). The version-boundary
+  fix landed with the 49.0.0 pin; the WASI 0.3 position stays gate-off
   until that line ships and the 0.3 surface gets its own budget
   qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
 
-**September 2026 advisories — exposure statement (2026-09-24):** two wasmtime
-advisories affect the pinned 47.0.1 line:
+**September 2026 advisories — exposure statement (updated 2026-10-12):** two wasmtime
+advisories were raised against the 47.0.x line; under the current `49.0.0` pin
+GHSA-vqjp is closed (fixed in 47.0.4) and GHSA-m63x still applies (fix line 48.0.3 /
+49.0.1, no wheel):
 
 - **GHSA-m63x-6p34-q65x** (fuel amplification via `call_ref`/`try_table`,
   CVSS 5.7): with fuel metering on (Cell always enables it), a guest using
@@ -600,28 +628,31 @@ advisories affect the pinned 47.0.1 line:
   every Preview1 run grants the `/sandbox` scratch preopen by design, so the
   affected code path is reachable even in the default posture; operator-granted
   `allow_dirs` widen the reachable scope. No config-level workaround exists
-  upstream. Tracked as the engine-upgrade gate (47.0.4+ or 48.0.3+ once wheels
-  publish). **The preopen test matrix exists** (2026-09-25):
+  upstream. **Closed by the current `wasmtime==49.0.0` pin** — the fix landed in
+  engine 47.0.4, which 49.0.0 carries, so the shipped runtime is now past the
+  affected window. **The preopen test matrix exists** (2026-09-25):
   `tests/test_fs_escape_matrix.py` + `benchmarks/probe_classes_2026.py` run the
   trailing-slash/hardlink/rename/TRUNCATE companion vectors with positive
-  controls — measured on the pinned 47.0.1 engine, **none of the escape shapes
+  controls — measured on the pinned engine, **none of the escape shapes
   reproduce through Cell's preopen grant path** (all blocked, dated evidence in
   `benchmarks/results/2026-09-25/probe_classes_2026.json`). **Since 2026-10-04
   the matrix is a strict gate, not an xfail note:** the markers were removed,
   so a vector that re-opens (engine bump, profile change, weaker preopen
   grant) turns CI red instead of landing as a silent "xfailed". Re-measured
-  green on the second CI leg (linux/amd64, 2026-10-04) on top of macOS arm64,
-  and red-capability was proven by injecting a successful vector — it FAILS.
-  The advisory itself remains open upstream and authoritative; that is what
-  the engine-upgrade gate above tracks.
+  green on the second CI leg (linux/amd64, 2026-10-04), and re-run green on
+  the 49.0.0 pin (macOS arm64, 2026-10-12); red-capability was proven
+  by injecting a successful vector — it FAILS. The version-boundary exposure is
+  closed by the pin; the strict escape matrix stays wired as a regression tripwire
+  so a future engine move that re-opens the shape turns CI red rather than relying
+  on the version number alone.
 
 **2026-09-24 advisory batch, second wave — triage (2026-09-29):** three further
 wasmtime advisories published 2026-09-24 (none carries a CVE ID — upstream marked
 them "No known CVE"). All three are patched only in **36.0.16 / 48.0.3 / 49.0.1** —
 there is **no 47.x patch**; re-verified against the PyPI JSON API on 2026-09-29
 (47.0.4 / 48.0.3 / 48.0.4 / 49.0.1 all 404), so the engine-upgrade gate (below)
-remains the only closure path and the pinned 47.0.1 stays inside every affected
-range. Triage per advisory:
+remains the only closure path and the pinned 49.0.0 still sits inside every affected
+range (49.0.0 < 49.0.1, and no 48.0.3/49.0.1 wheel exists). Triage per advisory:
 
 - **GHSA-j2g9-4prp-pf6h** (wasmtime-wasi filesystem datetime overflow, Moderate,
   CVSS 6.2, availability-only): a guest-supplied timestamp whose
@@ -644,12 +675,17 @@ range. Triage per advisory:
   timestamps through `fd_filestat_set_times`/`path_filestat_set_times` return
   errno 0/44 with no panic (a single u64 nanoseconds value cannot overflow the
   host's seconds+subsecond split). The advisory page does not detail the
-  wasip1 mechanics, so the advisory stays authoritative and the residual
-  wasip1 question is re-examined at the engine upgrade. **Mitigation:** the subprocess path
+  wasip1 mechanics, so the advisory stays authoritative. **Re-measured on the
+  49.0.0 pin (2026-10-12): the component in-process abort still
+  reproduces — the `48.0.3 / 49.0.1` fix line is not in `49.0.0`, so this
+  advisory is NOT closed by the current pin; it stays open with the worker
+  boundary as the containment.** **Mitigation:** the subprocess path
   contains the abort — measured: worker dies, parent survives with a clean
   `ExecutionStatus.ERROR` ("worker crashed: … overflow in Duration::new");
   for untrusted guests use `run_isolated()`. **Patch plan: engine upgrade to
-  48.0.3+.** Evidence: `benchmarks/results/2026-09-29/datetime_overflow_ghsa_j2g9.json`
+  a 48.0.3+/49.0.1+ wheel (still pending on PyPI as of 2026-10-12).** Evidence:
+  `benchmarks/results/2026-09-29/datetime_overflow_ghsa_j2g9.json` and its
+  49.0.0 re-run `benchmarks/results/2026-10-12/datetime_overflow_ghsa_j2g9.json`
   (measured:true; fixture `benchmarks/component_probes/times_probe.wasm`, source
   under `benchmarks/component_probes/src/times_probe/`, harness
   `benchmarks/datetime_overflow_probe.py`). The probe is deliberately NOT wired
@@ -760,7 +796,7 @@ range. Triage per advisory:
   counted against fuel (~100x). **Cell's exposure: NO for practical
   purposes.** The advisory affects hosts using the dynamic `component::Val`
   API — "hosts that use bindgen! and otherwise statically-typed APIs are
-  unaffected". wasmtime-py 47.0.1 exposes no component-model `Val` type (the
+  unaffected". wasmtime-py 49.0.0 exposes no component-model `Val` type (the
   `wasmtime.Val` it does export is the core-wasm type; the component package
   marshals values through typed C-repr converters,
   `wasmtime/component/_func.py` `convert_to_c`/`convert_from_c`), and the
@@ -779,8 +815,9 @@ advisories were published on 2026-10-02 (RustSec `RUSTSEC-2026-0321…0324`). Al
 four are patched only in **36.0.17 / 48.0.4 / 49.0.2**, and none of those exist
 as a `wasmtime` Python wheel: re-checked against the PyPI JSON API on
 2026-10-03, the binding's release line is **47.0.1, 48.0.0, 49.0.0** — one wheel
-per major, no patch releases. So the pinned 47.0.1 sits inside every affected
-range and the engine-upgrade gate stays the only closure path. Sources here are
+per major, no patch releases. So the pinned 49.0.0 still sits inside every affected
+range of this wave (49.0.0 < 49.0.2) and the engine-upgrade gate stays the only
+closure path. Sources here are
 RustSec's own database files plus the GitHub advisory pages; the GitHub
 global-advisory REST endpoint returned 404 for several of these IDs even though
 the advisories exist, which is why the citations name RustSec.
@@ -799,10 +836,20 @@ the advisories exist, which is why the citations name RustSec.
   and a WASI host call that scales with guest-supplied data is not covered by
   it. What does bound it: the epoch-interruption wall clock on both paths, and
   on the isolation path `io_cpu_seconds`, which measures worker CPU — and this
-  work IS worker CPU, unlike the sync case below. Upstream's named mitigation
+  work IS worker CPU, unlike the sync case below. **Measured on the worker path
+  (2026-10-12):** a guest blocked inside a *single* long `poll_oneoff`
+  clock hostcall is still terminated by the outer wall-clock timeout — the
+  executor's `communicate()` + `SIGKILL` is delivered by the OS regardless of WASM
+  safepoints and interrupts the blocking hostcall, which the in-process epoch timer
+  cannot (`benchmarks/poll_oneoff_wall_hostcall_probe.py`: wall 7.0 s on a
+  `timeout_seconds=2` run, no fuel trap). The unbounded *host work* is therefore
+  bounded by the process wall on the isolation path even when it is not charged as
+  fuel. Upstream's named mitigation
   (`-Spreview0=n`) is **not reachable from wasmtime-py**: neither `Config` nor
-  `WasiConfig` exposes a preview-version switch (probed against the installed
-  47.0.1 binding). **Patch plan: engine upgrade to 48.0.4/49.0.2 (wheels pending).** The probe file is
+  `WasiConfig` exposes a preview-version switch (re-probed against the installed
+  49.0.0 binding — still none). **Patch plan: engine upgrade to a
+  48.0.4/49.0.2 wheel (still pending on PyPI as of 2026-10-12); `49.0.0` is not past
+  the fix line, so this advisory stays open under the current pin.** The probe file is
   the interim evidence; it is not in CI because it needs no guest binary but
   does need the pinned engine version to be meaningful.
 - **GHSA-gqmc-89g8-p25r** (unbounded host allocation when a guest has **no
@@ -811,8 +858,14 @@ the advisories exist, which is why the citations name RustSec.
   installs our own bounded sinks for both streams, on either path
   (`ephemora_cell/wasi_runtime.py:638-639`,
   `ephemora_cell/wasi_02.py:271-272`), and the advisory itself notes that
-  configured streams carry their own limits. The claim is code-level, not
-  measurement-level; the construction site is covered by the existing output
+  configured streams carry their own limits. **Upgraded from a code-level to a
+  measured claim on 49.0.0 (2026-10-12):**
+  `benchmarks/stdio_overflow_output_alloc_probe.py` drives a Preview1 guest that
+  requests 640 000 bytes of stdout through the bounded sink; the host captures only
+  the 10 000-byte budget (`_MAX_OUTPUT_BYTES`), returns a negative `NOSPC` on
+  exhaustion (a positive errno is not usable — wasmtime-py misreads it as a byte
+  count), and writes no further bytes to the host file; the component path uses the
+  same `_make_output_sink`. The construction site stays covered by the existing output
   cap tests, so a change that drops a sink would fail there.
 - **GHSA-96f6-r43r-8c24** (`fd_readdir` copies **three uninitialized host
   padding bytes per directory entry** into guest memory, Low, CVSS 2.1,

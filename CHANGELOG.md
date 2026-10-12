@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Security
 
+- **Runtime dependency moved to wasmtime 49.0.0.** The single runtime
+  dependency was raised from `47.0.1` to `49.0.0` (pyproject range `<48` → `<50`,
+  requirements pin + regenerated hash-locked `.lock`) to **reduce exposure to
+  specific previously affected engine vulnerabilities**. This is not a claim that
+  all Wasmtime vulnerabilities are fixed. The 49.0.0 pin closes the advisories
+  patched in engine 47.0.3/47.0.4 (the 47.0.0 window) — GHSA-vqjp-4c8c-hfgg
+  (filesystem escape, CVE-2026-47261) and GHSA-x84v-gj2h-g759 (WASIp3 stream heap
+  allocation). Advisories whose fix line is 48.0.3/49.0.1 or 48.0.4/49.0.2 remain
+  **open** because 49.0.0 predates both patch releases and no Python wheel exists
+  for them (PyPI ships one wheel per major): GHSA-j2g9 (datetime overflow),
+  GHSA-m63x (fuel amplification), and the 2026-10-02 wave (GHSA-j366, GHSA-gqmc,
+  GHSA-96f6) — each still carries its documented mitigation (worker isolation,
+  proposals enforced-off, bounded output sinks). Full test suite, lint/type, guards,
+  wasi-testsuite conformance and the security evidence probes were re-run green on
+  the new pin; see SECURITY.md "Dependency upgrade truth".
+
 - **Untrusted WASI 0.2 components now run isolated — enforced, not
   recommended.** A central gate at the single execution choke-point (every
   entry point: CLI, MCP server, `run_wasm`, `abi="auto"`) forces any component

@@ -194,11 +194,14 @@ pytest counterparts in `tests/test_fs_escape_matrix.py`,
   mixed dot-dot + trailing slash, hardlink across the preopen boundary,
   rename across the boundary, TRUNCATE without the write/set-size
   right), each with a granted positive control. Measured on the pinned
-  47.0.1 engine: **all vectors denied** (errno 63/44/28 — NOTCAPABLE /
+  engine: **all vectors denied** (errno 63/44/28 — NOTCAPABLE /
   ENOENT / EINVAL-class refusals), host-side artifacts untouched. **Since
   2026-10-04 these five vectors are strict asserts, not xfail markers** — a
   re-opening vector turns CI red (re-measured green on linux/amd64 in addition
-  to macOS arm64). The advisory itself remains open upstream and authoritative.
+  to macOS arm64, and re-run green on the 49.0.0 pin, 2026-10-12).
+  The GHSA-vqjp version-boundary is closed by the 49.0.0 pin (fix in 47.0.4);
+  the strict matrix stays wired so a future engine move that re-opens a shape
+  fails CI rather than trusting the version number.
 - **Persistence / worm** — a marker written by run N is invisible to
   run N+1 (fresh scratch per run, same instance or not); the reader
   probe proves detection via a legitimate allow-dir control; named
