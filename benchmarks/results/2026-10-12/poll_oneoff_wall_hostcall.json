@@ -1,0 +1,26 @@
+{
+  "probe": "poll_oneoff_wall_hostcall",
+  "engine": "wasmtime-py 49.0.0 (native v49.0.0)",
+  "advisory_context": "preview1 poll_oneoff (separated from GHSA-j366 preview0)",
+  "config": {
+    "timeout_seconds": 2,
+    "worker_deadline_s": 7
+  },
+  "verdicts": {
+    "worker_run_returned": true,
+    "terminated_by_wall_timeout": true,
+    "blocked_in_hostcall_at_kill": true,
+    "not_a_fuel_trap": true,
+    "worker_reaped_no_hang": true,
+    "outer_wall_killed_hostcall": true
+  },
+  "detail": {
+    "run": {
+      "status": "timeout",
+      "wall_ms": 7004.0,
+      "fuel": null,
+      "stderr": "Worker process timed out after 7s (config timeout 2s + margin)"
+    }
+  },
+  "pass": true
+}

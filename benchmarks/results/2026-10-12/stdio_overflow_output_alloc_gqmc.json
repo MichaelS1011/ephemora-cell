@@ -1,0 +1,26 @@
+{
+  "probe": "stdio_overflow_output_alloc_gqmc",
+  "engine": "wasmtime-py 49.0.0 (native v49.0.0)",
+  "max_output_bytes": 10000,
+  "control": {
+    "requested_bytes": 1600,
+    "status": "success",
+    "stdout_len": 1600,
+    "stderr_len": 0
+  },
+  "overflow": {
+    "requested_bytes": 640000,
+    "status": "success",
+    "stdout_len": 10000,
+    "stderr_len": 0
+  },
+  "verdicts": {
+    "control_fully_captured": true,
+    "overflow_precondition_reachable": true,
+    "host_output_capped_at_budget": true,
+    "cap_far_below_request": true,
+    "overflow_run_completed": true
+  },
+  "classification_after_check": "AFFECTED \u2014 REACHABLE (bounded sink holds; NOT a fix)",
+  "pass": true
+}

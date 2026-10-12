@@ -61,8 +61,9 @@ class (e.g. the `fd_renumber` host-fd leak,
 [GHSA-3p27-qvp9-27qf](https://github.com/bytecodealliance/wasmtime/security/advisories/GHSA-3p27-qvp9-27qf)
 / CVE-2026-54786: every call silently kept a host descriptor alive until
 the Store died — a looping guest exhausts host fds without ever misbehaving
-in guest-visible terms. The pinned 47.0.1 line is **not** in that advisory's
-affected list; it is cited here as the class exemplar, not a Cell incident).
+in guest-visible terms. The line Cell pinned when this was written (47.0.1) is
+**not** in that advisory's affected list; it is cited here as the class exemplar,
+not a Cell incident, and is re-checked against the pin on each engine upgrade).
 
 Cell's answer is a **budget ladder** — every measured WASI call is walled by
 at least one enforced budget, and the expensive ones by several:
