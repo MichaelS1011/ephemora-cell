@@ -18,18 +18,44 @@ Rendered at 2x and downsampled so text stays crisp after GitHub's resize.
 
 from __future__ import annotations
 
+import os
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image
 
 REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "assets"
-CHROME = Path(
-    "/Users/mimiai/Library/Caches/ms-playwright/chromium_headless_shell-1243/"
-    "chrome-headless-shell-mac-arm64/chrome-headless-shell"
-)
+
+
+def _find_chrome() -> str:
+    """Headless Chromium for rendering: EPHEMORA_CHROME override first, then
+    the Playwright browser cache of the current user. No hardcoded operator
+    paths — the cache directory name changes with every Playwright release."""
+    override = os.environ.get("EPHEMORA_CHROME")
+    if override:
+        return override
+    if sys.platform == "darwin":
+        cache = Path.home() / "Library" / "Caches" / "ms-playwright"
+    else:
+        cache = Path.home() / ".cache" / "ms-playwright"
+    patterns = (
+        "chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell",
+        "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
+        "chromium-*/chrome-linux*/chrome",
+    )
+    for pattern in patterns:
+        for hit in sorted(cache.glob(pattern)):
+            if hit.exists():
+                return str(hit)
+    raise SystemExit(
+        "no headless Chromium found — install Playwright browsers "
+        "or set EPHEMORA_CHROME"
+    )
+
+
 W, H = 1280, 640
 SCALE = 2
 
@@ -137,7 +163,7 @@ def main() -> None:
     big = OUT / ".social-preview-2x.png"
     subprocess.run(
         [
-            str(CHROME),
+            _find_chrome(),
             "--no-sandbox",
             "--disable-gpu",
             "--hide-scrollbars",
