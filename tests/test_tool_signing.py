@@ -113,7 +113,7 @@ class TestManifestSignVerify:
         # A non-callable verifier is malformed input, not a bypass.
         assert not verify_manifest({"alg": "EdDSA", "signature": "00"}, "nope")
 
-    # === WP-B2: alg pinning in verify_manifest (alg-confusion finding) ===
+    # === alg pinning in verify_manifest (alg-confusion finding) ===
 
     def test_verify_manifest_expected_alg_match(self, keypair):
         key, _, pub = keypair

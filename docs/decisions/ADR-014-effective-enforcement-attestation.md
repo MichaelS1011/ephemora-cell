@@ -8,21 +8,20 @@
 A signed `security_baseline` attests the *configured* posture of a run, and a
 signature proves the exact bytes it covers. But a configured knob is not the
 same as a wall that actually held on the path the guest executed. Two
-risk-register entries (R-06, R-07) turned on
-this gap:
+enforcement-gap findings turned on this gap:
 
-- **R-06** — a receipt did not say whether the guest ran in-process (documented
+- **The path gap** — a receipt did not say whether the guest ran in-process (documented
   walls only) or in the isolated subprocess worker (OS walls: RLIMITs, per-file
   disk quota, rusage watchdog, hard kill). A verifier had to *infer* the
   guarantee from the deployment.
-- **R-07** — `allow_fsync: false` was attested on **every** ABI, but the WASI
+- **The blockade gap** — `allow_fsync: false` was attested on **every** ABI, but the WASI
   sync blockade (P1 #12) exists **only on the preview1 path**: the sandbox
   traps `fd_sync`/`fd_datasync`/`fd_psync` at the call layer there. The WASI 0.2
   component path links `wasi:filesystem` through `Linker.add_wasip2()`, where no
   such trap exists. A component run signing `allow_fsync: false` therefore
   attested a durability wall its execution path never carried.
 
-The attempted fix for R-07 — installing a call-trap on the component path via a
+The attempted fix for the blockade gap — installing a call-trap on the component path via a
 `Linker` shadow of `[method]descriptor.sync` — was **measured and rejected**
 (2026-10-11): wasmtime-py 47 accepts the shadow and instantiates, but the guest
 sync still reaches the host, so the shadow is silently ineffective. Simulating a
@@ -36,9 +35,10 @@ intent.** The signed baseline gains three additive, host-side runtime facts
 (derived at the source, never trusted from a guest or inferred by a reader):
 
 1. `execution_mode ∈ {in_process, subprocess}` — the isolation path that actually
-   ran the guest (R-06).
+   ran the guest (closes the path gap).
 2. `abi ∈ {preview1, component}` — the ABI actually executed. Under `auto`, the
-   ABI resolved from the binary's magic bytes, never the requested mode (R-07).
+   ABI resolved from the binary's magic bytes, never the requested mode (closes
+   the blockade gap).
 3. `sync_blockade_enforced: bool` — whether the sync blockade was actually in
    effect, derived from the single-source predicate `sync_blockade_holds(abi,
    allow_fsync)`. Truth table (the only sanctioned rows):
@@ -71,7 +71,7 @@ Supporting rules, binding:
 
 ## Consequences
 
-- Positive: R-06 and R-07 close on evidence — a receipt can no longer claim a
+- Positive: both gaps close on evidence — a receipt can no longer claim a
   sync blockade a component run never enforced, and direct/subprocess/auto paths
   attest consistently. The preview1/component sync asymmetry is a first-class,
   signed fact, not a documentation footnote.

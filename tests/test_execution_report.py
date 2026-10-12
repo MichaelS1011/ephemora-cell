@@ -364,7 +364,7 @@ def test_verify_fails_closed_when_verifier_raises():
     assert not ExecutionReport.verify(signed, boom)
 
 
-# === WP-B2: alg pinning in verify() (alg-confusion audit finding) ===
+# === alg pinning in verify() (alg-confusion audit finding) ===
 
 
 def test_verify_expected_alg_match_verifies():
@@ -408,7 +408,7 @@ def test_verify_expected_alg_survives_signature_strip():
     )
 
 
-# === WP-B3: JCS safe-integer range (fail-closed) ===
+# === JCS safe-integer range (fail-closed) ===
 
 
 def test_jcs_max_safe_int_signs_and_verifies():
