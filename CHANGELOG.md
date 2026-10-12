@@ -80,7 +80,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `pyproject.toml` moves the PyPI classifier to `Development Status :: 4 - Beta`
   so the next release stops publishing a production-readiness signal the project's
   own gate withholds — an already-uploaded release file cannot be re-labelled
-  retroactively. No runtime behavior changed; no release was cut.
+  retroactively, and the live PyPI page for 1.1.0 keeps its old metadata and README
+  snapshot until the next upload (stated in docs/release_assurance.md so reviewers
+  read the repository, not the index page). No runtime behavior changed; no
+  release was cut.
 
 ## [1.1.0] - 2026-10-05
 

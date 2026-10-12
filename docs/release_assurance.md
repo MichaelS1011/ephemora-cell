@@ -72,6 +72,13 @@ claim written against `main` is read back onto the installed package — which i
 why README's claims about the gate carry their build scope, and why the next
 release must re-stamp this table with its own tag and digests.
 
+One consequence cannot be fixed before that upload: the **published PyPI page for
+1.1.0 still shows the old maturity metadata** (`Development Status :: 5 -
+Production/Stable`, plus the README snapshot taken at upload time, which carried
+the single green status badge). Release files are immutable once published, so
+metadata and description change only with a new release — the repository at the
+commit you are reading is the authoritative text, not the package index page.
+
 ## The four toolchain skips are not symmetric
 
 Of the 4 toolchain skips in [`tests/test_builder.py`](../tests/test_builder.py),
