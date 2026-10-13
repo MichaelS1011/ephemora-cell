@@ -655,6 +655,55 @@ class TestProtectedMandatoryBudgets:
         assert result.status is ExecutionStatus.SUCCESS, result.stderr
         assert calls["n"] == 1
 
+    def test_fractional_time_bound_is_admitted(self, monkeypatch):
+        # Time dimensions may legitimately be fractional: a finite positive
+        # float passes where an integer dimension would refuse the same type.
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, "io_cpu_seconds": 2.5}))
+        try:
+            result = sandbox.run(HELLO02, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.SUCCESS, result.stderr
+        assert calls["n"] == 1
+
+    @pytest.mark.parametrize(
+        "override,needles",
+        [
+            # bool is an int subclass but is a mis-set flag, never a bound.
+            ({"max_fuel": True}, ("max_fuel", "bool")),
+            ({"timeout_seconds": False}, ("timeout_seconds", "bool")),
+            # NaN / both infinities are not bounds on the time dimensions.
+            ({"io_cpu_seconds": float("nan")}, ("io_cpu_seconds", "finite")),
+            ({"timeout_seconds": float("inf")}, ("timeout_seconds", "finite")),
+            ({"timeout_seconds": float("-inf")}, ("timeout_seconds", "finite")),
+            # a non-int type on an integer dimension is refused, not coerced.
+            ({"max_fuel": 1000.5}, ("max_fuel", "int")),
+            ({"max_fuel": "1000"}, ("max_fuel", "int")),
+            # zero and negatives are disabled/out-of-range, refused.
+            ({"max_memory_mb": -1}, ("max_memory_mb", "positive")),
+            # over the signed 64-bit range would overflow downstream enforcement.
+            ({"max_fuel": 2**63}, ("max_fuel", "overflow")),
+        ],
+    )
+    def test_invalid_numeric_budget_is_refused_before_dispatch(
+        self, override, needles, monkeypatch
+    ):
+        # No invalid, infinite or non-representable mandatory bound can pass as
+        # a valid protected configuration; each is refused from the config alone.
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, **override}))
+        try:
+            result = sandbox.run(HELLO02, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "resource configuration" in result.stderr
+        for needle in needles:
+            assert needle in result.stderr
+        assert calls["n"] == 0
+
 
 class TestProtectedRealWorkerByteSwap:
     """The identity defence holds across a REAL worker subprocess.
@@ -828,3 +877,85 @@ class TestProtectedSignedEvidence:
         assert "abi" not in baseline
         assert "sync_blockade_enforced" not in baseline
         assert report.status != "success"
+
+
+class TestProtectedDownstreamRefusalConsistency:
+    """Every protected refusal — guard or downstream — resolves no ABI.
+
+    A run that the profile refuses starts no guest, so it must never attest a
+    component/preview1 execution that did not happen, no matter WHERE the refusal
+    comes from: the admission guard, the sync-blockade requirement that a
+    component can never honour, the isolation mandate with no worker available,
+    or a tenant admission denial. A run whose worker genuinely started and then
+    failed is the opposite case (proved in TestProtectedIsolationFailClosed and
+    TestProtectedRealWorkerByteSwap): there the subprocess mode really took
+    effect, so it is reported truthfully.
+    """
+
+    def test_required_sync_blockade_refuses_without_an_abi(self, monkeypatch):
+        # protected_component is component-only; the effective sync blockade
+        # exists only on preview1, so the combination is a contradiction that
+        # must be refused WITHOUT stamping the resolved component ABI.
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(
+                HELLO02,
+                abi="component",
+                protected_component=True,
+                require_sync_blockade=True,
+            )
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "sync blockade" in result.stderr
+        assert result.abi is None
+        assert result.execution_mode != "subprocess"
+        assert calls["n"] == 0
+
+    def test_isolation_unavailable_refusal_resolves_no_abi(self, monkeypatch):
+        # The generic isolation refusal names the resolved component ABI for a
+        # non-protected run; under the protected profile that would attest a
+        # component execution that never started, so it is normalised to no ABI.
+        target = _grant_dir()
+        sandbox = WASISandbox(config=WASIConfig(allow_dirs=(target,), **_SMALL))
+        monkeypatch.setattr(sandbox, "_isolation_available", lambda: False)
+        try:
+            result = sandbox.run(
+                FS02, args=[target], abi="component", protected_component=True
+            )
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "isolation" in result.stderr
+        assert result.abi is None
+        assert not Path(target, "out.txt").exists()
+
+    def test_tenant_denial_resolves_no_abi(self, tmp_path, monkeypatch):
+        # A protected run denied at tenant admission never dispatches a worker,
+        # so it carries no executed ABI and no subprocess mode either.
+        from ephemora_cell.tenant import CumulativeBudget, TenantStore
+
+        calls = _spy_worker(monkeypatch)
+        store = TenantStore(tmp_path / "tenant.jsonl")
+        # The reservation for this config is max_fuel (5M); a 1-unit budget
+        # cannot admit it.
+        budget = CumulativeBudget(max_total_fuel=1)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(
+                HELLO02,
+                abi="component",
+                protected_component=True,
+                tenant="acme",
+                tenant_budget=budget,
+                tenant_store=store,
+            )
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "budget exhausted" in result.stderr
+        assert result.abi is None
+        assert result.execution_mode != "subprocess"
+        assert calls["n"] == 0

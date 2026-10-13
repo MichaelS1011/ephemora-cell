@@ -173,13 +173,18 @@ to catch a file that grows between the size check and the read, never enough to
 let an oversized input trigger an unbounded parent allocation. A non-regular path
 (a directory, for example) or an unreadable file is refused as a controlled error.
 
-**Finite budgets are mandatory.** Because the profile qualifies a run as
-resource-bounded, every limit that makes it bounded must be a finite positive
-value (`max_fuel`, `max_memory_mb`, `timeout_seconds`, `io_cpu_seconds`,
-`io_budget_bytes`, `disk_quota_bytes`, and a non-zero `max_wasm_bytes`). A
-deliberately disabled limit — `None`, `0`, or negative — is refused before
-anything starts. Outside this opt-in profile nothing changes: `WASIConfig` still
-accepts unbounded settings for callers that want them.
+**Finite budgets are mandatory — and strictly validated.** Because the profile
+qualifies a run as resource-bounded, every limit must be an explicitly valid,
+finite, positive value. The integer dimensions (`max_fuel`, `max_memory_mb`,
+`max_wasm_bytes`, `io_budget_bytes`, `disk_quota_bytes`) must be real `int`s — a
+`bool`, or a float/string, is refused; a mis-set flag is not a bound. The time
+dimensions (`timeout_seconds`, `io_cpu_seconds`) must be finite numbers, so `NaN`
+and both infinities are refused. Nothing at or below zero is admitted, and
+nothing above the signed 64-bit range — an over-large value would overflow the
+u64/int conversions downstream into a smaller or nonsensical bound, so it is
+refused rather than mis-enforced. A deliberately disabled limit (`None`, `0`) is
+refused before anything starts. Outside this opt-in profile nothing changes:
+`WASIConfig` still accepts unbounded settings for callers that want them.
 
 **Why Preview1 is rejected.** This profile is component-only. A Preview1/core
 module is refused even if the call claims `abi="component"` — the parameter is a
@@ -199,8 +204,12 @@ or path repoint — is refused before the guest starts.
 non-component bytes, an oversized module, a disabled mandatory budget, a
 non-regular or unreadable file, a `trusted` or invalid trust posture, or a
 module-digest contradiction. Such a refusal resolves no ABI and reports an error
-status, so it is never attested as a guest that ran in some process mode.
-Ordinary guest traps carry a different message, so a refusal is distinguishable
+status, so it is never attested as a guest that ran in some process mode — and
+the same holds for every downstream refusal: a sync-blockade requirement a
+component can never honour, the isolation mandate with no worker available, and a
+tenant admission denial all resolve no ABI. A worker that genuinely started and
+then failed is the opposite case and keeps `execution_mode=subprocess`, because
+that mode did take effect. Ordinary guest traps carry a different message, so a refusal is distinguishable
 from a crash. A successful protected run signs a record naming the real
 `execution_mode` (`subprocess`) and `abi` (`component`), verifiable with the
 existing signer-agnostic verifier.

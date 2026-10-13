@@ -582,6 +582,19 @@ class WASISandbox:
             )
             if refusal is not None:
                 return refusal
+            # A protected run is component-only and foreign. The effective sync
+            # blockade lives only on the preview1 path (allow_fsync=False); a
+            # component can never honour a caller-required blockade, so refuse it
+            # here as a protected refusal — one that resolves no ABI — instead of
+            # falling through to the generic blockade gate, which stamps the
+            # resolved component ABI onto a run that starts nothing.
+            if require_sync_blockade:
+                return self._protected_refusal(
+                    "require_sync_blockade cannot be honoured: the protected "
+                    "profile runs WASI 0.2 components only, and the effective "
+                    "sync blockade exists on the preview1 path with "
+                    "allow_fsync=False"
+                )
             expected_sha256 = bound_sha256
         # ADR-014 security gate: a caller that REQUIRES a provably
         # effective sync blockade must not get a silent pass on a path that
@@ -602,6 +615,13 @@ class WASISandbox:
             wasm_path, abi, trust, use_subprocess
         )
         if refusal is not None:
+            if protected_component:
+                # Consistency with the refusals above: a protected run the
+                # isolation mandate refuses starts no guest, so it resolves no
+                # ABI and must not attest a component execution that never
+                # happened. The execution_mode default never took effect either,
+                # and the ERROR status plus the refusal reason carry the verdict.
+                refusal.abi = None
             return refusal
         if tenant is None:
             if tenant_budget is not None or tenant_store is not None:
@@ -780,11 +800,91 @@ class WASISandbox:
             abi=None,
         )
 
+    # Protected profile ceiling for a numeric budget. An integer limit above the
+    # signed 64-bit range overflows the u64/int conversions it feeds downstream
+    # (wasmtime fuel, the memory-limit bytes, the process-timeout milliseconds),
+    # silently wrapping a "huge" bound to a smaller or nonsensical one. Such a
+    # value is NOT a safe loose bound, so the profile refuses it rather than
+    # mis-enforce it. Kept at i64 max — below the u64 boundary every consumer
+    # actually casts to.
+    _PROTECTED_MAX_BUDGET: int = 2**63 - 1
+
+    def _protected_int_bound(self, name: str, value: object) -> str | None:
+        """Error phrase unless value is a real, positive, non-overflowing int.
+
+        The integer budget dimensions (fuel, memory MB, module-size cap, byte
+        budgets). ``bool`` is refused even though it subclasses ``int`` — a
+        True/False budget is a mis-set flag, not a bound. Any non-int (a float,
+        a string, a NaN/Infinity that reached an int dimension) is refused.
+        """
+        if value is None:
+            return (
+                f"{name} must be a positive int (got None — a disabled bound "
+                "is not accepted)"
+            )
+        if isinstance(value, bool):
+            return (
+                f"{name} must be a positive int (got {value!r}; a bool is not a bound)"
+            )
+        if not isinstance(value, int):
+            return (
+                f"{name} must be a positive int (got {type(value).__name__} "
+                f"{value!r})"
+            )
+        if value <= 0:
+            return f"{name} must be a positive int (got {value})"
+        if value > self._PROTECTED_MAX_BUDGET:
+            return (
+                f"{name} {value} exceeds the safe 64-bit range and would "
+                "overflow downstream enforcement"
+            )
+        return None
+
+    def _protected_time_bound(self, name: str, value: object) -> str | None:
+        """Error phrase unless value is a finite, positive, non-overflowing number.
+
+        The time dimensions may legitimately carry a fractional value, so int
+        and float are both accepted; ``bool``, ``NaN`` and both infinities (not
+        bounds) and any non-number are refused, as is a value beyond the safe
+        numeric range.
+        """
+        if value is None:
+            return f"{name} must be a finite positive number (got None)"
+        if isinstance(value, bool):
+            return (
+                f"{name} must be a finite positive number (got {value!r}; a bool "
+                "is not a bound)"
+            )
+        if not isinstance(value, (int, float)):
+            return (
+                f"{name} must be a numeric value (got {type(value).__name__} "
+                f"{value!r})"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            return (
+                f"{name} must be finite (got {value!r}; NaN and infinity are "
+                "not bounds)"
+            )
+        if value <= 0:
+            return f"{name} must be a positive value (got {value})"
+        if value > self._PROTECTED_MAX_BUDGET:
+            return (
+                f"{name} {value} exceeds the safe numeric range and would "
+                "overflow downstream enforcement"
+            )
+        return None
+
     def _protected_profile_budget_violation(self) -> str | None:
         """The Protected profile's mandatory-finite budget rule.
 
         Returns the first violated constraint as a readable phrase, or ``None``
-        when the config qualifies the run as resource-bounded. Only the knobs
+        when the config qualifies the run as resource-bounded. Every mandatory
+        limit must be an EXPLICITLY valid, finite, positive value: a real
+        positive ``int`` for the integer dimensions (``bool`` and non-int types
+        refused), a finite positive number for the time dimensions (``NaN`` and
+        both infinities refused), nothing at or below zero, and nothing above the
+        safe 64-bit range (an over-large value that would overflow the u64/int
+        conversions downstream is a mis-bound, not a loose one). Only the knobs
         the profile can ACTUALLY enforce are required finite; ``max_gc_heap_mb``
         is recorded-not-enforced in the wasmtime Python binding (bounded in
         practice by ``max_fuel``), so it is deliberately NOT gated here — a
@@ -793,36 +893,17 @@ class WASISandbox:
         any caller outside the protected profile.
         """
         c = self._config
-        if c.max_fuel is None or c.max_fuel <= 0:
-            return f"max_fuel must be a finite positive bound (got {c.max_fuel!r})"
-        if c.max_memory_mb is None or c.max_memory_mb <= 0:
-            return f"max_memory_mb must be a positive bound (got {c.max_memory_mb!r})"
-        if c.max_wasm_bytes is None or c.max_wasm_bytes <= 0:
-            return (
-                "max_wasm_bytes must be a positive cap (got "
-                f"{c.max_wasm_bytes!r}; 0 disables the module-size bound, which "
-                "the bounded profile does not accept)"
-            )
-        if c.timeout_seconds is None or c.timeout_seconds <= 0:
-            return (
-                f"timeout_seconds must be a positive bound (got "
-                f"{c.timeout_seconds!r})"
-            )
-        if c.io_cpu_seconds is None or c.io_cpu_seconds <= 0:
-            return (
-                f"io_cpu_seconds must be a finite positive bound (got "
-                f"{c.io_cpu_seconds!r})"
-            )
-        if c.io_budget_bytes is None or c.io_budget_bytes <= 0:
-            return (
-                f"io_budget_bytes must be a positive bound (got "
-                f"{c.io_budget_bytes!r})"
-            )
-        if c.disk_quota_bytes is None or c.disk_quota_bytes <= 0:
-            return (
-                f"disk_quota_bytes must be a positive bound (got "
-                f"{c.disk_quota_bytes!r})"
-            )
+        for violation in (
+            self._protected_int_bound("max_fuel", c.max_fuel),
+            self._protected_int_bound("max_memory_mb", c.max_memory_mb),
+            self._protected_int_bound("max_wasm_bytes", c.max_wasm_bytes),
+            self._protected_time_bound("timeout_seconds", c.timeout_seconds),
+            self._protected_time_bound("io_cpu_seconds", c.io_cpu_seconds),
+            self._protected_int_bound("io_budget_bytes", c.io_budget_bytes),
+            self._protected_int_bound("disk_quota_bytes", c.disk_quota_bytes),
+        ):
+            if violation is not None:
+                return violation
         return None
 
     def _protected_component_guard(
