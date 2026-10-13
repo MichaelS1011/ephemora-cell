@@ -80,6 +80,7 @@ from ephemora_cell._sandbox_common import (
 from ephemora_cell.execution_report import (
     ABI_COMPONENT,
     ABI_PREVIEW1,
+    TRUST_TRUSTED,
     TRUST_UNKNOWN,
     VALID_TRUST,
     isolation_required_for,
@@ -478,6 +479,7 @@ class WASISandbox:
         tenant_store: TenantStore | None = None,
         require_sync_blockade: bool = False,
         trust: str = TRUST_UNKNOWN,
+        protected_component: bool = False,
     ) -> ExecutionResult:
         """Execute a WASM module in the sandbox.
 
@@ -538,12 +540,43 @@ class WASISandbox:
                 downgraded to in-process. ``trusted`` keeps the in-process fast
                 path for workloads the host explicitly authorised. An invalid
                 value raises ``ValueError`` (a typo must not widen the guarantee).
+            protected_component: Opt into the Protected WASI Component profile
+                (explicitly activated, default ``False``). When True the run is
+                admitted ONLY if every protected-profile invariant holds, and
+                each is checked BEFORE the guest starts (fail-closed): the
+                ACTUAL bytes are a WASI 0.2 component (an ``abi="component"``
+                claim on a core/preview1 module is refused — the parameter is
+                not proof of the format); ``trust`` is ``unknown``/``untrusted``
+                (``trusted`` and any invalid posture are refused); execution is
+                bound to the exact inspected bytes via the module digest, so
+                the worker re-checks the bytes it really loads; and process
+                isolation is mandatory (the existing isolation gate forces the
+                disposable worker and refuses — never downgrades — when it is
+                unavailable). Unsupported network egress is refused. A refusal
+                is an ERROR distinguishable from a guest trap and produces no
+                successful attestation. False (default) leaves every existing
+                path byte-for-byte unchanged. This profile makes no claim of
+                full operating-system isolation; an external Linux isolation
+                layer remains an operator precondition.
 
         Returns:
             ExecutionResult with status, stdout, stderr, and timing. A refused
             admission is an ERROR whose stderr names the exhausted cap; nothing
             is started, no subprocess is spawned and no module is compiled.
         """
+        # Protected WASI Component profile: when explicitly
+        # activated, EVERY profile invariant is decided here BEFORE anything
+        # spawns, compiles, or bills — a refusal is free and starts no guest.
+        # On a pass the inspected-bytes digest is bound as the module identity
+        # so the worker load cannot drift from the admission decision. Runs
+        # entirely outside this branch when the flag is False (default).
+        if protected_component:
+            refusal, bound_sha256 = self._protected_component_guard(
+                wasm_path, abi, trust, expected_sha256
+            )
+            if refusal is not None:
+                return refusal
+            expected_sha256 = bound_sha256
         # ADR-014 security gate: a caller that REQUIRES a provably
         # effective sync blockade must not get a silent pass on a path that
         # cannot enforce it. Resolved BEFORE any spawn/compile so a refusal is
@@ -723,6 +756,134 @@ class WASISandbox:
             ),
             abi=resolved,
         )
+
+    def _protected_refusal(self, reason: str, *, abi: str | None) -> ExecutionResult:
+        """A fail-closed Protected-profile refusal.
+
+        An ERROR that starts nothing, names why the profile cannot be honoured,
+        and stays distinguishable from an ordinary guest trap by the fixed
+        ``refused: protected component profile`` prefix. It is never stamped as
+        a successful attestation (the guest did not run).
+        """
+        return ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            stderr=f"refused: protected component profile — {reason}",
+            abi=abi,
+        )
+
+    def _protected_component_guard(
+        self, wasm_path: str, abi: str, trust: str, expected_sha256: str | None
+    ) -> tuple[ExecutionResult | None, str | None]:
+        """The Protected WASI Component admission decision (fail-closed).
+
+        Returns ``(refusal, bound_sha256)``. ``refusal`` is a controlled ERROR
+        that starts NOTHING when any profile invariant cannot be met; on a full
+        pass it is ``None`` and ``bound_sha256`` is the digest of the exact bytes
+        the decision was made on, threaded into the run so the worker binds its
+        load to them. Everything here is decided from the ACTUAL module bytes,
+        read once, so the format verdict and the identity binding cannot drift
+        apart. Process isolation itself is NOT re-implemented: with a proven
+        component and a foreign posture the central ADR-015 gate forces the
+        worker and refuses (never downgrades) when it is unavailable.
+        """
+        from .wasi_02 import is_component_bytes
+
+        # (a0) An explicit request for the preview1 ROUTING path is refused even
+        # before the bytes are read: the protected profile is component-only and
+        # never runs the preview1 in-process dispatcher, so a mislabelled call
+        # (a component file handed to abi="preview1") cannot slip past the
+        # isolation mandate, which keys off this parameter.
+        if abi == ABI_PREVIEW1:
+            return (
+                self._protected_refusal(
+                    "abi='preview1' is not permitted: the protected profile "
+                    "routes components only and never takes the preview1 path",
+                    abi=ABI_PREVIEW1,
+                ),
+                None,
+            )
+        # (a) Read the bytes ONCE. The format check and the identity digest
+        # both come from this read — a re-read between them could be swapped.
+        try:
+            module_bytes = Path(wasm_path).read_bytes()
+        except OSError as exc:
+            return (
+                self._protected_refusal(
+                    f"module unreadable, the component format cannot be "
+                    f"verified: {exc}",
+                    abi=None,
+                ),
+                None,
+            )
+        # (b) Existing size cap stays effective (invariant 8): refuse an
+        # over-cap module before anything heavier happens. cap == 0 is the
+        # documented unlimited sentinel.
+        cap = self._config.max_wasm_bytes
+        if cap and len(module_bytes) > cap:
+            return (
+                self._protected_refusal(
+                    f"module of {len(module_bytes)} bytes exceeds the "
+                    f"configured max_wasm_bytes cap of {cap}",
+                    abi=None,
+                ),
+                None,
+            )
+        # (c) The ACTUAL bytes must be a WASI 0.2 component. Neither
+        # an explicit abi="component" nor abi="auto" can promote a core/preview1
+        # module — the parameter is a routing hint, not proof of the format.
+        if not is_component_bytes(module_bytes):
+            return (
+                self._protected_refusal(
+                    f"the module bytes are not a WASI 0.2 component "
+                    f"(abi={abi!r} does not prove the format); the protected "
+                    "profile runs components only, never preview1/core modules",
+                    abi=ABI_PREVIEW1,
+                ),
+                None,
+            )
+        # (d) Trust posture: an invalid posture is refused (a typo must
+        # not widen the guarantee) and 'trusted' is forbidden — the protected
+        # profile never takes the host-authorised in-process fast path.
+        if trust not in VALID_TRUST:
+            return (
+                self._protected_refusal(
+                    f"invalid trust posture {trust!r}; the protected profile "
+                    "accepts only 'unknown' or 'untrusted'",
+                    abi=ABI_COMPONENT,
+                ),
+                None,
+            )
+        if trust == TRUST_TRUSTED:
+            return (
+                self._protected_refusal(
+                    "trust 'trusted' is forbidden: the protected profile is "
+                    "for foreign code only and never runs the in-process path",
+                    abi=ABI_COMPONENT,
+                ),
+                None,
+            )
+        # (e) Module identity: bind execution to the inspected bytes.
+        # A caller-supplied digest is honoured; a contradiction refuses rather
+        # than bind the worker to bytes the admission was not decided on.
+        actual_sha = hashlib.sha256(module_bytes).hexdigest()
+        if expected_sha256 is not None and expected_sha256.lower() != actual_sha:
+            return (
+                self._protected_refusal(
+                    "the caller-supplied module digest does not match the "
+                    "inspected bytes; refusing rather than binding execution "
+                    "to a contradiction",
+                    abi=ABI_COMPONENT,
+                ),
+                None,
+            )
+        # (f) Unsupported network egress: the runtime sandbox exposes no guest
+        # socket surface on these ABIs, so there is nothing to configure here
+        # that the profile cannot honour; the MCP tool layer owns the
+        # component+egress refusal. Documented as an operator precondition for
+        # full host network isolation (an operator precondition).
+        # Isolation + no-fallback + budgets are enforced downstream by the
+        # central ADR-015 gate (trust is now foreign, ABI provably component).
+        return (None, actual_sha)
 
     def _isolation_available(self) -> bool:
         """Whether process isolation can actually be honoured for this run.

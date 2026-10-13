@@ -116,6 +116,61 @@ following make the authority host-originated and the exception auditable:
   in-process either: preview1 routing does not hand the file to the component
   engine, so it fails to link rather than run.
 
+## Protected Component profile (opt-in `protected_component=True`)
+
+Beyond the default mandate above, callers can ask for a **narrower, explicitly
+activated contract**: `WASISandbox.run(..., protected_component=True)`. This is
+a distinct API contract, not a stricter default — the parameter is optional and
+defaults to `False`, so every existing call keeps its current behaviour.
+
+**The one explicitly qualified entry point.** The protected profile is defined
+only for `WASISandbox.run(protected_component=True)`. Nothing else inherits the
+label automatically, and each of these stays exactly as documented above unless
+the caller routes through `run(..., protected_component=True)`:
+
+- a normal `WASISandbox.run()` without the flag — the default mandate, not the
+  protected profile;
+- `run_wasm()` — not automatically protected;
+- `run_isolated()` / the subprocess path — isolation without the component-only,
+  format-verified admission the protected profile adds;
+- the CLI `--isolated` flag — process isolation, not the protected guarantee;
+- MCP `CellToolEngine(trusted_tools=())` — the strict trust posture, not the
+  protected profile;
+- direct `ComponentSandbox` primitives — explicitly **outside** the protected
+  profile (low-level engine, never a guaranteed path).
+
+Wiring any further public entry point (CLI/MCP/wrappers) to the protected
+profile is a separate decision, evaluated on its own.
+
+**What the protected profile adds over the default mandate** — every invariant
+is decided **before the guest starts** (fail-closed, no side effect):
+
+1. **Actual format, verified from the bytes.** The module is read once and must
+   carry component magic. An `abi="component"` argument is a routing hint, not
+   proof — a preview1/core module named `abi="component"` or `abi="auto"` is
+   refused, and an explicit `abi="preview1"` request is refused outright (the
+   profile routes components only).
+2. **Foreign-code trust only.** `trust` must be `unknown` or `untrusted`;
+   `trusted` is refused (the profile never takes the host-authorised in-process
+   fast path), and an invalid posture is refused rather than defaulted.
+3. **Module identity bound to the load.** The digest of the inspected bytes is
+   threaded as the per-call module binding, so the worker re-checks the bytes it
+   actually loads; a module swapped after admission fails closed, and a
+   caller-supplied digest that contradicts the inspected bytes is refused.
+4. **Mandatory isolation, no fallback.** With a proven component and a foreign
+   posture the central gate forces the disposable worker and refuses (never
+   downgrades) when it is unavailable; a worker failure is a fail-closed error
+   with no in-process retry.
+
+**Scope of the guarantee, fixed in writing.** A refusal is an `ERROR` carrying
+the prefix `refused: protected component profile`, distinguishable from a guest
+trap and producing no successful attestation. Existing resource budgets
+(fuel/memory/timeout/size caps) stay in force. The protected profile still makes
+**no claim of full operating-system isolation**: an external Linux isolation
+layer remains an operator precondition for the eventual deployment profile, and
+the component sync blockade is still absent (`sync_blockade_enforced=false`) as
+attested by ADR-014.
+
 ## Consequences
 
 - Positive: GHSA-j2g9's host-abort class can no longer reach the host through
