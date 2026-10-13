@@ -160,9 +160,26 @@ finally:
 ```
 
 **What it admits.** A genuine WASI 0.2 **component** at trust `unknown` or
-`untrusted`, executed in the **disposable worker**. The admission decision is
-made from the module's **actual bytes**, read once and hashed; that digest is
-bound to the worker load, so the bytes that run are the bytes that were checked.
+`untrusted`, executed in the **disposable worker**, under **finite** resource
+budgets. The admission decision is made from the module's **actual bytes**, read
+under a bounded read and hashed; that digest is bound to the worker load, so the
+bytes that run are the bytes that were checked.
+
+**Bounded admission read.** The profile never loads an unbounded module into the
+parent process. The configured `max_wasm_bytes` cap is resolved first; a module
+larger than the cap is refused on its declared size **before** its bytes are
+read, and the read itself pulls at most the cap plus one overflow byte — enough
+to catch a file that grows between the size check and the read, never enough to
+let an oversized input trigger an unbounded parent allocation. A non-regular path
+(a directory, for example) or an unreadable file is refused as a controlled error.
+
+**Finite budgets are mandatory.** Because the profile qualifies a run as
+resource-bounded, every limit that makes it bounded must be a finite positive
+value (`max_fuel`, `max_memory_mb`, `timeout_seconds`, `io_cpu_seconds`,
+`io_budget_bytes`, `disk_quota_bytes`, and a non-zero `max_wasm_bytes`). A
+deliberately disabled limit — `None`, `0`, or negative — is refused before
+anything starts. Outside this opt-in profile nothing changes: `WASIConfig` still
+accepts unbounded settings for callers that want them.
 
 **Why Preview1 is rejected.** This profile is component-only. A Preview1/core
 module is refused even if the call claims `abi="component"` — the parameter is a
@@ -173,20 +190,29 @@ substituted module from silently taking a weaker path.
 **Why worker isolation is mandatory.** The containment for the measured
 host-abort class is the process boundary. If the worker is unavailable, or the
 worker fails, the run is refused as a fail-closed error — never retried
-in-process.
+in-process. The bound digest is re-checked by the worker against the bytes it
+actually loads, so a module swapped after admission — including through a symlink
+or path repoint — is refused before the guest starts.
 
 **Fail-closed errors.** Any unmet invariant returns an error prefixed
-`refused: protected component profile` before the guest starts (no side effect,
-no successful attestation): non-component bytes, a `trusted` or invalid trust
-posture, a module-digest contradiction, or unavailable isolation. Ordinary guest
-traps carry a different message, so a refusal is distinguishable from a crash.
+`refused: protected component profile` before the guest starts (no side effect):
+non-component bytes, an oversized module, a disabled mandatory budget, a
+non-regular or unreadable file, a `trusted` or invalid trust posture, or a
+module-digest contradiction. Such a refusal resolves no ABI and reports an error
+status, so it is never attested as a guest that ran in some process mode.
+Ordinary guest traps carry a different message, so a refusal is distinguishable
+from a crash. A successful protected run signs a record naming the real
+`execution_mode` (`subprocess`) and `abi` (`component`), verifiable with the
+existing signer-agnostic verifier.
 
 **What the operator still provides.** This profile is process isolation with
 verified format and bound module identity — it is **not** a full operating-system
 sandbox. Host network containment, syscall filtering, and filesystem placement
 remain the operator's responsibility (an external Linux isolation layer is a
-precondition for a production deployment profile). Unsupported network egress is
-refused rather than silently dropped.
+precondition for a production deployment profile). The runtime sandbox exposes no
+guest socket surface on these paths; component+egress refusal lives in the MCP
+tool layer, so no claim of network isolation is made beyond those real
+mechanisms.
 
 **What is not guaranteed.** No claim of full OS isolation; no claim that the
 Wasmtime engine is free of every advisory; no claim that host compromise is

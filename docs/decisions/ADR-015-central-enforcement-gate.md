@@ -145,31 +145,57 @@ profile is a separate decision, evaluated on its own.
 **What the protected profile adds over the default mandate** — every invariant
 is decided **before the guest starts** (fail-closed, no side effect):
 
-1. **Actual format, verified from the bytes.** The module is read once and must
+1. **Finite, bounded budgets are mandatory.** The profile qualifies a run as
+   resource-BOUNDED short-lived foreign execution, so every limit that makes it
+   bounded must be a finite positive value: `max_fuel`, `max_memory_mb`,
+   `timeout_seconds`, `io_cpu_seconds`, `io_budget_bytes`, `disk_quota_bytes`
+   and a non-zero `max_wasm_bytes`. A disabled (`None`/zero/negative) mandatory
+   limit is refused from the config alone, before any file is touched.
+   `max_gc_heap_mb` is deliberately **not** gated: it is recorded, not enforced,
+   in the current binding, so refusing on it would assert a bound that does not
+   exist. This rule lives only in the protected profile — `WASIConfig` semantics
+   for every other caller are unchanged.
+2. **Actual format, verified from a bounded read.** The module is read under a
+   bounded read — never more than `max_wasm_bytes` plus one overflow byte into
+   the parent — so an oversized input is refused on its declared size before its
+   bytes ever enter the parent process, and a file that grows between the size
+   check and the read is caught by that single overflow byte. The bytes read
    carry component magic. An `abi="component"` argument is a routing hint, not
    proof — a preview1/core module named `abi="component"` or `abi="auto"` is
    refused, and an explicit `abi="preview1"` request is refused outright (the
-   profile routes components only).
-2. **Foreign-code trust only.** `trust` must be `unknown` or `untrusted`;
+   profile routes components only). File/read errors become controlled
+   refusals; a non-regular path (for example a directory) is refused.
+3. **Foreign-code trust only.** `trust` must be `unknown` or `untrusted`;
    `trusted` is refused (the profile never takes the host-authorised in-process
    fast path), and an invalid posture is refused rather than defaulted.
-3. **Module identity bound to the load.** The digest of the inspected bytes is
-   threaded as the per-call module binding, so the worker re-checks the bytes it
-   actually loads; a module swapped after admission fails closed, and a
-   caller-supplied digest that contradicts the inspected bytes is refused.
-4. **Mandatory isolation, no fallback.** With a proven component and a foreign
+4. **Module identity bound to the load, verified end to end.** The digest of the
+   inspected bytes is threaded as the per-call module binding, so the worker
+   re-checks the bytes it actually loads. This is verified across a real
+   parent/worker run: a module swapped after admission — including through a
+   symlink or path repoint — is refused by the worker before the guest starts,
+   and a caller-supplied digest that contradicts the inspected bytes is refused.
+   No second identity architecture is introduced; the existing per-call digest
+   binding is the mechanism.
+5. **Mandatory isolation, no fallback.** With a proven component and a foreign
    posture the central gate forces the disposable worker and refuses (never
    downgrades) when it is unavailable; a worker failure is a fail-closed error
    with no in-process retry.
 
 **Scope of the guarantee, fixed in writing.** A refusal is an `ERROR` carrying
 the prefix `refused: protected component profile`, distinguishable from a guest
-trap and producing no successful attestation. Existing resource budgets
-(fuel/memory/timeout/size caps) stay in force. The protected profile still makes
-**no claim of full operating-system isolation**: an external Linux isolation
-layer remains an operator precondition for the eventual deployment profile, and
-the component sync blockade is still absent (`sync_blockade_enforced=false`) as
-attested by ADR-014.
+trap. It resolves **no ABI** (`abi=None`): nothing ran, so a refusal is never
+attested as a component or preview1 execution under some process mode — it
+claims no executed process mode and produces no successful attestation. A
+successful protected run signs a record whose `execution_mode` is `subprocess`
+and whose `abi` is `component`, verifiable with the existing signer-agnostic
+verifier. Existing resource budgets stay in force. Unsupported network egress is
+handled only where a real mechanism exists: the runtime sandbox exposes no guest
+socket surface on these paths, and the MCP tool layer owns the component+egress
+refusal — the profile makes no network-isolation claim beyond that. The protected
+profile still makes **no claim of full operating-system isolation**: an external
+Linux isolation layer remains an operator precondition for the eventual
+deployment profile, and the component sync blockade is still absent
+(`sync_blockade_enforced=false`) as attested by ADR-014.
 
 ## Consequences
 
