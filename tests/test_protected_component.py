@@ -534,18 +534,23 @@ class TestProtectedBoundedAdmissionRead:
 
     def test_file_grown_between_stat_and_read_is_refused(self, tmp_path, monkeypatch):
         # The bounded read pulls at most cap+1 bytes; a file that GREW after the
-        # size check trips the overflow byte and is refused before hashing.
+        # size check trips the overflow byte and is refused before hashing. The
+        # stat/read size divergence is forced deterministically (a thread racing
+        # the read would not be reproducible): a path reports the on-cap size
+        # from stat while the bytes on disk are already one larger.
         calls = _spy_worker(monkeypatch)
         import ephemora_cell.wasi_runtime as wr
 
         cap = 16
         mod = tmp_path / "grow.wasm"
         mod.write_bytes(b"\x00" * (cap + 1))  # actually cap+1 bytes on disk
-        real_path = wr.Path
+        # Subclass the concrete flavour (PosixPath/WindowsPath), not the generic
+        # pathlib.Path, so instantiation stays valid across supported Pythons.
+        flavour = type(Path())
 
-        class _LiesAboutSize(real_path):  # type: ignore[misc,valid-type]
-            def stat(self):
-                st = super().stat()
+        class _LiesAboutSize(flavour):
+            def stat(self, *, follow_symlinks=True):
+                st = super().stat(follow_symlinks=follow_symlinks)
 
                 class _Fake:
                     st_mode = st.st_mode  # a real regular file
@@ -553,10 +558,16 @@ class TestProtectedBoundedAdmissionRead:
 
                 return _Fake()
 
-        monkeypatch.setattr(wr, "Path", _LiesAboutSize)
+        real_path = wr.Path
         sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, "max_wasm_bytes": cap}))
         try:
-            result = sandbox.run(str(mod), abi="component", protected_component=True)
+            wr.Path = _LiesAboutSize
+            try:
+                result = sandbox.run(
+                    str(mod), abi="component", protected_component=True
+                )
+            finally:
+                wr.Path = real_path
         finally:
             sandbox.cleanup()
         assert result.status is ExecutionStatus.ERROR
