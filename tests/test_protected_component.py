@@ -26,16 +26,32 @@ The invariants under test:
   * a protected success attests the truth (execution_mode subprocess, abi
     component, and the still-absent component sync blockade);
   * ``protected_component=False`` leaves every existing path unchanged.
+
+The final security review hardens three further guarantees, each proved here:
+
+  * admission reads the module under a BOUNDED read — an oversized input is
+    refused on its declared size before its bytes ever enter the parent, and a
+    file that grows between the size check and the read is caught by a single
+    overflow byte (never an unbounded parent allocation);
+  * the profile admits only FINITE, bounded resource budgets — a disabled
+    (``None``/zero/negative) mandatory limit is refused before anything starts;
+  * the module-identity defence holds across a REAL worker: a genuine
+    parent/worker run refuses a module that was swapped (including through a
+    symlink) after admission, and a refused run attests no executed process
+    mode while a successful one signs a record the existing verifier accepts.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import shutil
+import stat
 import sys
 import tempfile
 from pathlib import Path
 
+import pytest
 import wasmtime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -70,6 +86,41 @@ def _preview1_wasm(tmp_path: Path) -> str:
 
 def _grant_dir() -> str:
     return tempfile.mkdtemp(prefix="ephemora_protected_grant_")
+
+
+def _spy_worker(monkeypatch) -> dict:
+    """Replace the isolated worker with a success stub and count dispatches.
+
+    Pure-admission tests assert whether the worker was reached (dispatched) or
+    not, without paying for a real subprocess — the refusal must never start a
+    worker, an acceptance must.
+    """
+    import ephemora_cell.process_executor as pe
+
+    calls = {"n": 0}
+
+    def _stub(wasm_path, config, **kw):
+        calls["n"] += 1
+        return {
+            "status": "success",
+            "exit_code": 0,
+            "stdout": "ok",
+            "stderr": "",
+            "elapsed_ms": 1.0,
+            "fuel_consumed": 10,
+            "sandbox_dir": None,
+            "effective_preopens": [],
+            "abi": "component",
+            "execution_mode": "subprocess",
+        }
+
+    monkeypatch.setattr(pe, "run_isolated", _stub)
+    return calls
+
+
+def _copy_module(src: str, dst: Path) -> str:
+    shutil.copy(src, dst)
+    return str(dst)
 
 
 class TestProtectedProfileAccepts:
@@ -422,3 +473,347 @@ class TestProtectedEvidenceAndRegression:
         finally:
             sandbox.cleanup()
         assert _REFUSAL not in result.stderr
+
+
+class TestProtectedBoundedAdmissionRead:
+    """Admission never loads an unbounded module into the parent.
+
+    The parent must refuse an oversized input on its declared size BEFORE
+    reading it, cap the actual read to ``cap + 1`` bytes, translate file/read
+    errors into controlled refusals, and reach the worker only for a bounded
+    module that fully passes. Every refusal here dispatches no worker.
+    """
+
+    def test_module_exactly_at_the_cap_is_admitted(self, tmp_path, monkeypatch):
+        calls = _spy_worker(monkeypatch)
+        mod = _copy_module(HELLO02, tmp_path / "at_cap.wasm")
+        size = Path(mod).stat().st_size
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, "max_wasm_bytes": size}))
+        try:
+            result = sandbox.run(mod, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.SUCCESS, result.stderr
+        assert calls["n"] == 1
+
+    def test_one_byte_over_the_cap_refuses_without_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        calls = _spy_worker(monkeypatch)
+        mod = _copy_module(HELLO02, tmp_path / "over.wasm")
+        size = Path(mod).stat().st_size
+        sandbox = WASISandbox(
+            config=WASIConfig(**{**_SMALL, "max_wasm_bytes": size - 1})
+        )
+        try:
+            result = sandbox.run(mod, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "max_wasm_bytes cap" in result.stderr
+        assert calls["n"] == 0
+
+    def test_very_large_file_small_cap_refuses_before_reading(
+        self, tmp_path, monkeypatch
+    ):
+        # The parent must reject on the declared size alone — never allocate the
+        # whole oversized file. A ~2 MB file against a 1 KB cap proves it: the
+        # refusal text states it was rejected before the module was read.
+        calls = _spy_worker(monkeypatch)
+        mod = tmp_path / "big.wasm"
+        mod.write_bytes(b"\x00asm" + b"\x00" * (2 * 1024 * 1024))
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, "max_wasm_bytes": 1024}))
+        try:
+            result = sandbox.run(str(mod), abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "refused before reading" in result.stderr
+        assert calls["n"] == 0
+
+    def test_file_grown_between_stat_and_read_is_refused(self, tmp_path, monkeypatch):
+        # The bounded read pulls at most cap+1 bytes; a file that GREW after the
+        # size check trips the overflow byte and is refused before hashing.
+        calls = _spy_worker(monkeypatch)
+        import ephemora_cell.wasi_runtime as wr
+
+        cap = 16
+        mod = tmp_path / "grow.wasm"
+        mod.write_bytes(b"\x00" * (cap + 1))  # actually cap+1 bytes on disk
+        real_path = wr.Path
+
+        class _LiesAboutSize(real_path):  # type: ignore[misc,valid-type]
+            def stat(self):
+                st = super().stat()
+
+                class _Fake:
+                    st_mode = st.st_mode  # a real regular file
+                    st_size = cap  # pretend it looked exactly at the cap
+
+                return _Fake()
+
+        monkeypatch.setattr(wr, "Path", _LiesAboutSize)
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, "max_wasm_bytes": cap}))
+        try:
+            result = sandbox.run(str(mod), abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "changed" in result.stderr
+        assert calls["n"] == 0
+
+    def test_directory_input_is_refused_as_not_a_regular_file(
+        self, tmp_path, monkeypatch
+    ):
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(
+                str(tmp_path), abi="component", protected_component=True
+            )
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "not a regular file" in result.stderr
+        assert calls["n"] == 0
+
+    def test_unreadable_file_becomes_a_controlled_refusal(self, tmp_path, monkeypatch):
+        calls = _spy_worker(monkeypatch)
+        mod = _copy_module(HELLO02, tmp_path / "noperm.wasm")
+        os.chmod(mod, 0o000)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(mod, abi="component", protected_component=True)
+        finally:
+            os.chmod(mod, stat.S_IRUSR | stat.S_IWUSR)  # restore for cleanup
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "unreadable" in result.stderr
+        assert calls["n"] == 0
+
+
+class TestProtectedMandatoryBudgets:
+    """The profile admits only finite, bounded budgets.
+
+    A run qualified as resource-bounded cannot start with a mandatory limit
+    switched off. Each disabled knob is refused from the config alone — before
+    any file is read, before any worker dispatch — and nothing outside the
+    protected profile changes.
+    """
+
+    @pytest.mark.parametrize(
+        "override,needle",
+        [
+            ({"max_fuel": None}, "max_fuel"),
+            ({"max_fuel": 0}, "max_fuel"),
+            ({"max_memory_mb": 0}, "max_memory_mb"),
+            ({"max_wasm_bytes": 0}, "max_wasm_bytes"),
+            ({"timeout_seconds": 0}, "timeout_seconds"),
+            ({"io_cpu_seconds": None}, "io_cpu_seconds"),
+            ({"io_budget_bytes": None}, "io_budget_bytes"),
+            ({"disk_quota_bytes": None}, "disk_quota_bytes"),
+        ],
+    )
+    def test_disabled_mandatory_limit_is_refused_before_dispatch(
+        self, override, needle, monkeypatch
+    ):
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**{**_SMALL, **override}))
+        try:
+            result = sandbox.run(HELLO02, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert _REFUSAL in result.stderr
+        assert "resource configuration" in result.stderr
+        assert needle in result.stderr
+        assert calls["n"] == 0
+
+    def test_finite_default_budgets_are_admitted(self, monkeypatch):
+        # The all-finite default (the _SMALL knobs plus finite io/disk defaults)
+        # passes the budget rule and reaches the worker.
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(HELLO02, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.SUCCESS, result.stderr
+        assert calls["n"] == 1
+
+
+class TestProtectedRealWorkerByteSwap:
+    """The identity defence holds across a REAL worker subprocess.
+
+    These tests do NOT stub the worker: they let the genuine parent/worker path
+    run and swap the module on disk after admission, proving the executed bytes
+    are the inspected bytes — or the run is refused before the guest starts.
+    """
+
+    def _swap_before_worker(self, monkeypatch, module_path, swap_bytes):
+        import ephemora_cell.process_executor as pe
+
+        original = pe.run_isolated
+
+        def _wrapper(wasm_path, *a, **kw):
+            # Control-swap AFTER admission, BEFORE the worker loads the file.
+            Path(module_path).write_bytes(swap_bytes)
+            return original(wasm_path, *a, **kw)
+
+        monkeypatch.setattr(pe, "run_isolated", _wrapper)
+
+    def test_swapped_module_is_refused_by_the_real_worker(self, tmp_path, monkeypatch):
+        mod = _copy_module(HELLO02, tmp_path / "swap.wasm")
+        swapped = Path(FS02).read_bytes()  # a different valid component
+        self._swap_before_worker(monkeypatch, mod, swapped)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(mod, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "module hash mismatch" in result.stderr
+        # The swapped guest never ran: no stdout was produced.
+        assert result.stdout == ""
+        # Truthfully reported from the worker view (nothing was downgraded).
+        assert result.execution_mode == "subprocess"
+
+    def test_unswapped_module_runs_successfully_in_the_worker(self, tmp_path):
+        # Control: identical bytes, no swap -> the real worker executes the guest.
+        mod = _copy_module(HELLO02, tmp_path / "clean.wasm")
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(mod, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.SUCCESS, result.stderr
+        assert result.execution_mode == "subprocess"
+        assert result.abi == "component"
+
+    def test_symlink_repoint_before_worker_load_is_refused(self, tmp_path, monkeypatch):
+        # The API follows symlinks for admission; repointing the link after
+        # admission must still be caught, because the bound digest — not the
+        # path — fixes what the worker is allowed to execute.
+        hello_target = _copy_module(HELLO02, tmp_path / "hello_target.wasm")
+        fs_target = tmp_path / "fs_target.wasm"
+        shutil.copy(FS02, fs_target)
+        mod = tmp_path / "link.wasm"
+        os.symlink(hello_target, mod)
+
+        import ephemora_cell.process_executor as pe
+
+        original = pe.run_isolated
+
+        def _wrapper(wasm_path, *a, **kw):
+            # Repoint the symlink to a different component before the worker.
+            os.remove(mod)
+            os.symlink(str(fs_target), mod)
+            return original(wasm_path, *a, **kw)
+
+        monkeypatch.setattr(pe, "run_isolated", _wrapper)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(str(mod), abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert "module hash mismatch" in result.stderr
+        assert result.stdout == ""
+
+
+class TestProtectedSignedEvidence:
+    """A protected run signs a truthful record; a refusal signs nothing."""
+
+    def test_real_protected_run_signs_a_verifiable_record(self):
+        pytest.importorskip("cryptography")
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
+
+        from ephemora_cell import ExecutionReport
+
+        config = WASIConfig(**_SMALL)
+        sandbox = WASISandbox(config=config)
+        try:
+            result = sandbox.run(HELLO02, abi="component", protected_component=True)
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.SUCCESS, result.stderr
+
+        report = ExecutionReport(
+            status=result.status.value,
+            exit_code=result.exit_code,
+            elapsed_ms=result.elapsed_ms,
+            fuel_consumed=result.fuel_consumed,
+        )
+        report.apply_config(
+            config,
+            effective_preopens=result.effective_preopens,
+            execution_mode=result.execution_mode,
+            abi=result.abi,
+        )
+        key = Ed25519PrivateKey.generate()
+        pub = key.public_key()
+
+        def verifier(canonical, signature):
+            try:
+                pub.verify(signature, canonical)
+                return True
+            except InvalidSignature:
+                return False
+
+        signed = report.sign(key.sign, alg="EdDSA")
+        assert ExecutionReport.verify(signed, verifier, expected_alg="EdDSA")
+
+        baseline = signed["security_baseline"]
+        # The record names the ACTUAL isolation path and ABI, and stays honest
+        # about the component sync blockade that does NOT exist on this path.
+        assert baseline["abi"] == "component"
+        assert baseline["execution_mode"] == "subprocess"
+        assert baseline["sync_blockade_enforced"] is False
+
+        tampered = dict(signed)
+        tampered["security_baseline"] = dict(baseline)
+        tampered["security_baseline"]["execution_mode"] = "in_process"
+        assert not ExecutionReport.verify(tampered, verifier, expected_alg="EdDSA")
+
+    def test_refusal_resolves_no_abi_and_attests_no_executed_mode(self, monkeypatch):
+        # A refusal ran nothing, so it must not fabricate an executed ABI or
+        # claim a process mode a guest actually ran under.
+        calls = _spy_worker(monkeypatch)
+        sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+        try:
+            result = sandbox.run(
+                HELLO02,
+                abi="component",
+                trust=TRUST_TRUSTED,
+                protected_component=True,
+            )
+        finally:
+            sandbox.cleanup()
+        assert result.status is ExecutionStatus.ERROR
+        assert result.abi is None
+        assert result.execution_mode != "subprocess"
+        assert calls["n"] == 0
+
+        from ephemora_cell import ExecutionReport
+
+        report = ExecutionReport(
+            status=result.status.value,
+            exit_code=result.exit_code,
+            elapsed_ms=result.elapsed_ms,
+        )
+        report.apply_config(
+            WASIConfig(**_SMALL),
+            execution_mode=result.execution_mode,
+            abi=result.abi,
+        )
+        baseline = report.security_baseline
+        # Nothing resolved an ABI -> no fabricated component attestation.
+        assert "abi" not in baseline
+        assert "sync_blockade_enforced" not in baseline
+        assert report.status != "success"

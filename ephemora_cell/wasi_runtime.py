@@ -544,15 +544,21 @@ class WASISandbox:
                 (explicitly activated, default ``False``). When True the run is
                 admitted ONLY if every protected-profile invariant holds, and
                 each is checked BEFORE the guest starts (fail-closed): the
-                ACTUAL bytes are a WASI 0.2 component (an ``abi="component"``
-                claim on a core/preview1 module is refused — the parameter is
-                not proof of the format); ``trust`` is ``unknown``/``untrusted``
-                (``trusted`` and any invalid posture are refused); execution is
-                bound to the exact inspected bytes via the module digest, so
-                the worker re-checks the bytes it really loads; and process
-                isolation is mandatory (the existing isolation gate forces the
-                disposable worker and refuses — never downgrades — when it is
-                unavailable). Unsupported network egress is refused. A refusal
+                resource budgets are all finite and positive (a disabled
+                ``max_fuel``/``max_memory_mb``/``timeout_seconds``/
+                ``io_cpu_seconds``/``io_budget_bytes``/``disk_quota_bytes`` or a
+                zero module-size cap is refused — the profile qualifies the run
+                as bounded); the ACTUAL bytes are a WASI 0.2 component, read
+                under a bounded read (never more than the configured cap plus
+                one byte into the parent), and an ``abi="component"`` claim on a
+                core/preview1 module is refused — the parameter is not proof of
+                the format; ``trust`` is ``unknown``/``untrusted`` (``trusted``
+                and any invalid posture are refused); execution is bound to the
+                exact inspected bytes via the module digest, so the worker
+                re-checks the bytes it really loads; and process isolation is
+                mandatory (the existing isolation gate forces the disposable
+                worker and refuses — never downgrades — when it is unavailable).
+                Unsupported network egress is refused. A refusal
                 is an ERROR distinguishable from a guest trap and produces no
                 successful attestation. False (default) leaves every existing
                 path byte-for-byte unchanged. This profile makes no claim of
@@ -757,19 +763,67 @@ class WASISandbox:
             abi=resolved,
         )
 
-    def _protected_refusal(self, reason: str, *, abi: str | None) -> ExecutionResult:
+    def _protected_refusal(self, reason: str) -> ExecutionResult:
         """A fail-closed Protected-profile refusal.
 
         An ERROR that starts nothing, names why the profile cannot be honoured,
         and stays distinguishable from an ordinary guest trap by the fixed
-        ``refused: protected component profile`` prefix. It is never stamped as
-        a successful attestation (the guest did not run).
+        ``refused: protected component profile`` prefix. It carries ``abi=None``
+        on purpose: NOTHING ran, so the refusal resolves no ABI and never gets
+        attested (directly or via :func:`build_report`) as a component or
+        preview1 execution under some process mode — a refusal must not imply a
+        guest that ran in-process or in a worker. The why lives in ``stderr``.
         """
         return ExecutionResult(
             status=ExecutionStatus.ERROR,
             stderr=f"refused: protected component profile — {reason}",
-            abi=abi,
+            abi=None,
         )
+
+    def _protected_profile_budget_violation(self) -> str | None:
+        """The Protected profile's mandatory-finite budget rule.
+
+        Returns the first violated constraint as a readable phrase, or ``None``
+        when the config qualifies the run as resource-bounded. Only the knobs
+        the profile can ACTUALLY enforce are required finite; ``max_gc_heap_mb``
+        is recorded-not-enforced in the wasmtime Python binding (bounded in
+        practice by ``max_fuel``), so it is deliberately NOT gated here — a
+        refusal on it would be a false guarantee, not a real bound. This reads
+        the config only; it changes nothing about ``WASIConfig`` semantics for
+        any caller outside the protected profile.
+        """
+        c = self._config
+        if c.max_fuel is None or c.max_fuel <= 0:
+            return f"max_fuel must be a finite positive bound (got {c.max_fuel!r})"
+        if c.max_memory_mb is None or c.max_memory_mb <= 0:
+            return f"max_memory_mb must be a positive bound (got {c.max_memory_mb!r})"
+        if c.max_wasm_bytes is None or c.max_wasm_bytes <= 0:
+            return (
+                "max_wasm_bytes must be a positive cap (got "
+                f"{c.max_wasm_bytes!r}; 0 disables the module-size bound, which "
+                "the bounded profile does not accept)"
+            )
+        if c.timeout_seconds is None or c.timeout_seconds <= 0:
+            return (
+                f"timeout_seconds must be a positive bound (got "
+                f"{c.timeout_seconds!r})"
+            )
+        if c.io_cpu_seconds is None or c.io_cpu_seconds <= 0:
+            return (
+                f"io_cpu_seconds must be a finite positive bound (got "
+                f"{c.io_cpu_seconds!r})"
+            )
+        if c.io_budget_bytes is None or c.io_budget_bytes <= 0:
+            return (
+                f"io_budget_bytes must be a positive bound (got "
+                f"{c.io_budget_bytes!r})"
+            )
+        if c.disk_quota_bytes is None or c.disk_quota_bytes <= 0:
+            return (
+                f"disk_quota_bytes must be a positive bound (got "
+                f"{c.disk_quota_bytes!r})"
+            )
+        return None
 
     def _protected_component_guard(
         self, wasm_path: str, abi: str, trust: str, expected_sha256: str | None
@@ -781,10 +835,13 @@ class WASISandbox:
         pass it is ``None`` and ``bound_sha256`` is the digest of the exact bytes
         the decision was made on, threaded into the run so the worker binds its
         load to them. Everything here is decided from the ACTUAL module bytes,
-        read once, so the format verdict and the identity binding cannot drift
-        apart. Process isolation itself is NOT re-implemented: with a proven
-        component and a foreign posture the central ADR-015 gate forces the
-        worker and refuses (never downgrades) when it is unavailable.
+        read under a bounded read (never more than the configured cap plus one
+        overflow byte into the parent), so the format verdict and the identity
+        binding come from the same inspected bytes and cannot drift apart.
+        Mandatory-finite resource budgets are checked from the config before any
+        file is touched. Process isolation itself is NOT re-implemented: with a
+        proven component and a foreign posture the central ADR-015 gate forces
+        the worker and refuses (never downgrades) when it is unavailable.
         """
         from .wasi_02 import is_component_bytes
 
@@ -798,46 +855,94 @@ class WASISandbox:
                 self._protected_refusal(
                     "abi='preview1' is not permitted: the protected profile "
                     "routes components only and never takes the preview1 path",
-                    abi=ABI_PREVIEW1,
                 ),
                 None,
             )
-        # (a) Read the bytes ONCE. The format check and the identity digest
-        # both come from this read — a re-read between them could be swapped.
+        # (a1) Mandatory finite budgets (Protected profile): the profile
+        # qualifies a run as resource-BOUNDED short-lived foreign execution, so
+        # every limit that makes it bounded must be a finite positive value.
+        # Decided from the config alone BEFORE any file is touched, so an
+        # unbounded or deliberately-disabled posture is refused for free.
+        violation = self._protected_profile_budget_violation()
+        if violation is not None:
+            return (
+                self._protected_refusal(
+                    f"unsupported resource configuration: {violation}; the "
+                    "protected profile admits only finite, bounded execution",
+                ),
+                None,
+            )
+        cap = self._config.max_wasm_bytes  # a positive int, guaranteed by (a1)
+
+        # (b) BOUNDED admission read: never load more than the configured cap
+        # plus a single overflow-indicator byte into the parent, so an oversized
+        # input path cannot trigger an unbounded parent-process allocation.
+        path = Path(wasm_path)
         try:
-            module_bytes = Path(wasm_path).read_bytes()
+            st = path.stat()
+        except OSError as exc:
+            return (
+                self._protected_refusal(
+                    f"module stat failed, the component format cannot be "
+                    f"verified: {exc}",
+                ),
+                None,
+            )
+        import stat as _stat
+
+        if not _stat.S_ISREG(st.st_mode):
+            return (
+                self._protected_refusal(
+                    "module path is not a regular file; the protected profile "
+                    "binds execution to concrete module bytes only",
+                ),
+                None,
+            )
+        if st.st_size > cap:
+            # Reject on the declared size ALONE — the module is never read.
+            return (
+                self._protected_refusal(
+                    f"module of {st.st_size} bytes exceeds the configured "
+                    f"max_wasm_bytes cap of {cap}; refused before reading the "
+                    "module into the parent",
+                ),
+                None,
+            )
+        # Read at most cap+1 bytes. The extra byte is an overflow indicator that
+        # catches a file that GREW between the stat and the read (a concurrent
+        # modification) without ever loading more than the bounded amount.
+        try:
+            with path.open("rb") as fh:
+                module_bytes = fh.read(cap + 1)
         except OSError as exc:
             return (
                 self._protected_refusal(
                     f"module unreadable, the component format cannot be "
                     f"verified: {exc}",
-                    abi=None,
                 ),
                 None,
             )
-        # (b) Existing size cap stays effective (invariant 8): refuse an
-        # over-cap module before anything heavier happens. cap == 0 is the
-        # documented unlimited sentinel.
-        cap = self._config.max_wasm_bytes
-        if cap and len(module_bytes) > cap:
+        if len(module_bytes) > cap:
             return (
                 self._protected_refusal(
-                    f"module of {len(module_bytes)} bytes exceeds the "
-                    f"configured max_wasm_bytes cap of {cap}",
-                    abi=None,
+                    f"module exceeds the max_wasm_bytes cap of {cap}; it changed "
+                    "during the bounded read; refusing before hashing or "
+                    "execution",
                 ),
                 None,
             )
+
         # (c) The ACTUAL bytes must be a WASI 0.2 component. Neither
         # an explicit abi="component" nor abi="auto" can promote a core/preview1
-        # module — the parameter is a routing hint, not proof of the format.
+        # module — the parameter is a routing hint, not proof of the format. The
+        # format verdict and the identity digest below come from these SAME
+        # bounded, inspected bytes, so they cannot drift apart.
         if not is_component_bytes(module_bytes):
             return (
                 self._protected_refusal(
                     f"the module bytes are not a WASI 0.2 component "
                     f"(abi={abi!r} does not prove the format); the protected "
                     "profile runs components only, never preview1/core modules",
-                    abi=ABI_PREVIEW1,
                 ),
                 None,
             )
@@ -849,7 +954,6 @@ class WASISandbox:
                 self._protected_refusal(
                     f"invalid trust posture {trust!r}; the protected profile "
                     "accepts only 'unknown' or 'untrusted'",
-                    abi=ABI_COMPONENT,
                 ),
                 None,
             )
@@ -858,7 +962,6 @@ class WASISandbox:
                 self._protected_refusal(
                     "trust 'trusted' is forbidden: the protected profile is "
                     "for foreign code only and never runs the in-process path",
-                    abi=ABI_COMPONENT,
                 ),
                 None,
             )
@@ -872,7 +975,6 @@ class WASISandbox:
                     "the caller-supplied module digest does not match the "
                     "inspected bytes; refusing rather than binding execution "
                     "to a contradiction",
-                    abi=ABI_COMPONENT,
                 ),
                 None,
             )
