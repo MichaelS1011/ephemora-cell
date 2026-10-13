@@ -137,6 +137,65 @@ full OS sandboxing, and does not add a component sync blockade — the
 `component → sync_blockade_enforced=false` attestation still holds. Detail:
 [SECURITY.md](../SECURITY.md), "Isolation is enforced, not just offered".
 
+### Protected WASI Component profile (opt-in)
+
+Callers who want the strictest component surface can activate an explicitly
+opt-in profile with one flag, `protected_component=True`. It is off by default,
+so ordinary runs are unchanged:
+
+```python
+from ephemora_cell import WASISandbox, WASIConfig
+
+sandbox = WASISandbox(config=WASIConfig(max_fuel=5_000_000, timeout_seconds=30))
+try:
+    result = sandbox.run(
+        "guest.wasm",
+        abi="component",          # a hint only — the real bytes decide
+        trust="untrusted",        # "unknown" also allowed; "trusted" refused
+        protected_component=True, # activate the protected profile
+    )
+    print(result.status, result.execution_mode, result.abi)
+finally:
+    sandbox.cleanup()
+```
+
+**What it admits.** A genuine WASI 0.2 **component** at trust `unknown` or
+`untrusted`, executed in the **disposable worker**. The admission decision is
+made from the module's **actual bytes**, read once and hashed; that digest is
+bound to the worker load, so the bytes that run are the bytes that were checked.
+
+**Why Preview1 is rejected.** This profile is component-only. A Preview1/core
+module is refused even if the call claims `abi="component"` — the parameter is a
+routing hint, not proof of the format — and an explicit `abi="preview1"` request
+is refused too. Rejecting it here is deliberate: it stops a mislabelled or
+substituted module from silently taking a weaker path.
+
+**Why worker isolation is mandatory.** The containment for the measured
+host-abort class is the process boundary. If the worker is unavailable, or the
+worker fails, the run is refused as a fail-closed error — never retried
+in-process.
+
+**Fail-closed errors.** Any unmet invariant returns an error prefixed
+`refused: protected component profile` before the guest starts (no side effect,
+no successful attestation): non-component bytes, a `trusted` or invalid trust
+posture, a module-digest contradiction, or unavailable isolation. Ordinary guest
+traps carry a different message, so a refusal is distinguishable from a crash.
+
+**What the operator still provides.** This profile is process isolation with
+verified format and bound module identity — it is **not** a full operating-system
+sandbox. Host network containment, syscall filtering, and filesystem placement
+remain the operator's responsibility (an external Linux isolation layer is a
+precondition for a production deployment profile). Unsupported network egress is
+refused rather than silently dropped.
+
+**What is not guaranteed.** No claim of full OS isolation; no claim that the
+Wasmtime engine is free of every advisory; no claim that host compromise is
+impossible; no unrestricted multi-tenant isolation; and no general production
+approval. The component sync blockade is still absent and attested as such.
+
+Detail: [ADR-015](decisions/ADR-015-central-enforcement-gate.md),
+"Protected Component profile".
+
 Reproduce:
 
 ```bash

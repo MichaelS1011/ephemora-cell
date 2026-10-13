@@ -111,12 +111,27 @@ from .wasi_runtime import (
     module_size_cap_error,
 )
 
-__all__ = ["ComponentSandbox", "is_component_binary"]
+__all__ = ["ComponentSandbox", "is_component_binary", "is_component_bytes"]
 
 # Component binary format: magic \0asm + version u32 whose low byte is 0x0d
 # (0.2-era: 0x0000000d; post-Component-Model-1.0: 0x0001000d). Core modules
 # use version 0x00000001.
 _COMPONENT_VERSION_MARKER = 0x0D
+
+
+def is_component_bytes(data: bytes) -> bool:
+    """True if these BYTES are a component (vs. a core module) by magic bytes.
+
+    The byte-level form of the format decision, so a caller that has already
+    read the module (e.g. to hash the exact bytes it will bind execution to)
+    can test the SAME magic without a second file read. :func:`is_component_binary`
+    is the path-level wrapper, keeping one source of truth for the marker.
+    """
+    return (
+        len(data) >= 8
+        and data[:4] == b"\x00asm"
+        and data[4] == _COMPONENT_VERSION_MARKER
+    )
 
 
 def is_component_binary(path: str) -> bool:
@@ -126,11 +141,7 @@ def is_component_binary(path: str) -> bool:
             header = f.read(8)
     except OSError:
         return False
-    return (
-        len(header) == 8
-        and header[:4] == b"\x00asm"
-        and header[4] == _COMPONENT_VERSION_MARKER
-    )
+    return is_component_bytes(header)
 
 
 class ComponentSandbox:
