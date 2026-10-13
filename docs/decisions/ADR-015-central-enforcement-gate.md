@@ -145,16 +145,23 @@ profile is a separate decision, evaluated on its own.
 **What the protected profile adds over the default mandate** — every invariant
 is decided **before the guest starts** (fail-closed, no side effect):
 
-1. **Finite, bounded budgets are mandatory.** The profile qualifies a run as
-   resource-BOUNDED short-lived foreign execution, so every limit that makes it
-   bounded must be a finite positive value: `max_fuel`, `max_memory_mb`,
-   `timeout_seconds`, `io_cpu_seconds`, `io_budget_bytes`, `disk_quota_bytes`
-   and a non-zero `max_wasm_bytes`. A disabled (`None`/zero/negative) mandatory
-   limit is refused from the config alone, before any file is touched.
+1. **Finite, bounded budgets are mandatory — and strictly validated.** The
+   profile qualifies a run as resource-BOUNDED short-lived foreign execution, so
+   every limit that makes it bounded must be an explicitly valid, finite,
+   positive value: `max_fuel`, `max_memory_mb`, `max_wasm_bytes`,
+   `io_budget_bytes` and `disk_quota_bytes` must be real positive `int`s (a
+   `bool`, or a float/string, is refused — a mis-set flag is not a bound), and
+   the time limits `timeout_seconds`/`io_cpu_seconds` must be finite positive
+   numbers (`NaN` and both infinities refused). Nothing at or below zero, and
+   nothing above the signed 64-bit range, is admitted: an over-large value would
+   overflow the u64/int conversions downstream into a smaller or nonsensical
+   bound, so it is refused rather than mis-enforced. A disabled (`None`/zero)
+   mandatory limit is refused from the config alone, before any file is touched.
    `max_gc_heap_mb` is deliberately **not** gated: it is recorded, not enforced,
    in the current binding, so refusing on it would assert a bound that does not
    exist. This rule lives only in the protected profile — `WASIConfig` semantics
-   for every other caller are unchanged.
+   for every other caller are unchanged (the general constructor keeps its own,
+   looser validation).
 2. **Actual format, verified from a bounded read.** The module is read under a
    bounded read — never more than `max_wasm_bytes` plus one overflow byte into
    the parent — so an oversized input is refused on its declared size before its
@@ -185,17 +192,23 @@ is decided **before the guest starts** (fail-closed, no side effect):
 the prefix `refused: protected component profile`, distinguishable from a guest
 trap. It resolves **no ABI** (`abi=None`): nothing ran, so a refusal is never
 attested as a component or preview1 execution under some process mode — it
-claims no executed process mode and produces no successful attestation. A
-successful protected run signs a record whose `execution_mode` is `subprocess`
-and whose `abi` is `component`, verifiable with the existing signer-agnostic
-verifier. Existing resource budgets stay in force. Unsupported network egress is
-handled only where a real mechanism exists: the runtime sandbox exposes no guest
-socket surface on these paths, and the MCP tool layer owns the component+egress
-refusal — the profile makes no network-isolation claim beyond that. The protected
-profile still makes **no claim of full operating-system isolation**: an external
-Linux isolation layer remains an operator precondition for the eventual
-deployment profile, and the component sync blockade is still absent
-(`sync_blockade_enforced=false`) as attested by ADR-014.
+claims no executed process mode and produces no successful attestation. This
+holds for **every** protected refusal, not only the admission guard: the
+sync-blockade requirement a component can never honour, the isolation mandate
+when no worker is available, and a tenant admission denial all resolve no ABI.
+The opposite case is reported truthfully instead: a worker that genuinely
+started and then failed keeps `execution_mode=subprocess`, because that mode
+did take effect. A successful protected run signs a record whose
+`execution_mode` is `subprocess` and whose `abi` is `component`, verifiable with
+the existing signer-agnostic verifier. Existing resource budgets stay in force.
+Unsupported network egress is handled only where a real mechanism exists: the
+runtime sandbox exposes no guest socket surface on these paths, and the MCP tool
+layer owns the component+egress refusal — the profile makes no network-isolation
+claim beyond that. The protected profile still makes **no claim of full
+operating-system isolation**: an external Linux isolation layer remains an
+operator precondition for the eventual deployment profile, and the component
+sync blockade is still absent (`sync_blockade_enforced=false`) as attested by
+ADR-014.
 
 ## Consequences
 
