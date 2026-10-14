@@ -7,7 +7,7 @@
 #     https://index.docker.io/v2/library/python/manifests/3.12-slim | grep -i docker-content-digest
 # `3.12-slim` is the tag this digest was taken for — the comment is the
 # human-readable half, the digest is what the build actually pulls.
-FROM python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d
+FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
 
 WORKDIR /app
 COPY . .
