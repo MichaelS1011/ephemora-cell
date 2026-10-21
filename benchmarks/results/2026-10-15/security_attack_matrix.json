@@ -1,0 +1,182 @@
+{
+  "artifact": "security_attack_matrix",
+  "subject": "Consolidated attack & containment matrix for 1.2.0 (release on HOLD)",
+  "measured": true,
+  "generated": "2026-10-15",
+  "native_runtime_default": "wasmtime==49.0.0",
+  "reverified_on_commit": "e11fcfb",
+  "reverify_platform": "macOS arm64",
+  "human_readable": "docs/security_attack_matrix.md",
+  "reading_rules": [
+    "a scenario is counted once, under the one boundary it actually exercises",
+    "NOT-EXPRESSIBLE (no API surface) is kept apart from BLOCKED (surface present, call refused)",
+    "a run that completes inside a budget is BOUNDED or CONTAINED, not BLOCKED",
+    "a module that fails to LOAD is UNKNOWN, not a blocked defence",
+    "historical runs keep their own commit + runtime; an older number is not restated as current"
+  ],
+  "classes": {
+    "BLOCKED": "primitive reachable but call/entry refused at the WASM capability or call layer",
+    "BOUNDED": "expressible; impact capped to within-sandbox work by a resource ceiling",
+    "CONTAINED": "native failure confined to the disposable worker; second-boundary, not a fix",
+    "ALLOWED": "primitive stays available to guest code inside the sandbox; nothing reached the host",
+    "FAILED": "known defect not closed in the pinned runtime; never counted as a defence",
+    "UNKNOWN": "harness result inconclusive or mislabelled; not claimed as blocked",
+    "NOT_TESTED": "no reproducible evidence on this line"
+  },
+  "sources": [
+    {
+      "id": "A",
+      "name": "Eight documented attack intents (capability boundary)",
+      "harness": "benchmarks/verify_8_vectors.py",
+      "boundary": "WASI Preview1, default config",
+      "platforms": ["macOS arm64", "DGX Spark GB10 / Linux arm64"],
+      "commits_runs": [
+        {"date": "2026-09-18", "platform": "macOS arm64"},
+        {"date": "2026-09-20", "platform": "Linux arm64 DGX Spark GB10"},
+        {"date": "2026-10-15", "platform": "macOS arm64", "commit": "e11fcfb", "wasmtime": "49.0.0", "reverified": true}
+      ],
+      "summary": {"BLOCKED": 8, "total": 8},
+      "comparative_controls": {"stock_docker": "0/8", "hardened_docker": "2/8"},
+      "scenarios": [
+        {"name": "shell_exec", "class": "BLOCKED", "mechanism": "live import-surface scan: no exec/system/spawn"},
+        {"name": "fork", "class": "BLOCKED", "mechanism": "no fork/vfork/clone surface"},
+        {"name": "network_socket", "class": "BLOCKED", "mechanism": "no POSIX socket surface on Preview1"},
+        {"name": "fsync", "class": "BLOCKED", "mechanism": "call trap on fd_sync/fd_datasync/fd_psync; import legal by design"},
+        {"name": "host_fs_read", "class": "BLOCKED", "mechanism": "path_open /etc/passwd with no preopen -> errno!=0"},
+        {"name": "symlink_escape", "class": "BLOCKED", "mechanism": "no-follow on obtained descriptor; positive control opens"},
+        {"name": "threading_shared_memory", "class": "BLOCKED", "mechanism": "engine wasm_threads=False refuses module"},
+        {"name": "environment_leak", "class": "BLOCKED", "mechanism": "allow_env=() -> guest sees 0 vars"}
+      ],
+      "note": "This is the statement behind '8/8 blocked': eight intents against one boundary on the Preview1 path. It is NOT an aggregate across the whole matrix and does NOT cover the WASI 0.2 component path."
+    },
+    {
+      "id": "B",
+      "name": "Eleven exploitation strategies (arXiv 2509.11242)",
+      "doc": "docs/security_posture.md#arxiv-250911242--tested-attack-surface",
+      "boundary": "WASI Preview1 resource/capability assessment",
+      "summary": {"BLOCKED": 7, "BOUNDED": 3, "ALLOWED": 1, "total": 11},
+      "scenarios": [
+        {"name": "cpu_dos_infinite_loop", "class": "ALLOWED", "detail": "within budget; guest must compute, fuel caps work"},
+        {"name": "disk_dos_large_writes", "class": "BOUNDED", "detail": "I/O bypasses fuel metering; 10KB output budget caps capture"},
+        {"name": "fsync_fdatasync", "class": "BLOCKED", "detail": "refused at the call"},
+        {"name": "inode_exhaustion", "class": "BLOCKED", "detail": "preopen-deny + sandbox dir isolation"},
+        {"name": "dev_random_read", "class": "BLOCKED", "detail": "preopen-deny blocks /dev"},
+        {"name": "dev_ptmx_exhaustion", "class": "BLOCKED", "detail": "preopen-deny blocks /dev"},
+        {"name": "high_freq_small_io", "class": "BOUNDED", "detail": "~1.18MB before fuel exhaustion; 10KB output budget caps capture"},
+        {"name": "network_bandwidth", "class": "BLOCKED", "detail": "no socket imports in Preview1"},
+        {"name": "small_packet_flood", "class": "BLOCKED", "detail": "no socket imports in Preview1"},
+        {"name": "multi_threading", "class": "BLOCKED", "detail": "wasm_threads=False enforced"},
+        {"name": "memory_exhaustion", "class": "BOUNDED", "detail": "linear memory byte-capped (128MB default); WasmGC heap NOT byte-bounded in wasmtime-py -> fuel is the effective GC bound"}
+      ],
+      "correction": {
+        "found": "docs/security_posture.md summary line and an early whitepaper draft said '8 blocked, 2 bounded, 1 permitted'",
+        "issue": "the count promoted the third BOUNDED row (memory exhaustion) into 'blocked'; the per-technique table marks it Bounded",
+        "resolution": "authoritative per-technique table gives 7 BLOCKED / 3 BOUNDED / 1 ALLOWED",
+        "action": "summary lines corrected to match the table"
+      }
+    },
+    {
+      "id": "C",
+      "name": "Resource-DoS block-rate (4 vectors x 10 runs)",
+      "harness": "benchmarks/pov_benchmark.py",
+      "artifact": "benchmarks/results/2026-10-12/pov_benchmark.json",
+      "wasmtime": "49.0.0",
+      "date": "2026-10-12",
+      "harness_metric": "counts a run blocked when status != SUCCESS (narrower than 'defeated')",
+      "scenarios": [
+        {"name": "cpu_dos", "raw_blocked": "10/10", "class": "BOUNDED"},
+        {"name": "memory_exhaust", "raw_blocked": "10/10", "class": "BOUNDED", "caveat": "GC heap not byte-bounded"},
+        {"name": "infinite_loop_timeout", "raw_blocked": "10/10", "class": "BOUNDED"},
+        {"name": "write_flood", "raw_blocked": "0/10", "class": "BOUNDED", "note": "run COMPLETES because output contained by 10KB byte-budget before fuel; containment, not a block; must not be reported as blocked"}
+      ]
+    },
+    {
+      "id": "D",
+      "name": "Eighteen container-escape scenarios (UK AISI sandbox_escape_bench) mapped to WASI",
+      "harness": "benchmarks/sandbox_escape_18.py",
+      "artifact": "benchmarks/results/2026-09-24/04_sandbox_escape_18.json",
+      "wasmtime": "47.0.1",
+      "date": "2026-09-24",
+      "structural_comparison_not_reproduction": true,
+      "summary": {"EXECUTION-DENIED": 8, "NOT-EXPRESSIBLE": 10, "open_findings": 0},
+      "flags": [
+        "dirty_cow reported EXECUTION-DENIED but detail is a module parse error (threads must be enabled) -> reclassified UNKNOWN, not counted as a runtime defence",
+        "public evidence bundle (benchmarks/sandbox_escape_18_evidence, 2026-09-10, wasmtime 46.0.1) was scored against Ephemora Enterprise, not the OSS Cell; any '18/18 BLOCKED' for OSS is unsupported by that bundle"
+      ],
+      "note": "NOT-EXPRESSIBLE rows have no WASI surface at all; kept separate from section A's runtime BLOCKED calls and not summed with them."
+    },
+    {
+      "id": "E",
+      "name": "Native-Linux compromised-worker OS/container wall",
+      "harness": "deploy/linux-reference/escape_probe.py",
+      "boundary": "second boundary: OS/container containment with worker native code attacker-controlled",
+      "date": "2026-10-13",
+      "platform": "native Linux aarch64 Ubuntu",
+      "runs": [
+        {
+          "artifact": "benchmarks/results/2026-10-13/native_linux/06_escape_probe.json",
+          "scenarios": 12,
+          "summary": {"BLOCKED": 10, "ALLOWED": 2},
+          "allowed_detail": [
+            {"name": "tmpfs_writable", "class": "ALLOWED", "why": "required positive control (probe may write when legitimately allowed)"},
+            {"name": "memory_cgroup_present", "class": "UNKNOWN", "why": "memory.max=n/a -> limit NOT observable in this run (gap, not a blocked defence)"}
+          ]
+        },
+        {
+          "artifact": "benchmarks/results/2026-10-13/linux_reference_boundary_probe.json",
+          "scenarios": 11,
+          "summary": {"BLOCKED": 10, "ALLOWED": 1},
+          "allowed_detail": [
+            {"name": "tmpfs_writable", "class": "ALLOWED", "why": "positive control"},
+            {"name": "memory_cgroup_present", "class": "BLOCKED", "why": "memory.max=536870912 (512 MiB) readable and in force in THIS run"}
+          ]
+        }
+      ],
+      "blocked_rows": ["runs_as_nonroot", "capabilities_dropped", "no_setuid_to_root", "rootfs_read_only", "host_secret_etc_shadow", "host_secret_root", "egress_8.8.8.8", "egress_1.1.1.1", "egress_dns", "pids_limit_fork_127"],
+      "discrepancy": "the two native runs DISAGREE on the container memory cgroup (in force in one, not observable in the other); reported per-run, not claimed uniformly enforced",
+      "hardening_evidence": "05_deep_probe.json: no_new_privs=1, Seccomp=2 (1 filter), AppArmor docker-default (enforce), all caps zero, no docker.sock, /proc/sys writes refused",
+      "classification": "CONTAINMENT evidence, NOT proof the WASM runtime blocked an escape"
+    },
+    {
+      "id": "F",
+      "name": "CVE replay (filesystem escape CVEs)",
+      "harness": "benchmarks/mcp_cve_replay.py",
+      "doc": "docs/comparison-mcp-servers.md",
+      "summary": {"BLOCKED": 2},
+      "scenarios": [
+        {"name": "CVE-2025-53110 prefix collision", "class": "BLOCKED", "detail": "no pre-opened fd; vulnerable reference server leaked"},
+        {"name": "CVE-2025-53109 symlink to /etc/passwd", "class": "BLOCKED", "detail": "os error 63; vulnerable reference leaked"}
+      ]
+    },
+    {
+      "id": "G",
+      "name": "Regression gates (security tests)",
+      "kind": "gates, not a scored matrix",
+      "suite_on_this_commit": {"passed": 1191, "skipped": 11, "coverage_pct": 89},
+      "examples": ["test_fs_escape_matrix", "test_host_file_boundaries", "test_grant_trust", "test_grant_ledger", "test_transport", "test_signed_receipt", "test_execution_invariants", "test_component_guard", "test_process_executor"],
+      "note": "these pin the mechanisms above against regression and are NOT added to any vectors-blocked total"
+    },
+    {
+      "id": "H",
+      "name": "Open advisories (FAILED / UNRESOLVED, never counted as defences)",
+      "boundary": "pinned wasmtime==49.0.0",
+      "scenarios": [
+        {"id": "GHSA-32h6-97mm-8q3c", "alias": "RUSTSEC-2026-0327", "class": "FAILED", "detail": "native stack-buffer overflow in async-lifted component callback result-count validation; fix 49.0.2 has no PyPI wheel -> engine defect open, release blocker", "loader_exclusion": "component_guard.py refuses async-lift/future/stream before the single Component() site in wasi_02 (fail-closed, regression-tested) -> product execution path enforced-excluded", "contained_on": "native Linux worker boundary (crash contained, parent survives) = CONTAINED, not fixed"},
+        {"id": "GHSA-j2g9", "class": "FAILED", "detail": "datetime overflow, OPEN, documented mitigation"},
+        {"id": "GHSA-m63x", "class": "FAILED", "detail": "fuel amplification, OPEN, documented mitigation"},
+        {"id": "GHSA-2r75", "class": "FAILED", "detail": "TRUNCATE bypass, limited/mitigated"},
+        {"id": "GHSA-j366 / GHSA-gqmc / GHSA-96f6", "class": "FAILED", "detail": "2026-10-02 wave, OPEN each with documented mitigation"},
+        {"id": "GHSA-vqjp", "class": "BLOCKED", "detail": "filesystem escape closed by the 49 pin"},
+        {"id": "GHSA-x84v", "class": "BLOCKED", "detail": "WASIp3 stream heap closed in 47.0.4"}
+      ]
+    }
+  ],
+  "non_additivity": "Sections A-H overlap (e.g. fsync, network, threading appear in both A and B; write_flood appears in B and C). The same intent on a different boundary/platform is a second observation, not a second defence. No single 'N of M blocked' total is computed, and none is claimed.",
+  "not_tested": [
+    "dedicated pilot VM acceptance (NOT TESTED)",
+    "independent external security audit (none yet)",
+    "production approval (NO-GO)",
+    "WASI 0.2 component sync blockade (absent, attested as such)"
+  ],
+  "honesty_note": "Purpose of this artifact: bind every public security number to the exact test, boundary, commit, runtime and platform that produced it, and keep BOUNDED/CONTAINED/NOT-EXPRESSIBLE out of any 'blocked' tally."
+}

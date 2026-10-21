@@ -1,0 +1,74 @@
+name: CodeQL
+
+# Static analysis (SAST) for the two surfaces this repository ships:
+#   * python  -- the engine and the MCP bridge packages
+#   * actions -- the workflow files in .github/workflows/
+# Advanced setup (this workflow) is used instead of GitHub's default setup so
+# that the analysis configuration is reviewable in the repository: it runs on
+# the pull request that is about to be released, which makes the analysed
+# revision visible before the merge instead of after it.
+#
+# No build step: both analysed languages are read from source (python is
+# interpreted, "actions" has no compilation), so the template's autobuild step
+# is intentionally omitted.
+#
+# Query suite: PINNED to `security-extended` in
+# `.github/codeql/codeql-config.yml`, not left to the action's default. The
+# config file records the measured result set per suite (1 default / 5 extended
+# for python, 0/0 for actions, positive control included) and the reason each
+# expected alert is closed. Pinning a superset of the default net makes the
+# gate's scope reviewable in the repository instead of a GitHub-side default.
+#
+# Pinning policy: every third-party action is pinned to a full commit SHA and
+# the released tag is named in a trailing comment, so each pin can be checked
+# against the upstream repository. Same style as the other workflows here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 04:17 UTC: re-analyses the default branch with the current
+    # query pack even when no code changed.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+# One analysis per ref, so a new push supersedes the previous run of the same
+# ref instead of racing it for the code-scanning upload.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read          # checkout of the revision under analysis
+      security-events: write  # upload of the SARIF result to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          languages: ${{ matrix.language }}
+          # Explicit suite; see the comment at the top of this file.
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          # Attributes each matrix job's result to its language; without it the
+          # two jobs would report under the same category and overwrite.
+          category: "/language:${{ matrix.language }}"

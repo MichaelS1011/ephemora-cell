@@ -6,7 +6,670 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Three operator commands: `doctor`, `verify`, `policy check`.**
+  `ephemora doctor` checks the installation, platform, runtime line and engine
+  identity and then runs one real smoke execution; `--json` emits a schema-tagged
+  report and the exit code follows the verdict, so a runtime outside the qualified
+  line fails the command instead of warning and passing. `ephemora verify
+  <artefact>` re-checks existing execution evidence — a JSONL ledger, a DSSE
+  envelope, a signed record or a pre-exec/receipt chain — and states which half of
+  the claim it actually proved: linkage needs no key, authorship needs `--key`, and
+  a signed artefact checked without one exits `3` rather than reading as a pass.
+  `ephemora policy check` shows the permissions and isolation a run WOULD carry
+  (budgets, effective vs. refused preopens, the ADR-015 isolation path per ABI, the
+  sync blockade, the policy fingerprint) from the same authoritative primitives the
+  runtime reads, and exits non-zero when a requested directory would be refused, so
+  `policy check && run` composes as a gate. `--language python|javascript` views the
+  interpreter-profile budgets a source guest really gets, and it also names what the
+  adapters add — per artifact, because the grant set is not one fixed answer: a
+  Python run replaces the caller's `allow_dirs` either way, but the installed
+  WASI-0.2 component guest gets a single throwaway per-run `/work` directory and
+  no `/sandbox` scratch, while a legacy Preview1 interpreter guest also mounts its
+  own stdlib and the script's own directory at `/work` plus the run's ephemeral
+  `/sandbox`; a JavaScript source run replaces the grants with one private `/work`
+  and a pre-compiled JavaScript module run keeps them. Replaced entries are listed
+  as `dropped_allow_dirs`, a caller directory an adapter branch would drop is
+  reported under `allowed (pre-adapter)`, and each branch names the ABI it runs
+  under — so an `--abi` that
+  contradicts a language adapter (any concrete one for Python, whose ABI the guest
+  bytes decide; `component` for JavaScript, which is always Preview1) is refused
+  with exit `2` instead of answered with a snapshot of a run that cannot happen.
+  Both guests are forced into the disposable worker — an explicit `trusted`
+  posture does not open an in-process path for a source run — and a language
+  view's `fingerprint` carries a `fingerprint_note` saying it digests the caller's
+  configuration, not the adapter's.
+  `--isolated` raises the view the way the run gate raises isolation — never lowers it.
+- **One entry point and one flag surface across WASM, Python and JavaScript.**
+  `run` takes a `.wasm` module or a `.py`/`.js` source file
+  (`--language auto|wasm|python|javascript`, detected by extension when `auto`) with
+  the same budget, preopen and trust flags throughout. A missing language guest fails
+  closed with the single documented install command: nothing is downloaded and no host
+  interpreter is ever executed. The `ephemora` console script is declared in the
+  packaging metadata alongside `ephemora-cell`, so a fresh install of this release's
+  build puts it on the PATH.
+- **The language grant claims are measured, not asserted.**
+  `benchmarks/language_grant_evidence.py` runs all four adapter entries with real
+  guests and compares, per branch, the `allow_dirs` the adapter builds (guest and
+  host path), the ABI it passes, the worker flag, the run-side `effective_preopens`
+  including `/sandbox`, and the guest's own `argv`. Guest digests are pinned, so a
+  substituted guest cannot silently stand in for the measurement; a missing guest is
+  reported `NOT-MEASURED`. `benchmarks/results/2026-10-19/language_grant_views_measured.json`
+  is the recorded run (five claims, all `MATCH`, on the qualified 49.0.3 runtime).
+  Machine-specific prefixes in that artefact are replaced by `<repo>`/`<tmpdir>`
+  labels at serialisation time only — the comparison itself still runs against
+  resolved real paths.
+- **Exit-status fidelity is a field on the record, not a footnote.** The
+  WASI-0.2 Python guest does not carry its script's exit status to the host
+  (`sys.exit(3)` reads as `success`), and the JavaScript guest reports a thrown
+  error through its marker and returns cleanly. A component that hard-exits
+  non-zero is never read as success, but its ABI delivers only the non-zero
+  fact: `std::process::exit(3)` and `exit(7)` both arrive to wasmtime as
+  `exit status 1` (measured on `49.0.3`). Every `run` result now carries
+  `exit_status_fidelity` — `exact` (Preview1 `.wasm` and the Preview1 CPython
+  interpreter), `non_zero_only` (component `.wasm`), `none` (the component
+  Python guest, the QuickJS source route) — `ephemora run` prints one stderr
+  note on a `none` route instead of leaving `success` unqualified, and nothing
+  invents a code the host did not observe. `docs/languages.md` carries the
+  measured table and `docs/language-guest-build.md` names the loader line that
+  causes the gap; closing it is a guest rebuild with a new digest, not an
+  adapter patch. Pinning it:
+  `tests/test_guest_exit_code_fidelity.py` characterises all routes — including
+  a committed WASI-0.2 fixture that exits 3, so the component route needs no
+  bring-your-own guest to be tested — and `tests/test_adapter_result_shape.py`
+  pins the per-path value. On the QuickJS source route the pinned interpreter
+  guest is now measured directly: a `throw`, a `process.exit(5)` and a
+  `process.exit(0)` all leave as `success`/`0` carrying the guest's own marker,
+  because that harness treats any `process.exit` as an exception — so
+  `guest_reported_error` is a guest claim in both directions and the record says
+  `none` rather than implying an attested zero. Who can be misled is pinned too:
+  `tests/test_agent_executor_confinement.py` shows a model-supplied source script
+  is refused as `not_a_wasm_module` before any adapter runs it, that a component
+  hard-exit still arrives `blocked` with the code wasmtime observed, and that the
+  shipped MCP package routes no script to a language adapter at all.
+- **The distribution guard now sees a stale build.** `scripts/distribution_guard.py
+  artifacts` checked only what must NOT be inside an artefact, so a wheel built
+  before this release's CLI surface landed passed every rule while being unusable.
+  It now asserts, from the artefact's own contents, that every 1.2.0rc2-and-later
+  distribution carries `doctor.py`, `verify_cli.py`, `policy_cli.py` and all three
+  console scripts in its `entry_points.txt` — and fails closed on an unparsable
+  version or an unreadable `entry_points.txt`. Verified non-vacuous against the
+  stale wheel it was written for.
+- **Behavioural pins replace four measurement-backed claims that had no test.**
+  `--allow-env` reaching the guest, caller arguments arriving at `argv` through
+  `run --language` (recording boundary plus a real guest round-trip), the full
+  ABI accept/refuse matrix including the positive cases that an over-eager
+  refusal would break, and the complete `--tenant` family refusal — in
+  `tests/test_language_env_args_cli.py`, `tests/test_run_abi_and_tenant_matrix.py`
+  and `tests/test_test_count_guard.py` (the guard's own non-vacuity, exercised in
+  a farm copy so `__file__` cannot point back at the real checkout). Suite:
+  1539 passed / 28 skipped (1567 collected), 89 % statement coverage (5587/6304),
+  measured on a fresh clone and reproduced identically on the qualified `49.0.3`
+  interpreter.
+- **The agent-framework examples became assertable.**
+  `integration/verify_agent_frameworks.py` runs the LangGraph, LangChain, OpenAI
+  Agents SDK, CrewAI, AutoGen and Semantic Kernel examples and asserts what each one
+  reports, plus the untrusted-input contract of the shared executor (non-string,
+  empty, whitespace, NUL-bearing, outside-allowlist, symlink-escape and
+  digest-mismatch inputs are all refused without executing anything). A skipped
+  framework is printed as a SKIP and never counted as a pass; any failed claim exits
+  `1`.
+
+- **`ephemora_cell_mcp.http_bridge` — an authenticated, loopback-only MCP
+  streamable-HTTP bridge in front of the stdio server.** n8n's MCP Client node
+  can only dial `httpStreamable`/`sse` endpoints (measured across
+  `@n8n/n8n-nodes-langchain` 1.122.60 and 2.43.4: no stdio option exists in any
+  shipped version), so the stdio transport alone is unreachable from a workflow
+  engine. The bridge spawns the same `python -m ephemora_cell_mcp` server and
+  forwards `tools/list`/`tools/call` verbatim, keeping the host-observed
+  `_meta.execution` record authoritative. It refuses to start without a bearer
+  token (read from the environment, never argv), requires an explicit override
+  for a non-loopback bind, compares credentials in constant time, and pins
+  Host/Origin against a DNS-rebinding allowlist. Served by the existing
+  `integration` extra; documentation in `docs/n8n-integration.md`.
+- **Running guest code on an unqualified engine is refused, not warned about.**
+  `ephemora_cell.runtime_qualification` decides once, from distribution metadata
+  plus an import probe, whether this process is on the audited Wasmtime line
+  (`wasmtime>=49.0.3,<50`), and the decision is read at every entry that can start
+  a guest: `WASISandbox.run` (the documented facade, and with it `run_wasm`, the MCP
+  `CellToolEngine`, the Python/JavaScript adapters), `process_executor.run_isolated`
+  (public API that reaches the worker without passing the facade) and the CLI. A
+  refusal spawns no worker, compiles nothing, bills no tenant, says
+  `refused: unqualified runtime — <reason>`, and `ephemora run` leaves status `4`
+  with an `ephemora-cell/run-refusal/1` document instead of a traceback or a quiet
+  run on the unpatched public build. An operator who knowingly runs elsewhere says
+  so out loud with `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1`; that prints a `note:` on
+  stderr, stamps `"unqualified_runtime_allowed": true` into the JSON document, and
+  is named by `ephemora doctor` so a forgotten hatch cannot read as a clean install.
+  The whole contract — the five error classes, what each one means and who decided
+  it — is published in `docs/cli-errors.md`.
+- **The GitHub Action reports who decided.** Its step outputs
+  gained `error_class`, read from the report the CLI wrote: `execution` (a guest
+  failed, or the sandbox stopped it) and `environment` (nothing executed, because
+  the runner's engine sits outside the qualified runtime line) are different events
+  for whoever gates on them, and `status=error` alone conflated them — an
+  uncovered-engine refusal used to read as though the module had failed. The
+  environment case now fails with a message naming the runtime, and the pin
+  guidance in `action/README.md` asks for the release commit's SHA, the same rule
+  this repository's own workflows follow (41 SHA-pinned refs, no floating version
+  names).
+
+### Changed
+
+- **`exit_status_fidelity` is derived from the run, not guessed from the ABI.** The
+  language adapters each declared their own word, and the JavaScript module route
+  declared `exact` unconditionally — so a run the host stopped at its fuel budget
+  attested an exit status the host had never observed, the exact case
+  `docs/languages.md` says reads `none`. Routes where the guest IS the program the
+  caller handed over (a `.wasm` module, a caller-built JavaScript module) now take
+  the same derivation the CLI and the signed record use (`abi` + the raw
+  `guest_exit_observed` fact): a guest that exits through Preview1 still reads
+  `exact`, a host stop reads `none`. The two harness-mediated routes — a Python
+  source run through the component guest's loader, a JavaScript source run through
+  the QuickJS harness — name `none` on purpose, because there the guest can leave
+  through its exit interface while the SCRIPT's status is still discarded; a test
+  pins that distinction (`guest_exit_observed` true, claim still `none`). Both
+  poles are pinned in `tests/test_adapter_result_shape.py`.
+- **The grant-evidence harness pins the guest the release actually ships.**
+  `benchmarks/language_grant_evidence.py` carried the superseded JavaScript
+  interpreter-guest digest (`53037972…`, the build that still contained local
+  build paths) as its canonical value while the packaged guest is the clean
+  rebuild (`a192e230…`, `docs/language-guest-build.md` §3). Pinned to the wrong
+  bytes, the harness would have accepted the old artifact and flagged the shipped
+  one as a substitution — the opposite of what a digest pin is for. The pin now
+  names the release guest, and the measurement was re-run with all four guests
+  digest-verified on the qualified engine
+  (`benchmarks/results/2026-10-19/language_grant_views_measured.json`, five claims,
+  all `MATCH`); the 2026-10-17 run remains on disk as the historical record of the
+  artifact it used.
+- **`ComponentSandbox` checks the runtime line too.** The low-level component
+  primitive is reachable from the package surface and carried no engine decision,
+  so skipping the facade was a route around the gate — measured running a guest on
+  an unpatched engine while `WASISandbox` refused it. The decision now happens
+  before a byte is read, compiled or billed; process isolation stays the facade's
+  business, as documented.
+- **The escape-hatch stamp travels on the record.** `unqualified_runtime_allowed`
+  is a field of the execution report rather than a key the CLI bolted onto its own
+  output, so a signed record, MCP `_meta.execution` and `run --json` all carry it
+  and none of them can quietly drop it. An ordinary run carries no such key.
+- **A tool sidecar asking for more than its profile grants is answered in the
+  result.** The intersection rule (a sidecar can narrow, never widen) held, and the
+  run attested only what it actually got — but the dropped request lived solely in
+  a host log line. The record's own `warnings` now names the preopens that did not
+  apply, the same rule the CLI follows for a flag whose value would be discarded.
+- **The language route answers the engine question before the argument question.**
+  On an engine outside the qualified line, a language run carrying a flag it cannot
+  honour left `caller` (`2`) while the same configuration on a module run left
+  `environment` (`4`) — one configuration, two classes, decided by which code was
+  written first. The gate now decides first on every route.
+- **`elapsed_ms` degrades honestly on a language run.** The shared document said
+  `0.0` where the run had no measurement to report; an absent number stays absent
+  rather than attesting "measured, zero milliseconds".
+- **Legs that describe a machine now say when the machine disagrees.** Four
+  resolver legs asserted that an uninstalled language guest fails closed — on a
+  host that has the packaged guest installed (any wheelhouse qualification venv)
+  they could only fail, which reads like a product defect and is none. They take
+  a `no_packaged_guest` fixture that skips them with the reason naming what it
+  found, and two CLI legs that check a flag is *carried* were passing only
+  because the script path they handed over did not exist: they create the file
+  now, so the outcome is about the flag on any host. Both counts are published
+  with their conditions (1683/26 in a fresh checkout with no packaged guest, 1684/25 once a wheel exists in that checkout, 1681/28 with the guest wheels installed, 1692/17 with those guests pinned for a real round-trip — all four measured for this release, and the escape-hatch state measured separately at 1682/27).
+- **The wheelhouse install rule says to verify the digest, not the filename.** An
+  install by name from a local index picks whichever file it finds for that
+  version, and three different `ephemora_cell-1.2.0rc2-py3-none-any.whl` files
+  existed on the release machine during qualification — one of them an older
+  build, which is what a measurement venv picked up before the ambiguity was
+  caught (a `49.0.3` install that did not contain `allow_env_names` at all).
+  `README.md` and `SECURITY.md` now state: one core wheel per install directory,
+  check it against the published release digest, and let `doctor` name the module
+  path and engine identity actually loaded.
+- A `caller`-class refusal emits no JSON document, and `docs/cli-errors.md` says
+  that instead of implying every command's document carries `error_class`.
+
+- **`run --json` answers with one document shape on every route.** A Python or
+  JavaScript run used to return the adapter's own dict — no `security_baseline`, no
+  `fuel_budget`, no byte counts, no `warnings` — while `run module.wasm` returned the
+  full execution record, so one command had two documents and the language one could
+  not show what posture its run actually carried. Both now come from the same
+  `ExecutionReport`; the library adapters' result dicts gained those base keys
+  (a labelled contract change, pinned in
+  `tests/test_adapter_result_shape.py` / `tests/test_lang_unified.py`), and the
+  deliberate differences — `stdout`/`stderr`/`output`, `language`, `script`,
+  `guest_reported_error`, `stdin_capped` — are stated in `docs/languages.md`.
+- **A tenant book or cap without an account is refused on the module route too.**
+  `--tenant-book`/`--tenant-max-runs`/`--tenant-max-fuel` reached the engine and were
+  then dropped, because there was no account to attribute the run to; the language
+  route already refused exactly that in 1.2.0rc2. Both routes now leave status `2`
+  (`caller`) and name the missing `--tenant`, so no run reports a guard that does not
+  exist.
+- **A malformed `--allow-env` value leaves the caller class.** `--allow-env FOO`
+  (no `=`) and `--allow-env =bar` (empty name) refused with status `1`, which the
+  contract reserves for a run the sandbox reported; nothing had run, so they now
+  leave `2`. An empty value (`NAME=`) still warns and carries, as before.
+- **`security_baseline` attests `allow_env_names`.** The variable NAMES a guest could
+  read are recorded in the signed posture — never the values, which stay out of the
+  baseline, the fingerprint and every output. Without them a record could not tell
+  "this run had no host environment" from "the run did not say".
+- **`exit_status_fidelity` is now an attested field of the record.** The claim is
+  derived by one function (`execution_report.exit_status_fidelity`) and set on
+  `ExecutionReport`, so it travels inside the JCS payload a signature covers —
+  rewriting `"none"` into `"exact"` in a signed record now fails verification — and
+  the MCP `_meta.execution` an agent reads carries the same value as the CLI
+  document. A report that never sets it serializes byte-identically to an earlier
+  one.
+- **`exit_status_fidelity` reports what the host observed, not which ABI was
+  routed.** A run that never reached a guest exit — a module the loader rejected
+  (`run --abi preview1` on a component binary), a fuel/timeout/byte stop, a refused
+  environment — now says `none`; it used to say `exact` or `non_zero_only` by
+  reading the width of a channel nothing travelled through, which let the host's own
+  `1` be mistaken for the guest's verdict. The fact is carried from the worker across
+  the process boundary (`ExecutionResult.guest_exit_observed`), so a subprocess run
+  attests its own observation rather than an inference by the parent.
+- **`run` statuses now carry their class in the document as `error_class`, and two
+  refusals moved to the class that describes them.** A call the CLI cannot honour as
+  stated — `--tenant` without `--tenant-book`, an unreadable `--stdin`, a grant the
+  sandbox refuses before anything starts — leaves `2` (`caller`) instead of `1`. The
+  refusals that already left `2` (a flag value an adapter would discard, a
+  contradicted `--abi`) keep their status and are now named as the same class.
+  A language run whose guest is not installed or not
+  the pinned artefact leaves `4` (`environment`) instead of `1`. A guest's own exit
+  number still travels in the process status — `run` of a Preview1 guest that exits
+  `3` still leaves `3` — which is why the class is stated in the document, where it
+  cannot be confused with a number the guest chose.
+
+### Fixed
+
+- **The two conformance harnesses can no longer report a number they did not
+  measure, and one of them was double-counting.** Both publish evidence JSON into
+  this repository, so both are part of the release claim.
+  - `conformance/run_wasi_testsuite.py` wrote `pinned_commit` into its summary as
+    a constant and never compared it with the checkout, so a cache left on another
+    revision produced evidence labelled with a revision it had not run — the same
+    defect class closed in `run_core_spec.py` earlier in this cycle. The
+    orchestrator now verifies the revision on the cold path *and* the warm path
+    and aborts otherwise, and the summary records `observed_commit` beside the
+    declared pin. It also counts each test by its own recorded outcome instead of
+    copying the upstream runner's per-suite header — and that header counts an
+    expected failure inside `passed`: measured on the 2026-10-20 run, the C suite
+    reports `passed: 14, xfailed: 1` over 14 entries that are 13 passes and one
+    xfail. The published "72 pass / 1 xfail" therefore described 73 results from
+    72 executions; the honest figure is **71 pass / 1 documented expected-failure
+    / 0 fail of 72 executed**, and the diverging header is kept in the evidence
+    file rather than reconciled away. An outcome the harness does not recognise is
+    counted as a failure, never dropped.
+  - `conformance/run_core_spec.py` compared cache identity against declared fields
+    only, so a version string and an engine dict could describe a measurement from
+    another toolchain. The identity now carries three observed facts — the sha256
+    of the native runtime library actually loaded, the sha256 of the harness
+    itself, and the `wast2json` tool and version — so a bumped wabt or an edited
+    harness invalidates the cache instead of inheriting it. A synthetic abort result
+    is stamped like any other result, and the evidence reports
+    `aborted_files: 100` with the meaning spelled out: those files carry no
+    per-command measurement, and classing them as deviations is a statement about
+    the upstream engine, not a conformance result. `measured` now answers
+    provenance only — a run in which nothing ran, or in which every file aborted,
+    cannot raise the flag — and the exit code stays strict.
+- **The benchmark guard's numbers now have to be measurements.** Review measured
+  that after the route binding landed, the guard could still report "pass" for a
+  machine where nothing executed: `measure()` ignored `result.status`, so a refused
+  run (unqualified runtime) produced a 0.08 ms median inside every budget, and the
+  declared route was never compared with the path the host recorded. Each sample is
+  now checked for `SUCCESS` and for `execution_mode`, a route with no timed runs is
+  a failure, and a declared budget above 2500 ms fails the guard outright —
+  "loose by design" is a bound, not an open cheque.
+- **Two High CodeQL findings in the published tooling are closed by code.** The
+  local CodeQL 2.27.2 default suite (`codeql/python-queries@1.8.12` — the suite
+  `codeql.yml` runs) still carried four findings on the previous candidate after
+  the capture-file round; two were real:
+  - `py/insecure-temporary-file` (CWE-377, security-severity 7.0) in
+    `benchmarks/poll_oneoff_wall_hostcall_probe.py` and
+    `benchmarks/stdio_overflow_output_alloc_probe.py`. Both called the deprecated
+    `tempfile.mktemp`, which only *names* a path — the gap between guessing it
+    and opening it is the race. Both now use `mkstemp`, which creates the file
+    with `O_EXCL`, and a repository-wide test forbids the deprecated call from
+    returning. Each probe was re-run after the change and produces the same
+    result it produced before (164-byte module written; `measure(1000)` →
+    `{requested_bytes: 16000, status: success, stdout_len: 10000}`).
+  - `py/incomplete-url-substring-sanitization` (CWE-20, security-severity 7.8) in
+    `scripts/metrics_snapshot.py`, which picked the GitHub request shape with a
+    prefix test on the raw URL string. A prefix test on a URL is not a host check:
+    `https://api.github.com.evil.test` passes it. The decision now comes from
+    `urlparse`, with userinfo and port removed and the scheme compared apart from
+    the host; seven cases pin the behaviour, including the shapes the old test
+    accepted. Neither file ships in the wheel and neither is reachable from guest
+    code, but both are published — and a High finding here is either fixed or
+    refuted with reproducible evidence, never closed by writing about it.
+- **The last High finding of the default suite is refuted by its own dataflow.**
+  `py/clear-text-logging-sensitive-data` (CWE-312/359, 7.5) at
+  `benchmarks/invariant_model.py:241` says the printed model result logs a
+  secret. The trace names its source: the string literal `"trusted"` at
+  `ephemora_cell/execution_report.py:110`, reaching the print through the
+  `VALID_TRUST` frozenset as the `trust_levels` field. Running the program shows
+  that field is exactly `["trusted", "unknown", "untrusted"]` — the three fixed
+  labels of the ADR-015 posture enumeration, not a runtime value, not read from
+  the environment or a file — and the whole 1,085-character output matches six
+  credential shapes (PEM block, AWS-style key, GitHub token, bearer value,
+  password-shaped assignment, long base64) zero times. No query configuration
+  was touched and nothing was suppressed: the alert is left visible so a reader
+  can re-check it against the run.
+- **The benchmark guard now judges each execution route on its own scale.** The
+  guard is a blocking step in the `test` job, and on the release candidate it
+  was red: `pooled_wall_median_ms: 127.967 ms (limit 5.0) [FAIL]`,
+  `default_wall_median_ms: 126.607 ms (limit 20.0) [FAIL]`. The engine had not
+  slowed down. `timed_scenario()` called `sandbox.run()` with no posture and no
+  isolation argument, and since ADR-015 the documented default posture routes an
+  untrusted Preview1 run through the disposable worker — so the guard had been
+  timing a full process spawn against budgets calibrated on a pooled in-process
+  execution. The thresholds are unchanged where they were meaningful, and each is
+  now bound to the route it measures: `pooled_inprocess` (wall 5 ms, guest 5 ms,
+  measured 1.30 / 0.41 ms), `default_inprocess` (wall 20 ms, measured 2.50 ms)
+  and the route an ordinary caller actually gets, `worker_default_posture`, with
+  its own spawn-inclusive budget of 1500 ms against a measured 115-134 ms median
+  — an order of magnitude, consistent with what this guard was always for.
+  Metrics measured without a threshold are printed instead of dropped, so
+  removing a leg cannot quietly shrink the gate. Seven regression tests cover the
+  binding (including a negative control that a breached budget still exits `1`);
+  all seven were red before the change.
+- **A core-spec run can no longer claim a measurement it did not take.** Two
+  defects in `conformance/run_core_spec.py`, both found by reproducing the CI
+  scope locally on the release candidate. (a) The suite was cloned with
+  `--depth 1`, which carries only the branch tip, so `git checkout <pin>` fails
+  with `pathspec 'b464a4cd100d' did not match any file(s) known to git` as soon
+  as upstream moves past the pin — measured on a cold cache; GitHub also refuses
+  `fetch --depth 1 <sha>` (`couldn't find remote ref`), so the job simply could
+  not run. The clone is now complete, the pinned revision is fetched when the
+  cache lacks it, and the run ends with a self-evidencing assertion that aborts
+  if the suite is at any other revision. (b) Per-file results are cached under
+  `gen/` and reused whenever the file existed, with no record of what produced
+  them, so a run inherited numbers from a different runtime and a different
+  engine configuration. Measured: the published `core_spec_2026-10-12.json`
+  (header `wasmtime: 49.0.0`, `measured: true`) contains the `data`, `global`
+  and `imports` records of the 2026-09-19 cache — measured under wasmtime
+  47.0.1 and before the proposal lockdown of GHSA-m63x-6p34-q65x entered the
+  harness's engine configuration. Every cached entry now carries that identity
+  (runtime version + engine configuration + pinned suite) and is reused only on
+  an exact match; an unstamped entry is re-measured, because unknown provenance
+  is not evidence. Four regression tests name both defects; all four were red
+  against the previous commit before the fix.
+- **The published core-spec conformance figure states what the shipped
+  configuration actually measures.** Re-measured end to end on a cold cache
+  against the qualified runtime (`49.0.3.post2+git.1d21c90f`, suite pinned
+  `b464a4cd100d`, macOS arm64): **31,896 pass / 3,281 classified
+  deviations / 684 text-format skips / 81 failures the harness does not
+  classify**, so the harness exits `1`. The previously published 31,931 pass /
+  46 fail predated the proposal lockdown. The 81 are triaged case by case in
+  `conformance/README.md`: 29 sit on modules the shipped posture refuses — 14
+  parse-time refusals (9 naming the exceptions proposal, 5 naming the
+  constant-expression and table-initializer forms those proposals require) and 15
+  later assertions that depend on those modules having registered; 29 are
+  exact-bit float comparisons the Python binding cannot read back or where a
+  different payload propagates; 12 ask the harness's spectest environment for
+  imports it does not provide; 11 are long-standing table/bulk and `local_init`
+  cases. None is a sandbox-policy outcome, and nothing was reclassified into an
+  xfail to make the job read green. One caveat is now stated in both the evidence
+  and the document: 100 of the 3,281 classified are files where the upstream
+  engine killed the process, and an aborted file carries no per-command
+  measurement at all — `aborted_files` is reported in the JSON, so "classified"
+  cannot be read as "measured".
+- **A component run through the facade no longer orphans its capture directory.**
+  `WASISandbox.run()` answers a component by building a private `ComponentSandbox`,
+  running it and dropping the object — and the capture directory belongs to that
+  inner object, so the facade's own `cleanup()` cannot reach it. Measured on the
+  release candidate: after a documented `run()` + `cleanup()` cycle of a component
+  with stdin, `ephemora_host_*` survived with `stdin.txt` and `stdout.txt` inside it,
+  while the published promise says a run leaves nothing behind. Every other internal
+  caller (the disposable worker, the CLI, the language adapters, the MCP engine)
+  already pairs its run with `cleanup()`; the delegation was the one that did not,
+  and it now does. The lifecycle itself is unchanged on purpose —
+  `tests/test_io_budget.py` requires the capture file to still exist after a run, so
+  cleaning inside `run()` would have broken a documented contract instead of fixing
+  one. A regression test names the residue case.
+- **Capture files are created owner-only.** The run's directory comes from
+  `mkdtemp` (`0700`), but the files inside were opened with the plain built-in, which
+  applies the process umask, so `stdin.txt` (the caller's own input) and `stdout.txt`
+  landed at `0644` — group and world read bits on content the host writes for exactly
+  one consumer. Measured before the change: `0o644`, other-readable, with only the
+  parent directory hiding it. One shared helper (`open_private`) now creates every
+  capture file with `0600`, used by both ABI routes and by the output sink, and a
+  test asserts no group or other bit survives on any file in the capture directory.
+  This is the product-side half of what the CodeQL `clear-text-storage` alert pointed
+  at: writing the guest's stdin to disk is not avoidable on these routes (wasmtime's
+  WASI config takes a *path* for stdin, not a pipe), so the exposure is bounded —
+  private bits, owner-only directory, removed by `cleanup()`.
+- **A guest exit number that is a multiple of 256 can no longer read as success.**
+  Both `run` routes handed the reported code straight to `sys.exit`, and the shell
+  keeps one byte of that argument: measured, `sys.exit(256)` leaves process status
+  `0` — a failure a caller would read as a clean run while the document says `error`.
+  One shared helper now reports any code collapsing to zero as `1` and keeps a real
+  number below 256 exact. Reachability differs by route: the Preview1 wasm path
+  normalises `proc_exit(256)` to `1` inside the runtime (measured), while a
+  guest-reported code on a language route reaches the CLI unchanged.
+- **A nested component is validated, not sliced.** The component guard checked four
+  bytes of a nested component section and then sliced off eight, so a nested section
+  carrying nothing but the magic walked as an "empty component" and was accepted with
+  no version or layer check. The nested header now carries the same invariant as the
+  outer bytes (magic, version byte `0x0d`, component layer `0x0001`); the refusal is
+  fail-closed, and the new tests are measured to fail on the pre-fix tree.
+- **Two security tests that could not run outside one machine are fixed.**
+  `tests/test_agent_executor_confinement.py` loads
+  `benchmarks/workloads/hello_rust.wasm` unconditionally, but that workload was
+  gitignored while its siblings (`code_review.wasm`, `coremark.wasm`,
+  `exploit.wasm`, …) are tracked — so on a fresh clone of this release both
+  allowlist-execution tests died with `FileNotFoundError` instead of testing the
+  confinement boundary (measured: `2 failed` on `git clone` of `09210f0`), and
+  `ci.yml` never compiled it either. The fixture now travels with the repo, and
+  the fresh clone reports `1517 passed / 23 skipped`, the stamped number.
+- **`run --json` now answers one status vocabulary for every guest.** The wasm branch
+  reported `"status": "success"` while a `--language` run handed back the enum's
+  own spelling (`"ExecutionStatus.SUCCESS"`) under the same key, so a consumer
+  reading one schema broke on the other. Language runs now carry the same
+  host-observed short status; the exit code was already derived from the host
+  observation and is unchanged. The two documents are still **different shapes**
+  and the docs now say so: a language report is narrower — it does not carry
+  `stdin_capped`, `fuel_budget`, `fuel_utilization`, `memory_mb`,
+  `stdout_bytes`/`stderr_bytes`, `warnings` or `security_baseline`.
+- **`run --language python|javascript` stopped swallowing flags it cannot carry.**
+  The adapters receive only the script, its arguments and the budget config, so
+  `--allow-dirs`, `--stdin`, the whole `--tenant` family (`--tenant`,
+  `--tenant-book`, `--tenant-max-runs`, `--tenant-max-fuel`, including a cap
+  passed without `--tenant`) and an `--abi` the adapter would override were
+  accepted and silently dropped: an operator could believe a directory was
+  preopened, an input delivered or a run attributed to a tenant when none of that
+  happened. Those flags are now refused with exit `2` and a reason naming what
+  replaces them. The ABI refusal states who actually decides (a Python run's ABI
+  comes from the guest's own bytes; a JavaScript run is always preview1) rather
+  than claiming the run could not be the requested ABI — with a bring-your-own
+  legacy interpreter that run really would be preview1. `--allow-env` is
+  deliberately not in that set — the adapters rebuild only
+  `allow_dirs` over the interpreter profile, so environment pairs do reach the
+  guest — and `--isolated` stays accepted because the adapter already satisfies it.
+  `policy check --language` is intentionally NOT symmetric on `--allow-dirs`: it
+  answers the view (exit `0`) and names the dropped directories, so a
+  `policy check && run` shell gate is not the documented sequence on a language
+  path.
+- **`run --language python` no longer discards the script's arguments on the
+  component path.** `lang_py.run_python_script` forwarded `args` only to the
+  legacy Preview1 interpreter; the WASI-0.2 branch — the installed product guest —
+  dropped them silently, so `run s.py -- a b` executed a different program than
+  the one asked for. Measured against the real guest, the component runner's argv
+  does reach the exec'd script, so the branch now passes them through (the runner
+  supplies `argv[0]`; the caller's arguments occupy the guest's `sys.argv[1:]`).
+- **`lang_js.run_javascript_source`'s own docstring claimed the staged `/work`
+  directory was "the only preopen".** Measured on both interpreters, a preview1
+  source run additionally gets its ephemeral `/sandbox` scratch — the same
+  exclusivity error the policy view had, surviving in the shipped API doc.
+  Corrected.
+- **`doctor`'s `cli-entrypoints` check stopped warning on a good installation.** It
+  searched only `PATH`, so a clean-room install of the built wheel reported
+  `WARN not on PATH: ephemora` while `ephemora` sat ready beside the interpreter
+  (measured in the wheelhouse install). It now searches the running interpreter's
+  own script directory as well, reports `ok` with the location and keeps the
+  "not on PATH" advice as advice, and warns only when a script is found nowhere —
+  naming the directory it looked in. `WARN` that fires on a correct install is a
+  false alarm that trains an operator to ignore the real one.
+- **`distribution_guard artifacts` now verifies a wheel's own RECORD, and `doctor`
+  stopped crediting another installation's console script.** The completeness rule
+  added in this cycle only proved that member NAMES were present, so an artefact
+  carrying the right names with stale bytes passed (measured: a wheel with a
+  replaced `doctor.py` and an unchanged RECORD → `clean`, exit 0). Every project
+  wheel is now checked against its own RECORD digests and sizes, and a missing
+  RECORD is a finding rather than a blind spot. `doctor`'s `cli-entrypoints` check
+  counted any PATH hit, including one whose `#!` names a different interpreter —
+  on this machine an older Homebrew install satisfied it while the environment
+  under test had no such script; a foreign hit is now reported and never counted
+  as this installation's entry point.
+- **`verify` now says what it can read.** Pointing it at an ordinary run report
+  answered only "no verifiable evidence found in <file>", which leaves the reader
+  guessing whether the file, the format or the tool is at fault. The refusal now
+  names the four artefact kinds `verify` accepts (JSONL execution ledger, DSSE
+  envelope, signed execution record, pre-exec/receipt chain). Exit status is
+  unchanged: `1`, because nothing was verified.
+- **The Semantic Kernel example stopped masking a real defect as a skip.** Its
+  plug-in was registered under a display name containing a space, which the kernel's
+  name schema rejects; the resulting error was reported as "framework absent" with
+  exit `0`. The name now follows the schema (`EphemoraCell`) and a registration
+  failure exits non-zero, so a broken integration cannot read as an untested one.
+- **`verify` no longer misstates the caller's key or its signatures.** With
+  `--key` supplied, a broken or unsigned ledger reported "this path holds no key" —
+  the exit code was right, the sentence was not; and "signed" was read off the last
+  entry only, so a ledger with two signed entries and one unsigned head was described
+  as if nothing in it were signed. The report now names the actual situation (the
+  walk stopped at a chain break, the supplied key found no signature at all, or a
+  specific entry could not be authenticated) and carries the signed-entry count,
+  because that wording is what an operator reads to decide what was proved.
+- **The preview1 I/O-budget refusal guarded its stdout capture.** The breach result
+  passed a `str | None` path to a helper that requires a `str`: a breach seen before
+  the capture file existed would raise `TypeError` inside the watcher and mask the
+  refusal the run is supposed to report. The call now uses the same
+  `if stdout_path else ""` guard the neighbouring result paths already use, and the
+  type check over both shipped packages is clean (40 source files, mypy 2.4.0).
+
 ### Security
+
+- **The HTTP bridge can no longer be composed without a token.** An independent
+  pre-push review measured that `ephemora_cell_mcp/http_bridge.py` enforced its
+  documented "no token, no start" posture only in the CLI's `main()`. The
+  composition function `build_app()` assembled the gate with
+  `policy.token or ""`, so a library caller passing an empty token got a bearer
+  middleware whose secret was the empty string — and `Authorization: Bearer `
+  (empty value) compared equal to it. Measured through a real HTTP request to a
+  real stdio child: `tools/call` of the `echo` tool returned `status: "success"`
+  with a genuine `fuel_consumed` record — arbitrary WASM execution behind an
+  unauthenticated loopback port. Three defences now sit where each claim belongs:
+  `build_app()` refuses any posture its own `violations()` rejects, before
+  importing anything optional; the middleware refuses an empty or whitespace
+  secret at construction; and the refusal is proven reachable without the SDK
+  installed. The same review found the bridge handing its bearer token to the
+  child process (`env={**os.environ, ...}`) and `tools/list` awaiting an upstream
+  with no time bound while `tools/call` had one — both closed: the child
+  environment drops the token variable by name and keeps everything else, and
+  both upstream calls run under the bridge's own wall bound, with a timed-out
+  `tools/call` still reported as a failed tool result and never as a success.
+  Eight tests, all red against the previous candidate.
+- **Capture-file permission bits are set on every open, and a failed cleanup can
+  no longer be silent on the component route.** Two findings on the hardening
+  itself. `open_private` relied on `O_CREAT`'s mode, which the kernel ignores for a
+  path that already exists — measured, a pre-existing `0644` stayed `0644`
+  through the helper (unreachable in the shipped layout, where every capture path
+  lives in a fresh `0700` `mkdtemp`, but the docstring claimed more than the code
+  did); the bits are now set with `fchmod` on the descriptor just opened. And
+  `ComponentSandbox.cleanup()` deleted with `ignore_errors=True` and returned
+  nothing, so a capture directory that could not be removed (measured with an
+  unremovable directory) read as cleaned while the facade answered `[]` — it
+  returns the surviving paths like the facade does, and the facade's component
+  delegation carries that residue into its own `cleanup()` report. Five tests,
+  three of them red against the previous candidate.
+- **The import-cycle alerts over the shipped package are measured, not trusted in
+  either direction.** CodeQL's `security-and-quality` and `code-quality` suites
+  (neither is run by `codeql.yml`) report `py/cyclic-import` (3) and
+  `py/unsafe-cyclic-import` (2) around `egress_sidecar` / `grant_ledger`, plus
+  `py/unused-import` at `process_worker.py:39`. The runtime edges were checked
+  directly: `egress_sidecar.py:54` is a `TYPE_CHECKING`-only import and
+  `process_worker.py:39` serves an annotation under
+  `from __future__ import annotations`, so the only runtime edge between the two
+  modules runs in one direction. Importing `grant_ledger` first and importing
+  `egress_sidecar` first each resolve `GrantLedger` and `EgressGrant` in a fresh
+  interpreter, and both entry points import cleanly behind each order. Recorded
+  as an observation about the queries' handling of `TYPE_CHECKING` — neither a
+  defect to fix nor a suppression.
+- **Agent-executor confinement hardened against a model-supplied path.**
+  `integration/ephemora_cell_agent_executor.py` now refuses
+  malformed input instead of raising — a non-string or NUL-bearing path from
+  model output returns `policy_denied` rather than escaping the tool call as a
+  `TypeError`/`ValueError`; the module is opened with `O_NOFOLLOW` and
+  `O_NONBLOCK` after an `lstat` regular-file and size check, so a symlink out of
+  the allowlist and a FIFO that would have blocked the call are both refused;
+  the authorized bytes are hashed once, bound onto the run as
+  `expected_sha256`, and re-materialised into a private `0700` directory before
+  execution, which closes the check-to-use window (swapping the allowlisted
+  file after authorization can no longer change what runs); an operator may pin
+  exact module digests via `allowed_sha256`. Counterexample tests added.
+- **MCP startup fails closed on a misconfigured tool set.** A nonexistent
+  `--tools-dir` used to start a fully working server that advertised only
+  `get-policy` (exit 0, no diagnostic): every real tool call answered
+  `unknown tool`, and behind the HTTP bridge that is a live, authenticated
+  endpoint with nothing executable behind it. `python -m ephemora_cell_mcp` now
+  exits 2 when `--tools-dir` is not a directory, and the bridge refuses to serve
+  an upstream that lists no WASM tool — `--allow-no-tools` is the explicit
+  opt-out. The timeout path was also measured end to end: an exceeded
+  `--call-timeout` returns a tool error and leaves the session usable rather than
+  hanging the caller.
+- **Execution-record integrity: a guest error marker can no longer forge
+  the host status.** The language adapters previously promoted the untrusted
+  `EPHEMORA_USER_ERROR` stderr marker into a fabricated non-zero `exit_code`.
+  Because that marker is content the sandboxed user's own code can print, it is
+  now recorded only as the separate, explicitly-untrusted `guest_reported_error`
+  diagnostic; `status` and `exit_code` always reflect exactly what the isolated
+  worker observed. Counterexample and regression tests added for both the Python
+  component and JavaScript interpreter guests.
+- **GHSA-32h6-97mm-8q3c async execution path enforced-excluded at the loader.**
+  The `component_guard.py` async-component detector (prepared 2026-10-14, not
+  wired) is completed and now enforced in the load path. Its accept-side grammar
+  was finished against the authoritative Component Model binary spec
+  (`nameattributes`, `alias` export/outer, `externtype`/`typebound`/`valuebound`,
+  `componentdecl`/`instancedecl`), and it is certified against the repository's
+  real component corpus — every WASI p2 Rust probe, `componentize-py` lifted
+  guest and WAT fixture (38 components) walks cleanly with zero over-rejection.
+  `guard_component_bytes` is called at the **single** `wasmtime.component.Component()`
+  site in `wasi_02.ComponentSandbox.run`, before the native parser, so any
+  component-model async construct (async-lift / future / stream — the surface the
+  unvalidated async callback result count overruns) is refused fail-closed on both
+  the in-process trusted path and the protected worker. Any byte the reader cannot
+  confidently walk (e.g. an embedded core WasmGC `type` declarator, still
+  unimplemented) is refused, never accepted — over-reject only, never a bypass.
+  `tests/test_component_guard.py` adds real-guest acceptance, an async-inside-
+  `instancetype` control, and loader-integration tests (async refused with a
+  `GHSA-32h6-97mm-8q3c` error through `run()`; a real guest not blocked). This
+  closes the *product-execution* path; it does **not** patch the engine — the
+  corrected 49.0.2 wheel / controlled source build stays the definitive fix and the
+  engine-upgrade gate stays open.
+
+- **Public security numbers reconciled to a per-scenario attack & containment
+  matrix.** The README "8/8 blocked" line was verified against the live runtime
+  on this commit (still `exit 0`, WASI Preview1 default path) and reframed as the
+  specific eight-intents-vs-one-boundary result it is, not a current aggregate.
+  The arXiv 2509.11242 eleven-strategy table was found to disagree with its own
+  summary prose (table `7 blocked / 3 bounded / 1 permitted`; prose said `8 / 2 /
+  1`, silently promoting memory exhaustion — a bounded row with a WasmGC-heap gap —
+  into "blocked"); the summary and its two marketing mirrors are corrected to the
+  row-for-row `7 / 3 / 1`. A consolidated
+  [`docs/security_attack_matrix.md`](docs/security_attack_matrix.md)
+  (+ machine-readable `benchmarks/results/2026-10-15/security_attack_matrix.json`)
+  now lists every scenario actually run — capability set (A), 11 strategies (B),
+  resource-DoS sweeps (C, `write_flood` correctly BOUNDED not blocked), the UK-AISI
+  18 mapping (D, `NOT-EXPRESSIBLE` kept apart from runtime blocks; `dirty_cow`
+  reclassified UNKNOWN on a module-load error; the public evidence bundle noted as
+  an Enterprise run that did **not** score OSS Cell), the two **differing**
+  native-Linux containment runs (E, memory-cgroup confirmed in one, unobservable in
+  the other → CONTAINMENT, not runtime blocks), the CVE replays (F), the regression
+  gates (G) and the open advisories (H, GHSA-32h6 as `FAILED`/release-blocker, never
+  a defence) — each with class, boundary, commit, runtime and platform, and no
+  cross-boundary addition. `SECURITY.md`'s stale suite figure was synced
+  (1105/90 % → 1168/9/88 % on this commit). A new CI guard
+  `scripts/check_security_claims.py` fails the build if the table and its summary
+  drift again, if an unsupported OSS "18/18 blocked" claim reappears, or if the
+  matrix link is dropped from the public docs.
 
 - **Runtime dependency moved to wasmtime 49.0.0.** The single runtime
   dependency was raised from `47.0.1` to `49.0.0` (pyproject floor `>=43.0.1` →
@@ -24,11 +687,85 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   GHSA-m63x (fuel amplification), and the 2026-10-02 wave (GHSA-j366, GHSA-gqmc,
   GHSA-96f6) — each still carries its documented mitigation (worker isolation,
   proposals enforced-off, bounded output sinks). The Critical GHSA-32h6-97mm-8q3c
-  (async component surface, CVSS 9.3) is **not** touched by this pin — the pinned
-  engine stays within its affected versions and its reachability is classified
-  UNKNOWN (residual risk), documented in SECURITY.md. Full test suite, lint/type, guards,
+  (identical to RUSTSEC-2026-0327 — a native stack buffer overflow in async-lifted
+  component callback result-count validation) is **not** touched by this pin — the pinned
+  engine stays IN BAND (fix 49.0.2, no wheel on PyPI) and the overflow's reachability is
+  UNPROVEN (open memory-safety risk; public 1.2.0 on HOLD), documented in SECURITY.md. Full test suite, lint/type, guards,
   wasi-testsuite conformance and the security evidence probes were re-run green on
   the new pin; see SECURITY.md "Dependency upgrade truth".
+
+- **Worker process-management repaired (759-incident root cause) + enforced-exclusion
+  detector prepared.** The isolation gate recursed: an isolated worker calling
+  `sandbox.run()` under the default `unknown` posture re-triggered the mandate and
+  spawned its own sub-worker in an unbounded fan-out. Fixed with a thread-local
+  isolation-boundary guard (suppresses only the re-spawn, never raises trust), a
+  bounded concurrency cap (`EPHEMORA_MAX_CONCURRENT_WORKERS`, default ≤8), process-group
+  `killpg` reaping, and a worker payload-stdin deadline; `tests/test_process_executor.py`
+  proves 0 lingering workers after a 24-burst and after the full suite (default posture
+  suite re-validation: 1148 passed / 0 failed). The GHSA-32h6 "technically enforced
+  exclusion" path is prepared as `ephemora_cell/component_guard.py` — an independent
+  component-binary reader (never the vulnerable native parser) that fail-closed refuses
+  component-model async constructs (async functype / future / stream, incl. nested),
+  proven by `tests/test_component_guard.py`; it is **not yet wired** because the
+  accept-side grammar for real WASI p2 guests needs full Component-Model + core-GC type
+  parsing and broad-corpus certification, which this host cannot provide. The advisory
+  stays **UNRESOLVED and a release blocker** (no 49.0.2 wheel on PyPI, re-confirmed
+  2026-10-14); loader behaviour is unchanged and worker containment remains the active
+  mitigation, not closure.
+
+- **Modern Python guest: reproducible build recipe + isolated-run proof
+  (Python half of the 1.2.0 language deliverability, still open).** The
+  documented recipe `scripts/build_python_guest.py` pins `componentize-py==0.25.1`,
+  lays down a `wasi:cli/run`-style command world (the only component entry point the
+  runner executes) and builds a CPython WASI-0.2 component; measured on this host it
+  runs `SUCCESS` through the **isolated** sandbox under the `interpreter` profile,
+  digest-bound, with an opt-in qualification gate
+  (`EPHEMORA_PY_GUEST_QUALIFY=1 pytest tests/test_python_guest.py`, skipped by default)
+  and evidence in `benchmarks/results/2026-10-14/python_component_guest.json`. This is
+  **not yet a shippable language package**: componentize-py is not bit-deterministic
+  (consecutive builds differ, so a package must pin one build-once artifact digest),
+  and publishing the versioned `ephemora-cell[python]` / `[javascript]` distributions
+  with license/SBOM clearance and an end-to-end install-against-the-published-package
+  qualification remain **NOT TESTED / gated** supply-chain tasks — no
+  package is published and 1.2.0 public release stays on HOLD. See ADR-009 and the
+  JavaScript-half bullet below.
+
+- **Modern JavaScript guest: reproducible build recipe + isolated-run proof
+  (JavaScript half of the 1.2.0 language deliverability, still open).** The
+  documented recipe `scripts/build_js_guest.py` pins the `bytecodealliance/javy 9.1.0`
+  CLI (operator-installed — a native binary, not a pip/npm package, discovered on PATH
+  or via `EPHEMORA_JAVY_BIN`), lays down a tiny self-contained stdin-JSON→stdout-JSON ES
+  program and builds a standalone QuickJS-in-WASM Preview1 core module; measured on this
+  host it round-trips `SUCCESS` through the **isolated** `lang_js` adapter, digest-bound,
+  with an opt-in qualification gate
+  (`EPHEMORA_JS_GUEST_QUALIFY=1 pytest tests/test_js_guest.py`, skipped by default) and a
+  negative control that a mismatched `expected_sha256` fails closed before execution. Like
+  Python this is **not a shippable language package**: javy 9.1.0 is not bit-deterministic
+  (back-to-back builds differ by a couple of bytes, so a package pins one build-once
+  artifact digest), and the publish/license/SBOM/install-against-published-package tasks
+  stay gated exactly as for the Python half. No package is published; 1.2.0 public release
+  stays on HOLD. See ADR-009.
+
+- **Language-level API is now first-class and lazy.** `from ephemora_cell
+  import run_python, run_javascript, run_language, available_languages` resolve
+  through a PEP 562 `__getattr__`, so importing `ephemora_cell` never pulls a
+  language adapter or interpreter module eagerly (enforced by a subprocess import
+  test). Each entry resolves an installed optional guest or an explicit
+  `EPHEMORA_BYO_*` pin and **fails closed** with the single documented install
+  command when none is present — no manual guest hunting, no hidden download, and
+  the run is isolated.
+
+- **Agent-framework integrations exercised against real SDKs.** The
+  `integration/agent_frameworks/` examples were run on **installed** LangChain
+  1.6.10 / LangGraph 1.2.15 / CrewAI 1.15.28 / OpenAI Agents 0.20.0 wheels
+  (isolated venv, core wheel + wasmtime 49.0.0): a LangGraph `StateGraph` and a
+  new LangChain `@tool` drive several real WASM executions end to end, and the
+  Cell function registered as a CrewAI `BaseTool` / OpenAI `FunctionTool` executes
+  real WASM through the framework's own tool wrapper. The autonomous LLM decision
+  loop (`crew.kickoff()` / `Runner.run`) is **not** exercised here — it needs a
+  model endpoint or `OPENAI_API_KEY` and is reported `skipped`, never faked; these
+  remain standalone scripts, not part of the CI pytest suite. Evidence:
+  `benchmarks/results/2026-10-14/agent_frameworks.json`.
 
 - **Untrusted WASI 0.2 components now run isolated — enforced, not
   recommended.** A central gate at the single execution choke-point (every
@@ -61,6 +798,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Infrastructure
 
+- **Coverage trajectory explained (90 % → 88 % → 89 %) and the relevant gaps
+  closed.** The historical 90 % was measured on the smaller tree at the last
+  freeze (1105 tests); as the release line added the ~500-line component-model
+  grammar walker (`component_guard.py`), the loader wiring, the reworked worker
+  reaper and the Python/JavaScript guest adapters and build recipes, statement
+  coverage fell to 88 % — the uncovered mass was concentrated in the new
+  modules' defensive fail-closed branches and in the opt-in heavy paths
+  (the ~18 MB CPython component build and the Javy build) that a default `pytest`
+  run never executes. That is growth of the denominator, not removed tests. The
+  gaps that *matter* were then closed with deterministic, non-heavy tests:
+  `process_executor.py` 71 % → 99 % (the 759-incident hardening paths — `_reap`
+  force-reap on a stuck descendant, `_kill_worker_group` child-kill fallback,
+  malformed-worker-report refusal, spawn-OSError fail-closed with no in-process
+  fallback, and the `measure_overhead` temp-dir hygiene fix) and
+  `component_guard.py` 78 % → 87 % (every fail-closed rejection branch now proven
+  to actually raise — unknown sort/nameattributes/attribute/valtype/externtype/
+  valuebound/typebound/alias tags, truncated header, non-component layer and the
+  unimplemented embedded core-type declarator — so the "over-reject only, never
+  bypass" guarantee is executable, not just asserted). Suite grew to 1191 passing
+  / 11 skipped (1202 collected), overall coverage back to 89 % (4559/5102). The
+  remaining uncovered lines are the opt-in heavy build gates and the deliberately
+  unimplemented core WasmGC type grammar (refused, not parsed) — not silent holes.
+
+- **1.2.0 release artifacts rebuilt and qualified from source HEAD.** The
+  previously built `dist/` wheel+sdist (2026-10-14) predated the GHSA-32h6 loader
+  wiring and the worker/language fixes, so they did **not** contain the shipped
+  security enforcement; both artifacts were rebuilt with `uv build` (isolated,
+  PEP 517) from a clean `--no-hardlinks` clone of the release commit
+  (`4a4ac51`), giving a wheel whose `wasi_02.py` carries the `guard_component_bytes`
+  call and whose sdist ships `component_guard.py` + its tests. Fresh-install
+  qualification against **only the installed wheel** (external venv, site-packages
+  resolution, scratch CWD — no source shadowing) confirmed: an async-lifted
+  component is refused at the loader with a `GHSA-32h6-97mm-8q3c` error before the
+  native parser, a real WASI p2 guest is not blocked, and the `lang_js` adapter
+  round-trips a freshly built Javy guest. The native engine bundled with the
+  install resolves to the same `_libwasmtime` digest the security advisories were
+  measured against. Identity (commit + artifact + engine digests) is recorded in
+  `benchmarks/results/2026-10-15/release_identity.json` and the run in
+  `fresh_install_qualification.json`. **Mechanical publishability is not a
+  release approval**: the 49.0.0 engine stays unpatched for GHSA-32h6, the pilot VM
+  is `NOT TESTED` and the independent audit is pending, so the public release
+  remains on HOLD and no push/upload was performed.
+
 - **Public-content guard in CI.** A new gate (`scripts/check_public_content.py`,
   rules in `scripts/public_content_guard.json`) scans the tracked tree on every
   push and PR for private-environment leaks — personal home paths, credential
@@ -75,6 +855,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   references in shipped docstrings, comments, CI labels and security documents
   were rewritten into plain engineering language — no technical statement
   changed.
+- **The guard now catches the classes a release sweep actually found.** Measured
+  against the pre-sanitisation tree, the widened identifier rules report 142
+  internal references in 54 files where the shipped rules reported none, and a
+  second round added four more families the sweep surfaced but no rule named:
+  work-branch values recorded inside evidence JSON (`internal-branch-ref`),
+  laboratory host and build-tree names inherited by raw captures
+  (`internal-build-label-ref`), artifact labels encoding a gate build or a
+  milestone (`internal-artifact-label-ref`) and work-stream labels used as
+  docstring headers (`internal-workstream-ref`). The `personal-home-path` rule
+  also stopped pre-trusting one account name that turned out to belong to a real
+  reference host, which had been silencing that host's build paths. Every new
+  rule ships with a positive fixture, and
+  `tests/test_public_content_guard.py::test_every_configured_rule_can_fire` fails
+  if any configured rule could never fire — a guard nobody can prove works is a
+  guard that is quietly dead.
+- **The CI history scan checks commit CONTENT of the range a push introduces.**
+  `scripts/distribution_guard.py history --content --strict-ids` applies the
+  contextual identifier rules to the blobs a push would newly publish (universal
+  secret shapes stay repo-wide), so a squashed or replayed branch cannot smuggle
+  an internal work identifier that full-history scanning would bury in noise.
+  Measured on the accumulated release branch, that range carries 375 findings
+  across 9 rule classes — which is precisely why the release is pushed as a
+  cleaned, re-qualified state rather than as 69 intermediate commits.
 
 ### Documentation
 
@@ -106,6 +909,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   snapshot until the next upload (stated in docs/release_assurance.md so reviewers
   read the repository, not the index page). No runtime behavior changed; no
   release was cut.
+- **README/docs figures and examples re-verified against the exact built 1.2.0
+  artifacts.** Every CLI/API example was re-run against the installed 1.2.0 wheel
+  from a clean out-of-tree directory (no source shadowing): `run --isolated` prints
+  `Hello from Ephemora Cell!`, `run_wasm(max_fuel=100)` returns `FUEL_EXHAUSTED /
+  fuel_consumed=100 / stdout=''`, the `--json` receipt matches, the five CLI verbs
+  (`run/inspect/benchmark/build/ledger`) match, and `run_python` fails closed with
+  the single documented `pip install` command. Four accuracy drifts were corrected:
+  the version-string framing (published `1.1.0` vs source/`1.2.0`-in-preparation,
+  which are no longer the same string — README quick start and the isolation
+  paragraph); the `fuel_bomb --json` sample is now labelled an abridgement of the
+  real (richer, `security_baseline`-carrying) receipt rather than shown as its full
+  body; `run_isolated()` is documented as returning the same `ExecutionResult` type
+  (attribute access plus backwards-compatible dict-style) rather than "a dict", with
+  the raw dict reserved for `process_executor.run_isolated`; and the JavaScript
+  support text now reflects that a reproducible Javy 9.1.0 recipe
+  (`scripts/build_js_guest.py`) exists and was qualified against the installed
+  wheel — a new `benchmarks/results/2026-10-15/js_component_guest.json` evidence
+  artifact records it, and the 2026-10-14 Python evidence snapshot carries a
+  labelled supersession note for its two overtaken outcome claims (component_guard
+  wiring, JS not-provisionable). Only documentation/evidence changed; no runtime
+  behavior changed and no release was cut.
 
 ## [1.1.0] - 2026-10-05
 
@@ -1137,7 +1961,7 @@ cycle produced.
   vector — trailing-slash/hardlink/rename/TRUNCATE — denied on the pinned engine, with positive controls; dated
   JSON `benchmarks/results/2026-09-25/`), persistence/worm (a marker
   written by run N is invisible to run N+1), supervisor/control-plane
-  reachability (env deny-by-default, request injection impossible, no
+  reachability (env deny-by-default, request injection not reachable, no
   policy-writing tool on the MCP surface), trust-handoff (verification
   never inherits across delegation hops). Harness:
   `benchmarks/probe_classes_2026.py`; pytest counterparts in
@@ -1757,7 +2581,7 @@ in some docs); public versioning starts at 1.0.0.
 - **`analytical` profile (ADR-003, opt-in):** for data-analysis workloads
   beyond the 128 MB wall — 64-bit memories (`memory64=True`), 4.5 GiB
   linear memory, 50 M fuel, 120 s timeout, 10 s host-I/O CPU budget.
-  Threads deliberately remain off (threads_roadmap Phase 1); no ambient
+  Threads deliberately remain off (phase 1 of the planned thread rollout); no ambient
   FS/env grants; all isolation budgets (disk quota, I/O
   walls) stay active. Engine-pool fingerprint separates analytical
   engines automatically.

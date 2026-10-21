@@ -25,6 +25,7 @@ from ephemora_cell import (
     WASIConfig,
     WASISandbox,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 
 # === pytest Fixtures (Test Automation) ===
 
@@ -125,7 +126,10 @@ PATH_OPEN_WAT = """
   (data (i32.const 0) "/tmp/test\\00000000000000")  ;; path string at offset 0
   (func (export "_start")
     ;; path_open(dirfd=0, path="/tmp/test", len=9, ...)
-    ;; Without preopened dirs this MUST fail with ENOTCAPABLE (63)
+    ;; Without preopened dirs path_open MUST be denied. Calibrated errno
+    ;; naming: 63 = EPERM (preopen boundary / traversal + symlink),
+    ;; 76 = ENOTCAPABLE. This module drops the real path_open errno and
+    ;; exits with the fixed marker 63 below.
     i32.const 0      ;; dirfd
     i32.const 0      ;; path_name pointer
     i32.const 9      ;; path_name_len
@@ -136,7 +140,7 @@ PATH_OPEN_WAT = """
     i32.const 0      ;; preopen_fds_count
     call $path_open
     drop
-    i32.const 63     ;; ENOTCAPABLE exit code
+    i32.const 63     ;; EPERM (63) marker - errno naming see above
     call $proc_exit
   )
 )
@@ -149,17 +153,19 @@ STDOUT_FLOOD_WAT = """
     (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
   (memory (export "memory") 2)  ;; 2 pages = 128KB for buffer
-  (data (i32.const 0) "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")  ;; 32 chars
+  (data (i32.const 8) "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")  ;; 32 chars
+  ;; wasi_subscription_point: iovec {buf=8, len=32}
+  (data (i32.const 64) "\\08\\00\\00\\00\\20\\00\\00\\00")
   (func (export "_start")
     (local $i i32)
     i32.const 0
     (local.set $i)
     (loop $l
-      ;; fd_write(fd=1/stdout, iovs_ptr=0, iovs_len=1, buf_len=32)
+      ;; fd_write(fd=1/stdout, iovs=64, iovs_len=1, nwritten=100)
       i32.const 1
-      i32.const 0
+      i32.const 64
       i32.const 1
-      i32.const 32
+      i32.const 100
       call $fd_write
       drop
       local.get $i
@@ -620,9 +626,20 @@ class TestSecurity4_6_Timeout_Enforcement:
 
         result = sandbox.run(str(wasm_path))
 
-        assert (
-            result.status == ExecutionStatus.TIMEOUT
+        # The loop must be STOPPED: no hang, no success. Under the 1.2.0 mandate
+        # the default (isolated) posture meters the worker's own CPU, so the
+        # io_cpu_seconds watchdog (default 2.0s) fires BEFORE the 5s wall timeout
+        # and reports the epoch interrupt as ERROR ("I/O budget exceeded"); the
+        # in-process/trusted path reports the wall clock as TIMEOUT. Both are
+        # termination — neither may be SUCCESS — so assert the invariant across
+        # postures rather than pinning one mechanism's status code.
+        assert result.status in (
+            ExecutionStatus.TIMEOUT,
+            ExecutionStatus.ERROR,
         ), f"Timeout failed to kill infinite loop. Got {result.status}: {result.stderr[:200]}"
+        assert (
+            result.status is not ExecutionStatus.SUCCESS
+        ), "infinite loop must never return SUCCESS"
         assert (
             result.elapsed_ms < 10_000
         ), f"Timeout took {result.elapsed_ms:.0f}ms — should have killed within ~5s"
@@ -839,9 +856,13 @@ class TestSecurity4_10_Sandbox_Cleanup:
         wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "cleanup.wasm"
         wasm_path.write_bytes(wasm_bytes)
 
-        result = sandbox.run(str(wasm_path))
-
-        # The sandbox dir from run() should exist
+        # The subject is the PARENT-side zero-dwell lifecycle of the sandbox dir
+        # the WASISandbox object owns (exists after run, gone after cleanup). Under
+        # the 1.2.0 mandate the default posture runs in a worker that cleans its own
+        # dir inside the child, so the parent's ``result.sandbox_dir`` is not the
+        # object this assertion inspects; declare the sanctioned in-process path.
+        # The isolated zero-dwell guarantee is covered by the worker reaping tests.
+        result = sandbox.run(str(wasm_path), trust=TRUST_TRUSTED)
         assert result.sandbox_dir is not None
         assert Path(
             result.sandbox_dir

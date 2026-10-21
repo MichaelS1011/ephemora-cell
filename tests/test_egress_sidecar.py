@@ -32,6 +32,7 @@ from ephemora_cell.egress_sidecar import (
     run_sidecar_cycle,
     validate_request,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell_mcp.engine import (
     CellOutcome,
     CellToolEngine,
@@ -193,7 +194,11 @@ class TestEndToEnd:
                 config = WASIConfig(max_fuel=2_000_000, timeout_seconds=10)
                 sandbox = WASISandbox(config=config)
                 try:
-                    result = sandbox.run(str(wasm))
+                    # In-process subject: the test reads the sidecar request
+                    # artifact out of the parent-owned ``result.sandbox_dir``;
+                    # under the mandate the default posture would run the guest
+                    # in a worker whose dir the parent never surfaces.
+                    result = sandbox.run(str(wasm), trust=TRUST_TRUSTED)
                     assert result.status == ExecutionStatus.SUCCESS, result.stderr
                     assert result.sandbox_dir is not None
                     request_path = Path(result.sandbox_dir) / "sidecar.request.json"
@@ -514,7 +519,13 @@ class TestEngineEgressTrace:
             eng = CellToolEngine(
                 egress_policy=EgressPolicy(
                     allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
-                )
+                ),
+                # The subject is the mediation ORDER inside execute(), which
+                # lives on the in-process egress path. Under the 1.2.0 mandate
+                # an unknown tool + egress is refused up front (egress is not
+                # supported across the isolation boundary), so this trace uses
+                # the host-authorised trusted posture to reach the mediator.
+                trusted_tools=("t",),
             )
             outcome = eng.execute(_spec(), {})
             assert isinstance(outcome, CellOutcome)

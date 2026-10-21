@@ -14,7 +14,7 @@ cannot take the runner with it.
 
 ```yaml
 - id: run-tool
-  uses: MichaelS1011/ephemora-cell/action@v1.1.0   # pin a release tag, not a branch
+  uses: MichaelS1011/ephemora-cell/action@<full-release-commit-sha>  # not a branch, not a tag name
   with:
     module: path/to/module.wasm   # relative to the workspace, required
     profile: llm                  # plugin | llm | edge | default | analytical
@@ -22,15 +22,23 @@ cannot take the runner with it.
     args: --input data.json       # space-separated guest arguments
     allow-dirs: ''                # space-separated preopens — grants full read/write
     isolated: 'true'              # default; see below
-  # outputs: status, exit_code, fuel_consumed, elapsed_ms
+  # outputs: status, exit_code, fuel_consumed, elapsed_ms, error_class
 
 - run: echo "status=${{ steps.run-tool.outputs.status }} fuel=${{ steps.run-tool.outputs.fuel_consumed }}"
 ```
 
-Pin a **release tag** (`@v1.1.0`) rather than `@main`: a tag is what you can
-trace to a signed release, and a mutable branch ref is what a compromised
-repository would rewrite. This repo's own demo workflow uses `./action` from
-the checked-out tree, which is the same code the tag points at.
+Pin the **full commit SHA of the release** rather than a branch or a tag name.
+A SHA is immutable: the workflow runs that commit and nothing else, forever.
+`@main` is a moving default branch — the first thing a compromised repository
+would rewrite — and a tag is only a label that anyone with write access can
+re-point, so `@v1.2.0` tells you which release was *meant* to run, not which
+code did. Resolving the tag once (`git ls-remote https://github.com/MichaelS1011/ephemora-cell refs/tags/v1.2.0`)
+and writing down the commit it names is what makes the step traceable to a
+signed release; a bot then updates the SHA when you choose to accept an upgrade.
+This repository holds itself to the same rule: every `uses:` ref in
+`.github/workflows/` and in this action is a 40-character commit SHA, and the
+release check resolves each one against the remote to confirm it is the commit
+its tag names — 41 SHA-pinned refs, no floating version names.
 
 ## Inputs
 
@@ -45,7 +53,33 @@ the checked-out tree, which is the same code the tag points at.
 | `allow-dirs` | `''` | Directories preopened for the guest. **Read/write, so use sparingly** — the default is no filesystem at all |
 | `isolated` | `'true'` | Run in a disposable worker subprocess with OS-level rlimits and a hard kill |
 | `fail-on` | `non-success` | `non-success` fails the step on any status other than `success`; `never` reports the status and leaves the step green |
-| `package-version` | latest | `ephemora-cell` version to install from PyPI |
+| `package-version` | `''` (latest) | `ephemora-cell` version to install from PyPI |
+
+**Which engine the step gets.** The action's install step pulls from PyPI, and
+1.2.0 floors its runtime at the patched `wasmtime>=49.0.3,<50` line. That floor
+is deliberate and fails closed: PyPI carries no 49.0.3 engine wheel, so an
+unconfigured `pip install ephemora-cell==1.2.0` on a runner resolves to
+*unsatisfiable* rather than quietly pulling the unpatched 49.0.0. The supported
+runner recipe is therefore to install from the release wheelhouse in an earlier
+step and let the action's install see a satisfied requirement:
+
+```yaml
+- run: pip install --no-index --find-links vendor/wheelhouse ephemora-cell
+- uses: MichaelS1011/ephemora-cell/action@<full-release-commit-sha>
+  with: { module: path/to/module.wasm }
+```
+
+If a runner somehow ends up on an engine outside the line, the sandbox does not
+run the module and silently accept the risk: it refuses, and the step reports
+`status=error` with `error_class=environment` and a message naming the runtime
+instead of the module. **Measured:** the action's run block was executed as
+written against four postures — a benign module (`success`), a budgeted stop
+(`fuel_exhausted`, `fuel_consumed == 100`), a caller-class refusal and an
+engine outside the line — and none of the three refusals left the step green.
+**Not measured:** an actual `actions/runs` job on a GitHub-hosted runner for this
+candidate; the workflow definition exists, no run of it has executed for this
+state. Publishing 1.2.0 to PyPI is itself an open gate, so the wheelhouse
+install is the documented path until that publish happens.
 
 ## Outputs
 
@@ -55,6 +89,14 @@ the checked-out tree, which is the same code the tag points at.
 | `exit_code` | the guest's exit code |
 | `fuel_consumed` | fuel units used (`null` when unmetered) |
 | `elapsed_ms` | wall time of the run |
+| `error_class` | `none` (success) \| `execution` (the guest failed, or the sandbox stopped it) \| `attestation` (the run happened, its evidence did not hold) \| `environment` (nothing executed — the engine is outside the qualified runtime line) |
+
+`status` alone does not say who decided. `error_class` comes from the report the
+CLI wrote and separates a module that failed **inside** a covered run from a run
+that was refused **before** any guest instruction executed; a caller-class refusal
+emits no report at all and surfaces as a step failure carrying the CLI's own
+message. The classes and what each one means operationally:
+[docs/cli-errors.md](../docs/cli-errors.md).
 
 `elapsed_ms` is a runner number, not a benchmark number — shared CI hardware
 makes it noisy. `fuel_consumed` is deterministic on a given host architecture

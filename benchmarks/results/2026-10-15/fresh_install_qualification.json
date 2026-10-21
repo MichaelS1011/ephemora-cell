@@ -1,0 +1,32 @@
+{
+  "schema": "ephemora-cell/fresh-install-qualification/1",
+  "date": "2026-10-15",
+  "source_commit": "0b5dda4757a8f64c57906ef3b4f80b6df367181e",
+  "rebuild_reason": "final rebuild so the recorded artifact digests bind the release-prep HEAD after the docs/test passes (#5 coverage tests, #6 README/docs accuracy). Product code is byte-identical to 4a4ac51; the wheel digest changed only because README/CHANGELOG enter the package metadata and the sdist grew with the new tests/evidence. Rebuilt from a clean --no-hardlinks clone of HEAD.",
+  "build": {
+    "method": "uv build (isolated, PEP 517) from fresh clone; SOURCE_DATE_EPOCH set",
+    "wheel_sha256": "666eb0d18d6cdc0549ea7a2d16712da6d2d8b93744a4ed29b873e0b9c94f71e6",
+    "sdist_sha256": "b4e07bc26c8a68a08731dfacaa3e9401394a11c68d5a3b48ee2353baa9313771",
+    "superseded_wheel_sha256": "fe746e7f5d6c7b053133de3ecd6a7fadfa237ade43c5f659b9f342ed7019140a",
+    "superseded_sdist_sha256": "0d3696426840d54e9f7a345b691354799869abea4e0c9a96a6256bec04a8d091"
+  },
+  "native_runtime": {
+    "wasmtime_version": "49.0.0",
+    "_libwasmtime_dylib_sha256": "2cc7e37719916a84fb6c6b5e6cb6746817204e80d5a64b2c2ccff5db065b7c13",
+    "note": "identical to the laboratory engine the GHSA advisories were measured against; still IN BAND for GHSA-32h6 (fix 49.0.2, no wheel) — the loader exclusion, not an engine patch, is what closes the product-execution path"
+  },
+  "install": {
+    "venv_python": "3.12.13",
+    "installed_from": "wheel (site-packages), scratch CWD, no source-tree shadowing",
+    "import_resolved_from": ".../site-packages/ephemora_cell/__init__.py",
+    "reported_version": "1.2.0"
+  },
+  "checks": {
+    "guard_refusal": "PASS — async-lifted component via installed ComponentSandbox.run -> ERROR; stderr contains 'component guard', 'ghsa-32h6', 'async'",
+    "real_guest_not_blocked": "PASS — hello02.wasm via installed sandbox -> SUCCESS; no 'component guard' refusal",
+    "js_roundtrip_from_install": "PASS — installed lang_js adapter ran a freshly built Javy guest -> SUCCESS {'answer':40,'echo':'baz!'} (digest-bound)",
+    "python_guest_recipe": "PASS (see tests/test_python_guest.py EPHEMORA_PY_GUEST_QUALIFY gate; ~18MB CPython component runs isolated)"
+  },
+  "publishable_mechanical": true,
+  "release_status": "BLOCKED — publishable reflects only clean-tree/version-sync; PyPI upload and public release remain gated (GHSA-32h6 engine unpatched, pilot NOT TESTED, independent audit pending). No push/upload performed."
+}

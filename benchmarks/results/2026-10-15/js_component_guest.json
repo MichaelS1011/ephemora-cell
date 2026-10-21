@@ -1,0 +1,40 @@
+{
+  "generated": "2026-10-15",
+  "subject": "Language-guest workstream, JavaScript half (the JavaScript-guest blocker) qualified against the exact built 1.2.0 wheel — JavaScript Preview1 guest built reproducibly with Javy and executed through the isolated Cell sandbox from a fresh install",
+  "host": "macOS (Apple silicon), shared dev host",
+  "artifact_under_test": {
+    "package": "ephemora-cell==1.2.0",
+    "install": "uv venv (CPython 3.12) + `uv pip install --offline dist/ephemora_cell-1.2.0-py3-none-any.whl` plus pinned wasmtime==49.0.0; nothing imported from the source tree (verified via __file__ under site-packages)",
+    "wheel_sha256_binding": "see release_identity.json / fresh_install_qualification.json for the wheel and native-engine digests"
+  },
+  "toolchain": {
+    "javy": "9.1.0",
+    "install": "pinned local build (javy 9.1.0 release binary); not on npm/brew, not auto-provisioned in CI — supplied out-of-band via EPHEMORA_JAVY_BIN, nothing fetched at Cell execution time",
+    "engine_embedded_in_guest": "Javy bundles a QuickJS-in-WASM runtime; the guest is a self-contained Preview1 module"
+  },
+  "recipe": "scripts/build_js_guest.py --out guest.wasm --smoke",
+  "guest": "reads a JSON object on stdin ({\"n\":10,\"msg\":\"baz\"}), computes {\"answer\":40,\"echo\":\"baz!\"} and writes it to stdout; exercised through ephemora_cell.lang_js.run_javascript_module on the isolated subprocess path",
+  "runs": [
+    {
+      "build": "recipe --smoke run (fresh install, site-packages import)",
+      "size_bytes": 1360642,
+      "sha256": "0901ee7b23b058cb2e2749c6375060bedf41187cd4e1a8afc247c007a933d308",
+      "path": "lang_js.run_javascript_module (isolated subprocess worker, expected_sha256 bound)",
+      "status": "SUCCESS",
+      "output": {"answer": 40, "echo": "baz!"},
+      "qualified": true
+    }
+  ],
+  "byte_reproducibility": {
+    "verdict": "NOT bit-deterministic",
+    "evidence": "consecutive Javy 9.1.0 builds of the same source yield differing sha256 at constant size (observed: ee8ce9d4..., 7f91fc98..., 0901ee7b...)",
+    "consequence": "a shipped versioned [javascript] package must pin the digest of one build-once artifact and distribute those exact bytes; the qualify gate binds expected_sha256 and a wrong digest is refused before the guest runs (no hidden download, fail-closed)"
+  },
+  "security_note": "the JS guest runs on the WASI Preview1 path inside the disposable worker; the component isolation gate (component_guard.py) is wired into the wasi_02 component loader (the first release blocker, commit 2de40fd) and is present in this 1.2.0 wheel. This run is one positive data point, NOT a reachability proof that closes GHSA-32h6; that advisory stays open / release-blocking.",
+  "still_gated": [
+    "publishing versioned ephemora-cell[javascript] distribution (PyPI upload requires separate authorization; recipe + entry-point packaging built but not published)",
+    "license / SBOM clearance for redistributing the embedded QuickJS dependency tree inside the BUSL package",
+    "Javy toolchain auto-provisioning in CI (brought from a pinned local build, not downloaded by CI)",
+    "end-to-end qualification against the actually-published package on a fresh install (requires the publish step)"
+  ]
+}

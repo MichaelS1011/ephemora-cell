@@ -47,7 +47,7 @@ DEFAULT = WASIConfig(
 
 # Analytical profile — data-analysis workloads beyond the 128 MB wall
 # (ADR-003): memory64 memories, 4.5 GiB linear memory, larger compute
-# and host-I/O budgets. Threads stay OFF (threads_roadmap Phase 1);
+# and host-I/O budgets. Threads stay OFF (phase 1 of the planned thread rollout);
 # over-cap growth is refused byte-exactly and in milliseconds (measured,
 # benchmarks/analytical_breakpoint/). Opt-in — default behavior unchanged.
 ANALYTICAL = WASIConfig(

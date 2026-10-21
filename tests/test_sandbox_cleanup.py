@@ -12,7 +12,18 @@ from pathlib import Path
 
 import wasmtime
 
-from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
+from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox, run_isolated
+from ephemora_cell.execution_report import TRUST_TRUSTED
+
+LOOP_WAT = """
+(module
+  (func (export "_start")
+    (loop $l
+      br $l
+    )
+  )
+)
+"""
 
 SIMPLE_WAT = """
 (module
@@ -65,7 +76,7 @@ class TestSandboxDirCleanup:
         sandbox._sandbox_dir = str(sandbox_dir_path)
         (sandbox_dir_path / "test.wasm").write_bytes(wasmtime.wat2wasm(SIMPLE_WAT))
 
-        result = sandbox.run(str(sandbox_dir_path / "test.wasm"))
+        result = sandbox.run(str(sandbox_dir_path / "test.wasm"), trust=TRUST_TRUSTED)
         assert result.status == ExecutionStatus.SUCCESS
         # The sandbox_dir from the result should exist (not cleaned up by run())
         if result.sandbox_dir:
@@ -133,3 +144,26 @@ class TestSandboxBaseDir:
         assert result.sandbox_dir.startswith(
             str(custom_dir)
         ), f"Expected sandbox dir under {custom_dir}, got {result.sandbox_dir}"
+
+
+class TestTimeoutScratchCleanup:
+    """The parent must own the worker scratch root: SIGKILL bypasses child cleanup."""
+
+    def test_worker_timeout_leaves_no_scratch_residue(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("TMPDIR", str(tmp_path))
+        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        wasm_path = tmp_path / "loop.wasm"
+        wasm_path.write_bytes(wasmtime.wat2wasm(LOOP_WAT))
+        config = WASIConfig(
+            max_fuel=None,
+            timeout_seconds=1,
+            sandbox_base_dir=str(tmp_path),
+        )
+
+        result = run_isolated(str(wasm_path), config)
+
+        assert result["status"] is ExecutionStatus.TIMEOUT, result
+        residue = sorted(p.name for p in tmp_path.glob("ephemora_*"))
+        assert residue == [], f"worker scratch survived the timeout: {residue}"

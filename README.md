@@ -14,7 +14,7 @@ Every execution starts from a clean state, runs under limits the host granted �
 
 No execution state or authority is inherited implicitly. Named state is a separate, bounded capability the host wires in on purpose — not execution persistence, and not storage ([Stateless by construction](#stateless-by-construction)).
 
-Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads** — the integration path is `AI Agent / Application → Tool / Plugin / MCP → Ephemora-cell → WASM module`. The picture below draws one execution of it: what the boundary grants, what it denies by default, and what survives.
+Built for **AI agents, MCP tools, plugins, code interpreters, and other untrusted workloads** — the integration path is `AI Agent / Application → Tool / Plugin / MCP → Ephemora-cell → WASM module`, one station per step in the diagram below. What the boundary grants, denies and destroys inside a single execution is drawn in [What Cell enforces](#what-cell-enforces).
 
 <p align="center">
   <a href="https://pypi.org/project/ephemora-cell/"><img src="https://img.shields.io/pypi/v/ephemora-cell" alt="PyPI"></a>
@@ -27,8 +27,8 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
 
 <p align="center">
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/MichaelS1011/ephemora-cell/ci.yml.svg?label=CI" alt="CI"></a>
-  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-1084_passing-brightgreen" alt="Tests — see CI"></a>
-  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-90%25-brightgreen" alt="Coverage — see CI"></a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/tests-1747_passing-brightgreen" alt="Tests — see CI"></a>
+  <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-88%25-brightgreen" alt="Coverage — see CI"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/types-mypy%20clean-brightgreen" alt="Type-checked with mypy — see CI"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/format-black%20%2B%20ruff-green" alt="Formatted with black, linted with ruff"></a>
   <a href="https://github.com/MichaelS1011/ephemora-cell/security/code-scanning"><img src="https://img.shields.io/badge/security-fuzz%20%2B%20cve%20%2B%20sast-brightgreen" alt="scheduled WASM fuzz smoke + pip-audit CVE + bandit SAST + OSSF Scorecard in CI"></a>
@@ -51,14 +51,14 @@ Built for **AI agents, MCP tools, plugins, code interpreters, and other untruste
   <a href="#documentation">Docs</a>
 </p>
 
-**Latest release: [v1.1.0](https://github.com/MichaelS1011/ephemora-cell/releases/tag/v1.1.0) · [PyPI](https://pypi.org/project/ephemora-cell/) · [signed GitHub release](https://github.com/MichaelS1011/ephemora-cell/releases) · BUSL-1.1.** Release notes: [CHANGELOG.md](CHANGELOG.md) · supported versions and the 2026-09-24 + 2026-10-02 wasmtime advisory waves against the pinned `wasmtime==49.0.0` runtime, triaged with measured evidence: [SECURITY.md](SECURITY.md) · latest reproducible measurement: 2026-10-02 interpreter-guest run, [`benchmarks/results/`](benchmarks/results/) · measured counts per installation state: [docs/release_assurance.md](docs/release_assurance.md).
+**Latest release: [v1.1.0](https://github.com/MichaelS1011/ephemora-cell/releases/tag/v1.1.0) · [PyPI](https://pypi.org/project/ephemora-cell/) · [signed GitHub release](https://github.com/MichaelS1011/ephemora-cell/releases) · BUSL-1.1.** Release notes: [CHANGELOG.md](CHANGELOG.md) · supported versions and the 2026-09-24 + 2026-10-02 wasmtime advisory waves triaged against the runtimes Cell has pinned — `47.0.1` in the published 1.1.x wheel, the `49.0.3` build in the 1.2.0 candidate — with measured evidence: [SECURITY.md](SECURITY.md) · latest reproducible measurements: 2026-10-16 posture runs ([Performance](#performance)) and the 2026-10-02 interpreter-guest run, [`benchmarks/results/`](benchmarks/results/) · measured counts per installation state: [docs/release_assurance.md](docs/release_assurance.md).
 
-**What “stable” is claimed for, and what it is not.** Stable here means the *public API surface and its release gate*: they are shipped, documented and machine-checked. It is **not** a production-security approval for untrusted workloads — no reviewer has signed off independently yet, the pinned Wasmtime line still carries advisories whose fix wheels are not on PyPI ([SECURITY.md](SECURITY.md#known-limitations)), and the newest isolation controls exist **on `main`, not in the published release**. Which build carries which control, per commit: [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).
+**What “stable” is claimed for, and what it is not.** Stable here means the *public API surface and its release gate*: they are shipped, documented and machine-checked. It is **not** a production-security approval for untrusted workloads — no reviewer has signed off independently yet, the 1.1.x line on PyPI still carries advisories whose fix wheels are not on PyPI, while the 1.2.0 candidate ships a controlled 49.0.3-line build whose engine patch parity for the async class is not independently verified ([SECURITY.md](SECURITY.md#known-limitations)), and the newest isolation controls exist **on `main`, not in the published release**. Which build carries which control, per commit: [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where). The consolidated, reviewer-facing status — what is published, what was actually tested, and what is **not** yet approved — is one place away: [SECURITY.md → Public Security Release Status](SECURITY.md#public-security-release-status).
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
-    <img src="assets/hero-light.svg" alt="One execution: an agent hands untrusted code to the Ephemora-cell capability boundary, which grants explicit capabilities and budgets, denies network and process access by default, and returns a bounded result with a signed record while the execution state is destroyed — create, constrain, execute, prove, destroy">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-dark.svg">
+    <img src="assets/architecture-light.svg" alt="The path of untrusted code in four stations: an AI agent or app proposes generated code and tool calls; a tool, plugin or MCP server (ephemora-cell-mcp, stdio, each call a fresh sandbox) submits them; the Ephemora-cell capability boundary grants fuel, memory and time, denies network, filesystem and process access by default and routes any guest the host has not explicitly marked trusted — Preview1 modules and WASI 0.2 components alike — onto an isolated worker; the guest runs inside a Wasmtime WASM sandbox. The run returns a bounded result with a record that can be signed, while no execution state survives into the next run. A dashed path shows that the Python library and CLI reach the same boundary directly">
   </picture>
 </p>
 
@@ -102,11 +102,11 @@ python3 -m venv .venv && source .venv/bin/activate
 python -m pip install ephemora-cell
 ```
 
-**Check which build you are actually holding** before reading any claim below as a property of it. The published release and the current source report the *same version string* (`1.1.0`) but do not carry the same controls — the component isolation gate and the receipt fields that attest it landed after the release was cut:
+**Check which build you are actually holding** before reading any claim below as a property of it. `pip install ephemora-cell` still resolves to the published `1.1.0` release, which predates the component isolation gate and the receipt fields that attest it; the `1.2.0` build in preparation and the current source carry both. The version strings differ (`1.1.0` published vs `1.2.0` in preparation), and 1.2.0 is not yet published:
 
 ```bash
 python -c "from ephemora_cell.execution_report import TRUST_UNKNOWN"; echo $?
-# 0 → source at main: the enforcement gate is present
+# 0 → 1.2.0 build / source at main: the enforcement gate is present
 # 1 → published 1.1.0 wheel: no component isolation gate, no attestation fields
 ```
 
@@ -118,6 +118,23 @@ git checkout <full-commit-sha>     # pin what you are evaluating; record `git re
 python -m pip install -e .
 ```
 
+For the exact runtime, `requirements.txt` is the declared specifier and
+`requirements.lock` pins the qualified build together with its hashes — install it
+with `python -m pip install --require-hashes -r requirements.lock` (as CI does).
+PyPI carries no `49.0.3` wheel, so that lock is satisfied from the release
+wheelhouse — for the 1.2.0 candidate that wheel is **macOS arm64 only**
+(`macosx_11_0_arm64`); other platforms are refused by wheel tag and are NOT
+QUALIFIED. A plain `pip install -e .` fails closed rather than falling back to
+the unpatched `49.0.0` engine.
+
+Install the release core **by digest, not by name**. `pip install --no-index
+--find-links DIR ephemora-cell` takes the first file it finds for that version,
+and a stale build of the same version has the same filename — this project has
+seen three different wheels named `ephemora_cell-1.2.0rc2-py3-none-any.whl`.
+Check `sha256sum` against the digest published with the release before installing,
+keep exactly one core wheel in the install directory, and let `ephemora doctor`
+name the module path and engine identity it actually loaded afterwards.
+
 **2 — Run something untrusted** (the repo ships examples, or bring any `.wasm`):
 
 ```bash
@@ -125,13 +142,13 @@ git clone https://github.com/MichaelS1011/ephemora-cell.git && cd ephemora-cell
 ephemora-cell run examples/hello.wasm --isolated
 ```
 
-*(adds OS-level process isolation around the run — recommended for code you didn't build; the cost of each path is measured in [Performance](#performance))*
+*(runs the guest in a disposable worker process — under the current source this is already the path for anything not explicitly marked `trusted`, so the flag can only raise isolation; the cost of each path is measured in [Performance](#performance))*
 
 ```text
 Hello from Ephemora Cell!
 ```
 
-**3 — Read the audited receipt** — same run, machine-readable. Here a hostile module (`examples/fuel_bomb.wasm`) is given a 100-unit fuel budget and stopped, exactly as budgeted:
+**3 — Read the audited receipt** — same run, machine-readable. Here a hostile module (`examples/fuel_bomb.wasm`) is given a 100-unit fuel budget and stopped, exactly as budgeted (abridged — the real receipt also carries `elapsed_ms`, `memory_mb`, `stderr_bytes`, `warnings` and the full `security_baseline` attestation block, quoted verbatim below):
 
 ```bash
 ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --isolated --json
@@ -143,7 +160,8 @@ ephemora-cell run examples/fuel_bomb.wasm --fuel 100 --isolated --json
   "exit_code": 0,
   "fuel_consumed": 100,
   "fuel_budget": 100,
-  "stdout_bytes": 0
+  "stdout_bytes": 0,
+  "…": "one top-level key per line; the security_baseline block is elided here"
 }
 ```
 
@@ -162,27 +180,34 @@ Failures come back **graded, not crashing**: an infinite loop returns `status: "
 
 **Where to next:** agent/tool isolation → [MCP integration](#mcp-integration) · CI gating for untrusted PRs → [the composite action](#github-action) · CLI reference and usage recipes (also the troubleshooting list) → [docs/recipes.md](docs/recipes.md).
 
-![Terminal demo: install of 1.1.0 from PyPI, a sandboxed run, its JSON report naming the boundary it ran under, a fuel bomb stopped at its 100-unit budget, the live 8-vector check with its positive controls, and a signed record whose verification flips to False after one edited field](assets/demo.gif)
+![Terminal demo: install of the 1.2.0rc2 release candidate from the release wheelhouse, a sandboxed run, its JSON report naming the runtime version and the 1.2.0 execution fields, a fuel bomb stopped at its 100-unit budget, the live 8-vector check with its positive controls, and a signed record whose verification flips to False after one edited field](assets/demo.gif)
 
-*Real CLI session — every line is verbatim output of the command printed above it. Install is the 1.1.0 wheel from PyPI; the `examples/` and `benchmarks/` paths are a clone of the repo, and the last scene needs the optional `tools-signing` extra installed just before it. The arc is one execution: fresh run → the boundary it got (fuel, memory limit, preopens, `allow_fsync: false`) → a runaway module stopped at exactly 100 of 100 units → denials measured against the live runtime, positive controls included → signed evidence that detects a single rewritten field. Wall-clock and throughput are deliberately not in the frames: they are platform-dependent, and a demo that shows them ages into a false claim.*
+*Real CLI session — every line shown is verbatim output of the command printed above it, and every elision inside a frame is marked with `...`. Recorded 2026-10-16 on the `v1.2.0` release candidate (`ephemora-cell 1.2.0rc2` with the patched `wasmtime 49.0.3.post2+git.1d21c90f` runtime); the install scene pulls that candidate from the release wheelhouse, because PyPI still serves 1.1.0 until the candidate ships. The `examples/` and `benchmarks/` paths are the repo tree, and the last scene needs the optional `tools-signing` extra installed just before it. The arc is one execution: fresh run → the runtime identity and boundary it got (`wasmtime_version`, `execution_mode: subprocess`, `sync_blockade_enforced: true`) → a runaway module stopped at exactly 100 of 100 units → denials measured against the live runtime, positive controls included → signed evidence that detects a single rewritten field. Wall-clock and throughput are deliberately not in the frames: they are platform-dependent, and a demo that shows them ages into a false claim.*
 
 ## What Cell enforces
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+    <img src="assets/hero-light.svg" alt="One execution: an agent hands untrusted code to the Ephemora-cell capability boundary, which grants explicit capabilities and budgets, denies network and process access by default, and returns a bounded result with a record that can be signed — the evidence persists, no execution state survives into the next run — create, constrain, execute, prove, destroy">
+  </picture>
+</p>
 
 Cell assumes **guest code is untrusted**. The host decides what the guest can reach, and the runtime enforces that decision per execution — the guest cannot switch it off, and a widened run attests that it was widened. By default the guest gets **no ambient access**: no network, no arbitrary filesystem, no process spawning, no unrestricted environment, and bounded CPU, memory, time and output. Granting any of those is an explicit, recorded host decision.
 
 * **Capability, not convention.** Preopens are revalidated at grant time, and the host does not follow guest-writable names: host-side artifact reads use `O_NOFOLLOW` plus descriptor-level regular-file validation, with atomic publication on shared paths ([SECURITY.md](SECURITY.md#host-side-file-boundaries--the-host-never-follows-what-the-guest-can-write-2026-10-05)).
 * **Resource limits with exact accounting.** Fuel stops a loop at the budget it was given, the epoch deadline is the net under everything fuel does not count, and memory, output and host-I/O work each carry their own wall (table below).
-* **Stateless execution.** No sandbox directory, no engine reuse of a previous run's state, no inherited authority ([Stateless by construction](#stateless-by-construction)).
+* **Stateless execution.** No sandbox directory survives into the next run, no engine reuse of a previous run's state, no inherited authority ([Stateless by construction](#stateless-by-construction)).
 * **Mediated egress, authenticated before enforced.** By default no guest connection succeeds — Preview1 exposes no socket surface, and the WASI 0.2 path denies `connect` at call time — so there is nothing to mediate until a host opens it. Where an operator does, each grant is a DSSE envelope signed by a key in a trust root kept **outside** the grants directory — a key delivered with the artefact proves nothing about it — and a grant *narrows* the operator allowlist rather than replacing it: per URL, per redirect hop, per resource cap, with window, cap and revocation enforced per request. `--egress-grants-required` removes the fallback ([ADR-013](docs/decisions/ADR-013-egress-host-mediation-and-grant-form.md), [docs/egress_patterns.md](docs/egress_patterns.md)).
 * **Resolved addresses pinned.** A name answering with loopback, RFC1918, CGNAT, link-local or metadata space is refused at resolve time, and the vetted address is the one connected to — classified by Cell's own address registry, not by `ipaddress.is_private` ([SECURITY.md](SECURITY.md), DNS-rebinding note).
-* **Signed evidence.** Receipts sign the exact canonical bytes shown to the caller and carry a fresh `report_id` plus issue time; the verifier, outside Cell, decides whether it has seen one before. A valid signature proves those bytes, not that the execution was safe, and grants no authority when the audience is wrong — a receipt is not a grant and a grant is not a receipt ([SECURITY.md](SECURITY.md#signature-semantics--what-is-signed-who-may-sign-what-that-proves)).
+* **Signed evidence — with a signer configured.** A receipt can be signed over the exact canonical bytes shown to the caller (Python: `report.sign(signer)`; MCP: `--receipt-signing-key`) and carries a fresh `report_id` plus issue time; the verifier, outside Cell, decides whether it has seen one before. A valid signature proves those bytes, not that the execution was safe, and grants no authority when the audience is wrong — a receipt is not a grant and a grant is not a receipt ([SECURITY.md](SECURITY.md#signature-semantics--what-is-signed-who-may-sign-what-that-proves)).
 * **Fail-closed as a default posture.** A broken grant set, an unreadable ledger, an empty authority directory or a malformed request produces an audited refusal, not a silent pass — and refuses at startup where startup is the safe moment.
 
 **Security is never opt-in.** Every execution — in-process or isolated — runs under enforced fuel, memory, wall-clock and output limits: the caller sets their size, not their existence. Two deliberate exceptions exist and are named wherever they matter: `max_wasm_bytes` (how big a module a run may load — 32 MiB everywhere except the `interpreter` profile, which raises it to 512 MiB for bring-your-own guests) and `allow_fsync` (whether WASI sync calls are permitted — no shipped profile turns it on; only an explicit `--allow-fsync` does). Both are attested in the signed baseline, so a widened run never reads like a default one. The baseline goes further than the configured knob: it names the isolation path actually taken (`execution_mode`), the ABI actually executed (`abi`), and whether the sync blockade was EFFECTIVE (`sync_blockade_enforced`) — so a WASI 0.2 component run, whose path carries no sync trap, attests the blockade as *not* enforced even under the default `allow_fsync: false`. A configured policy is never read as a verified guarantee ([SECURITY.md](SECURITY.md#effective-enforcement-attestation--claim-vs-configured-intent)).
 
-**Isolation is enforced for components, not just offered.** For WASI Preview1 **modules** the process boundary is a caller choice: add `--isolated` (or call `run_isolated()`) when the module comes from outside your own build — agent output, third-party plugins, PR-contributed code. For WASI 0.2 **components** it is not optional: any component the host has not explicitly marked `trusted` — an `untrusted` value, or an unspecified `unknown`, both treated as untrusted (fail-closed) — is **forced onto the subprocess path by a central gate** at the run entry point. The gate only ever *raises* isolation, never lowers it, and if the worker is unavailable the run is **refused** (`ERROR`) rather than silently downgraded to in-process — no silent fallback ([ADR-015](docs/decisions/ADR-015-central-enforcement-gate.md), [SECURITY.md](SECURITY.md#isolation-is-enforced-not-just-offered-adr-015)). One named exception: driving the low-level `ComponentSandbox` primitive **directly bypasses the gate by design** — it is the internal engine the gate and worker sit on, not a policy boundary; callers who use it own the policy themselves.
+**Isolation is enforced, not just offered — for both ABIs.** Any guest the host has not explicitly marked `trusted` — an `untrusted` value, or an unspecified `unknown`, both treated as untrusted (fail-closed) — is **forced onto the subprocess path by a central gate** at the run entry point. That holds for WASI Preview1 **modules** and WASI 0.2 **components** alike: since the 1.2.0 mandate there is no weaker in-process default for Preview1, and `--isolated` (or `run_isolated()`) can only *raise* isolation, never lower it. If the worker is unavailable the run is **refused** (`ERROR`) rather than silently downgraded to in-process — no silent fallback ([ADR-015](docs/decisions/ADR-015-central-enforcement-gate.md), [SECURITY.md](SECURITY.md#isolation-is-enforced-not-just-offered-adr-015)). The only fast path left is explicit: a `trusted` run stays in-process — and the low-level `ComponentSandbox` primitive **bypasses the gate by design**, as the internal engine the gate and worker sit on; callers who use it own the policy themselves.
 
-*This paragraph describes the **current source**. The gate and the three attestation fields above (`execution_mode`, `abi`, `sync_blockade_enforced`) were merged after the 1.1.0 release was cut, so they are **not** in the published wheel — and `main` still carries the version string `1.1.0` until the next release bumps it. The one-line presence check in [Quick Start](#quick-start) separates the two builds; the per-commit control matrix is in [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).*
+*This paragraph describes the **current source**. The gate and the three attestation fields above (`execution_mode`, `abi`, `sync_blockade_enforced`) were merged after the 1.1.0 release was cut, so they are **not** in the published `1.1.0` wheel — `main` and the release branch now carry `1.2.0`, whose public release is still on HOLD ([CHANGELOG.md](CHANGELOG.md)). The one-line presence check in [Quick Start](#quick-start) separates the two builds; the per-commit control matrix is in [docs/release_assurance.md](docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where).*
 
 The enforced defaults:
 
@@ -247,18 +272,22 @@ Ask your agent for the current time: the answer comes from the bundled `clock` t
 - **Verifiable, not just installable.** Each result carries its execution record (`_meta.execution`); the native `get-policy` tool reports the exact per-tool policy computed from the same code path that enforces it, so report and enforcement cannot drift. The protocol does not verify `_meta`, so `--receipt-signing-key` adds a DSSE signature (`_meta.attestation`) over the same bytes, verifiable out-of-band with the operator's public key, and `max_age_seconds` lets a caller refuse a stale receipt. Policy reads are tools, policy writes are host decisions: an agent cannot grant itself network or filesystem access.
 - **A long-lived server, a fresh execution.** Under the `2026-07-28` stateless revision a current-revision client skips the `initialize` handshake while handshake-era clients (Claude Desktop, VS Code, Codex, …) keep working unchanged, both eras served from one process and tested against the official SDK in CI. The point of the split: **an MCP server may be long-lived while every execution inside it is fresh** — each `tools/call` starts a new sandbox that inherits nothing. Revision handling, the ordering rule (legacy traffic before `initialize` is refused with `-32600` before any WASM runs), `ttlMs`/`cacheScope` and the exemption rule: [docs/mcp.md](docs/mcp.md).
 
-Per-call cost of each MCP path: [Performance](#performance). **vs Microsoft Wassette:** Wassette is Microsoft's capability-based runtime for MCP tools on the same Wasmtime family — its OCI pull model moves the trust decision to install time; Cell adds what a caller can *verify per call* ([docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md), re-verified 2026-09-18).
+Per-call cost of each MCP path: [Performance](#performance).
+
+**When your client dials an HTTP endpoint instead of launching a process** (n8n's MCP node cannot use stdio), the repository ships an authenticated, loopback-only bridge in front of the stdio server: [docs/n8n-integration.md](docs/n8n-integration.md). Its agent-driven end-to-end loop is documented as **not yet proven** — import and node validity, and the tool path through n8n's own client code, are measured.
+
+**vs Microsoft Wassette:** Wassette is Microsoft's capability-based runtime for MCP tools on the same Wasmtime family — its OCI pull model moves the trust decision to install time; Cell adds what a caller can *verify per call* ([docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md), re-verified 2026-09-18).
 
 This is an execution boundary, not a claim that guest software is trustworthy. Cell does not evaluate whether a module is malicious or correct — a guest can still misbehave *within* the budgets it was given.
 
 ## Security evidence
 
-Six measured rungs, strongest first, each with its reproduce command and its committed raw evidence — the ladder table, the probe-equivalence methodology, the attack results matrix and the CVE replay detail: [docs/security_posture.md](docs/security_posture.md).
+Six measured rungs, strongest first, each with its reproduce command and its committed raw evidence — the ladder table, the probe-equivalence methodology, the attack results matrix and the CVE replay detail: [docs/security_posture.md](docs/security_posture.md). Every attack scenario this repository has actually run — across all six rungs plus the native-Linux containment probes and the resource-DoS sweeps — is consolidated, one row per scenario, with its class (blocked / bounded / contained / allowed / unresolved / unknown / not-tested), the boundary it exercises, and its commit + runtime + platform, in [docs/security_attack_matrix.md](docs/security_attack_matrix.md). **These are separate boundaries and are not summed into one score: no single "N of M blocked" number is claimed, and containment or a bounded run is never counted as a block.**
 
 1. **MCP CVE replays** — real exploit paths of two patched CVEs denied at the engine level, governed loading failing closed on a tampered payload, plus a measured call-time socket denial on WASI 0.2 components.
 2. **SandboxEscapeBench-18 mapping** — the UK AI Security Institute's 18 container/Kubernetes escape scenarios mapped to their closest WASM equivalent: **8 execution-tested and denied, 10 not expressible** on the WASI surface. Applicability stated, not stretched: the primitives those escapes rely on (privileged modes, namespaces, cgroups, raw sockets) do not exist here, and no model is in the loop.
 3. **8 attack intents × 3 boundaries** — same intents, same exit-code rule, nothing hardcoded: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell **8/8** (default configuration, WASI Preview1 path), reproduced on macOS arm64 and DGX Spark GB10 in the dated benchmark artifacts linked below — 2026-09-18 (macOS arm64) and 2026-09-20 (DGX Spark GB10 / Linux arm64), paths in [docs/security_posture.md](docs/security_posture.md). **`ALLOWED` there means the tested primitive stays available to guest code *inside* that sandbox — not that anything reached the host, and not a ranking of the boundaries.** gVisor measures 8/8 ALLOWED for exactly that reason: it walls the host off and keeps the Linux ABI for the guest. The WASI 0.2 component path is a separate boundary and does not carry the sync blockade today — measured, not inferred ([SECURITY.md](SECURITY.md)).
-4. **Official WASI and core-spec conformance** — **72 pass / 1 documented by-design xfail / 0 fail** on the pinned wasi-testsuite preview-1 suite, and **31,931 pass** on the official WebAssembly core spec with every deviation classified and none unexpected; re-run weekly in CI, raw JSON committed. This is standards conformance, not a security certification — no third party certifies Cell ([conformance/README.md](conformance/README.md)).
+4. **Official WASI and core-spec conformance** — **71 pass / 1 documented by-design expected-failure / 0 fail** across the 72 tests the pinned wasi-testsuite preview-1 suite executes (re-measured 2026-10-21 against the qualified runtime, no engine-abort retry needed; an earlier sentence here said "72 pass" because the upstream runner counts that expected failure inside its own `passed` column), and **31,896 pass / 3,281 classified deviations / 81 failures the harness does not classify** on the official WebAssembly core spec under the engine configuration Cell ships (pinned suite `b464a4cd100d`). Those command totals cover the 157 of 257 files that produced per-command results; 100 files aborted before measurement and contribute one file-level deviation each, so the figure is not full-suite coverage. The 81 are itemised case by case in the committed evidence: they are refusals of proposals the shipped posture enforces off, exact-bit NaN reads the Python binding cannot recover, and harness gaps — engine and harness outcomes, not sandbox-policy failures. That job is evidence and exits non-zero by design rather than being dressed up as green; re-run weekly in CI, raw JSON committed. This is standards conformance, not a security certification — no third party certifies Cell ([conformance/README.md](conformance/README.md)).
 5. **2026 probe classes** — the 2026 FS-escape vectors (the GHSA-vqjp trailing-slash/hardlink/rename shapes and the GHSA-2r75 / CVE-2026-47261 TRUNCATE bypass), persistence-worm and control-plane probes, all denied with granted positive controls on every class.
 6. **Statelessness probe and cross-architecture determinism** — the run-pair sweep in [Stateless by construction](#stateless-by-construction), and fuel deterministic per platform (spread 0), platform-bound and never comparable across hosts.
 
@@ -289,19 +318,19 @@ Read the boundaries first, so a documented gap does not read as a new defect: th
 
 ## Performance
 
-**What does the boundary cost? 0.376 ms** — the warm wall-clock overhead a sandboxed run adds over the same work run bare (measured, not estimated).
+**What does the boundary cost?** It depends on a posture the *host* sets, not the guest. **An untrusted/unknown guest runs in a disposable worker process: roughly 100–130 ms of process lifecycle per call on the measured host** — the guest itself is ~3.6 ms of it. **Code the host explicitly marks `trusted` keeps the in-process fast path at roughly 1 ms** (pooled) with every budget still enforced. Since 1.2.0 the default posture is the isolated one (ADR-015, `unknown` is not `trusted`, fail-closed): the isolation is the guarantee, and its per-call cost is the process, not the sandbox arithmetic.
 
-*Latest reproducible benchmark — 2026-09-14 · Mac M5 · wasmtime 47.0.1 · `hello.wasm` · n=1000. Every library figure below regenerates from a fresh clone. The MCP stdio rows were withdrawn on 2026-10-06: no committed benchmark harness and no raw result artifact in the repository reproduces them, so they are not published here; they return with a harness.*
-
-| Path | Per call | Why this number |
+| Path (ADR-015 posture) | Per call | Why this number |
 |---|---|---|
-| Library, **pooled** engine (`io_budget_bytes=None`) | **0.51 ms** median (p95 0.89) | cached engine, trusted workloads |
-| Library, **default** per-run engine (64 MiB I/O budget) | 0.94 ms median (p95 1.15) | fresh engine per run so the I/O wall holds |
-| Library, **`run_isolated()`** | ~10–100 ms | disposable worker process, OS rlimits, hard kill |
+| **Default — `unknown` / `untrusted` guest** | **≈115 ms wall min** (~133 ms median under load); guest itself ≈3.6 ms | every run executes in a disposable worker process; the lifecycle dominates |
+| `trust="trusted"`, **pooled** engine (`io_budget_bytes=None`) | ≈0.92 ms wall min | in-process, cached engine — explicitly host-authorised workloads |
+| `trust="trusted"`, **default** per-run engine (64 MiB I/O budget) | ≈1.63 ms wall min | in-process, fresh engine per run so the I/O wall holds |
 
-Cold vs warm (n=300 each, first run discarded): cold 0.59 ms guest / 0.99 ms wall, warm 0.55 ms guest / 0.93 ms wall — that warm gap is the 0.376 ms (`overhead_warm_ms`, `benchmarks/results/2026-09-14/pov_benchmark.json`). Against a container cold-start on the same machine (n=100 per image): `docker run` `python:3.12-slim` 185.9 ms vs Cell 0.49 ms = **383×** — a container-cold-start vs invoked-WASM comparison for this workload, not a general claim that WASM beats Docker. Throughput on this host: ~3M executions/hour per core on the one-liner path, ~5.5M on the pooled hot loop. The historical CoreMark measurement is version-scoped; see [docs/performance.md](docs/performance.md).
+*Measured 2026-10-16 on the `v1.2.0` release candidate (`ephemora-cell 1.2.0rc2` with the patched `wasmtime 49.0.3.post2+git.1d21c90f` runtime), Mac M5, `hello.wasm`, n=300 per posture after 50 warmups — raw results in [`benchmarks/results/2026-10-16/`](benchmarks/results/2026-10-16/) (`pool_vs_budget.json`, `pov_benchmark.json`). The min is the load-stable statistic on this host; medians and p95 move with background load (median/min up to ≈1.5× in these runs).*
 
-Full matrices, per-run scores, agentic workloads and the third-party positioning: [docs/performance.md](docs/performance.md). Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/competitive_benchmark.py` · `python benchmarks/coremark_wasi.py --rounds 3` · `python benchmarks/determinism_probe.py` (raw results with `measured:true` committed under [`benchmarks/results/`](benchmarks/results/)).
+*History, kept dated rather than deleted: the earlier headline — **0.376 ms** warm wall overhead — was measured 2026-09-14 · wasmtime 47.0.1 · n=300 (`benchmarks/results/2026-09-14/pov_benchmark.json`) when the library default was still in-process; 1.2.0 changed that default on purpose, so those numbers now describe the `trust="trusted"` path only. From that same dated run: cold 0.59 ms guest / 0.99 ms wall, warm 0.55 ms guest / 0.93 ms wall (the 0.376 ms is that warm gap, `overhead_warm_ms`); `docker run` `python:3.12-slim` cold start 185.9 ms vs Cell 0.49 ms = **383×** (a container-cold-start vs invoked-WASM comparison for this workload, not a general claim that WASM beats Docker); throughput ~3M executions/hour per core on the one-liner path, ~5.5M on the pooled hot loop. The historical CoreMark measurement is version-scoped; see [docs/performance.md](docs/performance.md). The MCP stdio rows were withdrawn on 2026-10-06: no committed benchmark harness and no raw result artifact in the repository reproduces them, so they are not published here; they return with a harness.*
+
+Full matrices, per-run scores, agentic workloads and the third-party positioning: [docs/performance.md](docs/performance.md). Reproduce: `python benchmarks/pool_vs_budget.py` · `python benchmarks/pov_benchmark.py` · `python benchmarks/competitive_benchmark.py` · `python benchmarks/coremark_wasi.py --rounds 3` · `python benchmarks/determinism_probe.py` (raw results with `measured:true` committed under [`benchmarks/results/`](benchmarks/results/)).
 
 Two caveats that survive every release: **fuel is per-platform** — deterministic per host (`fuel_spread: 0` on every machine measured) but never comparable across hosts. And **every number here is a Cranelift number** — the Python binding cannot select an interpreted backend (Pulley/Winch unreachable, asserted in `tests/test_surface_audit.py`), so no fallback can silently change the posture.
 
@@ -323,9 +352,45 @@ result.fuel_consumed
 result = run_isolated("tool.wasm", config=WASIConfig(max_fuel=500_000))
 ```
 
-`run_isolated()` takes the same configuration and returns the report fields as a dict. Disk quota (`disk_quota_bytes`) and the GC-heap cap (`max_gc_heap_mb`) are `WASIConfig` knobs; named state is a host-supplied `StateStore` passed to the run, not a config flag; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes.
+**Language-level entries (current source; 1.2.0 in preparation).** Ask for a
+*language*, not a guest file. These are lazy — importing `ephemora_cell` never
+loads a language adapter — and they resolve the installed optional language
+guest (or an explicit `EPHEMORA_BYO_*` pin) and **fail closed with the single
+documented `pip install` command when none is present: no manual guest hunting,
+no hidden runtime download, and every run is isolated**:
 
-**CLI** — five verbs cover the loop, and the same commands are a development loop (edit, run, read the receipt) with no Dockerfile and no image build:
+```python
+from ephemora_cell import run_python, run_javascript
+
+run_python(script_path="tool.py")            # user's own Python, resolved guest
+run_javascript(source="console.log(6*7)")    # user's own JS on the QuickJS guest
+run_javascript(entrypoint="app.wasm")        # explicit (e.g. Javy) core module
+```
+
+As of this commit both guests are **built, digest-pinned and clean-room verified,
+but not yet published to PyPI** (public upload is founder-gated). The modern
+Python path is a WASI-0.2 **component** built with `componentize-py` (embedded
+CPython 3.14) from the pinned recipe `scripts/build_python_guest.py`; the modern
+JavaScript path for a user's own source is a QuickJS (`quickjs-ng`, via
+`rquickjs` 0.14.0 → `wasm32-wasip1`) **interpreter** core module — both fully
+documented with toolchain pins in
+[docs/language-guest-build.md](docs/language-guest-build.md). `scripts/build_js_guest.py`
+remains the reproducible recipe for the pre-compiled **module** path (Javy 9.1.0,
+stdin-JSON fixture, behind its opt-in qualify gate). The license texts and a
+CycloneDX SBOM travel inside the wheels (`sbom/`, `THIRD_PARTY_NOTICES.md`); the
+`[python]` / `[javascript]` one-command deliverables were installed from a fresh
+local index and exercised end-to-end for this release candidate. The remaining
+gates before they ship are the **legal/counsel clearance**, the final
+reconciliation of the SBOM against the release artifacts, and the authorised
+public PyPI publish tracked in
+[ADR-009](docs/decisions/ADR-009-language-support.md). Until that publish the
+supported path is an explicit BYO guest, a recipe build, or a local wheelhouse.
+The raw `run_wasm(..., abi="component")` primitive below always works on any
+WASI 0.2 component you bring.
+
+`run_isolated()` takes the same configuration and returns the same `ExecutionResult` type as `run_wasm()` — attribute access (`result.status`) with dict-style access (`result["status"]`) kept for backwards compatibility; the raw dict is still available via `from ephemora_cell.process_executor import run_isolated`. Disk quota (`disk_quota_bytes`) and the GC-heap cap (`max_gc_heap_mb`) are `WASIConfig` knobs; named state is a host-supplied `StateStore` passed to the run, not a config flag; the component path is selected per call via `run_wasm(..., abi="component")` — [docs/recipes.md](docs/recipes.md) has the recipes.
+
+**CLI** — eight verbs cover the loop, and the same commands are a development loop (edit, run, read the receipt) with no Dockerfile and no image build:
 
 ```text
 ephemora-cell run       Execute a WASM module (--json, --isolated, --fuel, --stdin, --profile, --abi, --tenant)
@@ -333,11 +398,14 @@ ephemora-cell inspect   Imports, exports, memory — what a module wants, before
 ephemora-cell benchmark Cold/warm latency and fuel spread
 ephemora-cell build     Compile Rust/Go/C/AssemblyScript/Zig straight to WASM
 ephemora-cell ledger    Verify a run chain: linkage and order, and what it cannot prove
+ephemora-cell doctor    Check the install, platform and runtime offline (--json); exit 0 = no failure, 1 = one
+ephemora-cell verify    Verify execution evidence: ledger, signed record, DSSE, chain (--key PEM, --json); exit 3 = signed, no --key
+ephemora-cell policy    Show the effective permissions and isolation before a run (`policy check`)
 ```
 
 `ephemora-cell --help` and [docs/recipes.md](docs/recipes.md) for the full reference.
 
-**Languages.** Any language that compiles to WASM runs; the five tier-1 toolchains (Rust, Go, C, AssemblyScript, Zig) are each built **and executed** by a CI gate on every push. Running Python is measured as a bring-your-own guest: a pinned `wasi-python 3.10` under `--profile interpreter`, 25 in-process and 15 isolated boots per workload, every run `success` — not a CI gate, because the 22 MB guest binary is not committed. What does *not* run: native Python, Node.js/npm packages, Linux/ELF binaries; GC/threads-based ports stay locked until the GC-heap gate opens. Compile commands, gates and the measured interpreter numbers: [docs/languages.md](docs/languages.md); posture: [ADR-009](docs/decisions/ADR-009-language-support.md). Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`, `interpreter`) are budget presets — `interpreter` is the preset for running a bring-your-own interpreter as the guest, and it ships no interpreter, opens no sync exception and grants no filesystem or environment access.
+**Languages.** Any language that compiles to WASM runs; the five tier-1 toolchains (Rust, Go, C, AssemblyScript, Zig) are each built **and executed** by a CI gate on every push. Python is the mandatory 1.2.0 language: the modern path is a WASI-0.2 **component** built with `componentize-py` from the pinned recipe `scripts/build_python_guest.py`, which runs `SUCCESS` through the isolated sandbox under `--profile interpreter` (measured on this host; opt-in gate `EPHEMORA_PY_GUEST_QUALIFY=1`, evidence in [`benchmarks/results/2026-10-14/`](benchmarks/results/2026-10-14/)) — the historical `wasi-python 3.10` bring-your-own interpreter remains measured and documented too. JavaScript's modern path for a user's own source is a QuickJS (`quickjs-ng`, via `rquickjs` 0.14.0 → `wasm32-wasip1`) **interpreter** core module (recipe in [docs/language-guest-build.md](docs/language-guest-build.md)), and the pre-compiled **module** path keeps its reproducible recipe (`scripts/build_js_guest.py`, Javy 9.1.0) behind its opt-in gate (`EPHEMORA_JS_GUEST_QUALIFY=1`); the Javy toolchain is not auto-provisioned in CI, so it is brought from a pinned local build. Both guests are packaged as versioned wheels with the license texts and a CycloneDX SBOM travelling inside the wheels (`THIRD_PARTY_NOTICES.md`, `sbom/`) and were clean-room-installed from a local index and exercised for the 1.2.0 release candidate; delivering them as one-command-installable PyPI packages is gated on the legal/counsel clearance, the final reconciliation of the SBOM against the release artifacts, and the authorised publish ([ADR-009](docs/decisions/ADR-009-language-support.md)). Until that publish the core ships no interpreter binaries and guests come from a recipe build, a local wheelhouse or an explicit BYO pin. What does *not* run: native Python/Node in-process, Linux/ELF binaries; GC/threads-based ports stay locked until the GC-heap gate opens. Compile commands, gates and the measured numbers: [docs/languages.md](docs/languages.md). Profiles (`plugin`, `llm`, `edge`, `default`, `analytical`, `interpreter`) are budget presets — `interpreter` is the preset for running a guest interpreter as the wasm, and it ships no interpreter, opens no sync exception and grants no filesystem or environment access.
 
 ### GitHub Action
 
@@ -345,7 +413,7 @@ Untrusted PR code in CI: the repo ships a composite action that runs a module in
 
 ```yaml
 - id: run-tool
-  uses: MichaelS1011/ephemora-cell/action@v1.1.0   # pin a release tag, not a branch
+  uses: MichaelS1011/ephemora-cell/action@<full-release-commit-sha>  # the commit, not a moving name
   with:
     module: path/to/module.wasm   # e.g. built from a PR-provided recipe
     profile: llm
@@ -353,15 +421,15 @@ Untrusted PR code in CI: the repo ships a composite action that runs a module in
 - run: echo "status=${{ steps.run-tool.outputs.status }} fuel=${{ steps.run-tool.outputs.fuel_consumed }}"
 ```
 
-Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. Inputs, outputs, failure semantics and how this repo's own demo workflow proves both directions on every push (a benign module succeeds; `examples/fuel_bomb.wasm` at `fuel: 100` must fail with `fuel_exhausted` and `fuel_consumed == 100`): [`action/README.md`](action/README.md).
+Non-success statuses fail the step (`fail-on: non-success`, default) — a module that burns its budget or trips the memory cap cannot take your workflow with it. The step also returns `error_class`, which says **who** decided: `execution` (the guest failed, or the sandbox stopped it) is a different event from `environment` (nothing ran because the runner's engine sits outside the qualified runtime line), and the action names the runtime in that case rather than blaming the module. Because 1.2.0 floors its runtime at the patched line and PyPI carries no 49.0.3 engine wheel, the runner installs that wheel from its versioned, hash-pinned release asset in an earlier step (`scripts/ci_runtime_bootstrap.py`) — measured with `pip install --dry-run ephemora-cell` on such an install: `Requirement already satisfied: wasmtime<50,>=49.0.3`, so the action's own install is a no-op instead of a silent pull of the unpatched engine. Inputs, outputs, failure semantics and how this repo's own demo workflow proves both directions on every push (a benign module succeeds; `examples/fuel_bomb.wasm` at `fuel: 100` must fail with `fuel_exhausted` and `fuel_consumed == 100`): [`action/README.md`](action/README.md). No workflow of this candidate has run on a GitHub-hosted runner yet — the definition exists, the execution does not.
 
-CI runs two framework-adjacent integration suites — `integration/test_hermes_subagent.py` and `integration/test_nemoclaw_isolation.py`. Both are simulations: they drive Cell with the repository's own workload modules behind a Hermes-style and a NemoClaw-style call pattern, and neither installs or imports the third-party framework, so they exercise the isolation boundary under that shape of traffic rather than proving SDK compatibility. The other scripts in [`integration/`](integration/) (LangGraph, CrewAI, AutoGen, OpenAI Agents SDK, Semantic Kernel) are examples that need their own SDK install and are not CI-gated; nothing here claims otherwise.
+CI runs two framework-adjacent integration suites — `integration/test_hermes_subagent.py` and `integration/test_nemoclaw_isolation.py`. Both are simulations: they drive Cell with the repository's own workload modules behind a Hermes-style and a NemoClaw-style call pattern, and neither installs or imports the third-party framework, so they exercise the isolation boundary under that shape of traffic rather than proving SDK compatibility. The other scripts in [`integration/agent_frameworks/`](integration/agent_frameworks/) (LangChain, LangGraph, CrewAI, OpenAI Agents SDK, AutoGen, Semantic Kernel) are examples that need their own SDK install and are not CI-gated. Against **real installed SDKs** on the 1.2.0 core wheel they were exercised for their tool-binding surface — a LangGraph `StateGraph` and a LangChain `@tool` run several workloads end to end (lightweight tools `SUCCESS`, a heavy one correctly `fuel_exhausted`), and the Cell function registered as a CrewAI `BaseTool` / OpenAI `FunctionTool` executes real WASM through the framework wrapper (evidence: [`benchmarks/results/2026-10-14/agent_frameworks.json`](benchmarks/results/2026-10-14/)). What these do **not** claim on this host: the autonomous LLM decision loop (`crew.kickoff()` / `Runner.run`) needs a model endpoint or `OPENAI_API_KEY` and is reported `skipped`, not faked; AutoGen and Semantic Kernel are left as install-your-own examples. Nothing here is presented as more than it ran.
 
 ## Limitations
 
 **Cell is:** the minimal execution boundary for untrusted code — a WASM/WASI sandbox with explicit capabilities and budgets, a resource-accounted runtime, an embeddable Python library, a CLI, an MCP execution layer.
 
-**Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It writes nothing to disk and inherits nothing between runs; named state lives only while the host keeps its store alive — see [Stateless by construction](#stateless-by-construction).
+**Cell is not:** a persistent workspace · a VM · a container orchestrator or a general container replacement · a malware detector · a multi-tenant cloud platform · an agent framework · an LLM · a code generator. It carries no execution state to disk between runs and inherits nothing from a previous one; per-run scratch space is created and cleaned up, and named state lives only while the host keeps its store alive — see [Stateless by construction](#stateless-by-construction).
 
 Use Cell when: code is untrusted or dynamically generated · tools come from third parties · an AI agent executes arbitrary programs · you need explicit resource budgets · you need structured execution metadata. Cell is optimized for bounded executions, not long-running service workloads — for full Linux service semantics, use an appropriate container or microVM boundary (measured third-party comparison: [docs/performance.md](docs/performance.md)).
 
@@ -378,25 +446,36 @@ What each enforced control does **not** claim — every row is an honest boundar
 
 > **The goal is narrow: make untrusted execution cheap enough and controlled enough that an application can safely do it by default.**
 
-Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, resource-exhaustion matrix) · [docs/security_posture.md](docs/security_posture.md) (evidence ladder, attack-surface verification, related research).
+Full details: [SECURITY.md → Public Security Release Status](SECURITY.md#public-security-release-status) (at-a-glance release/audit status) · [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/threat-model.md](docs/threat-model.md) (adversary model, trust boundaries, resource-exhaustion matrix) · [docs/security_posture.md](docs/security_posture.md) (evidence ladder, attack-surface verification, related research).
 
-**Roadmap** — stable themes, no dates promised; the gated detail lives in [SECURITY.md](SECURITY.md) and [docs/observations.md](docs/observations.md): qualifying a newer Wasmtime line, re-running the fuel-determinism and FS-escape gates against it · WASI 0.3, gated until its surface ships in the Python wheels and has its own budget qualification · shared-everything threads as a separately security-reviewed opt-in with thread-aware fuel and wall-clock accounting ([docs/threads_roadmap.md](docs/threads_roadmap.md)) · continuous fuzzing over today's scheduled fuzz smokes, targeting the parser/verifier surfaces and the invariants above.
+**Roadmap** — stable themes, no dates promised; the gated detail lives in [SECURITY.md](SECURITY.md): qualifying a newer Wasmtime line, re-running the fuel-determinism and FS-escape gates against it · WASI 0.3, gated until its surface ships in the Python wheels and has its own budget qualification · shared-everything threads as a separately security-reviewed opt-in with thread-aware fuel and wall-clock accounting · continuous fuzzing over today's scheduled fuzz smokes, targeting the parser/verifier surfaces and the invariants above.
+
+## Migrating to 1.2.0 (in preparation — **not yet released**)
+
+**Status first:** the latest *published* release is still **v1.1.0**; **1.2.0 is prepared on the release branch and its public release awaits the final founder GO**. The release ships a controlled build on the 49.0.3 fix line — a digest-verified engine build from the official Bytecode Alliance C-API release asset, with engine patch parity for the async class **not independently verified** (see the GHSA-32h6 notes) — via the release set's versioned runtime asset; the dependency contract fails closed without it (no silent 49.0.0 fallback). macOS arm64 is the qualified platform; Linux/Windows are NOT QUALIFIED ([SECURITY.md → Public Security Release Status](SECURITY.md#public-security-release-status)). Full per-version notes live in [CHANGELOG.md](CHANGELOG.md).
+
+What changes for a caller moving from 1.1.0 to the current source:
+
+- **Untrusted runs are isolated by default — both ABIs.** Every entry point routes a guest the host has not explicitly marked `trusted` into the disposable subprocess worker: WASI 0.2 components and WASI Preview1 modules alike; unspecified counts as untrusted, and if the worker is unavailable the run is **refused** rather than downgraded to in-process. The only run that stays in-process is one the host explicitly marks `trusted` (host-authorised).
+- **Receipts attest what actually held.** The execution record now names `execution_mode` (the isolation path that ran the guest), the `abi` executed, and whether `sync_blockade_enforced` applied on that path — a component run honestly reports `false`.
+- **New language-level entries.** `from ephemora_cell import run_python, run_javascript` (lazy; see [API](#api-cli-and-integrations)). They resolve a guest and fail closed with the install command; the versioned guest **packages are gated on publish + license/SBOM clearance**, so today the working paths are an explicit BYO guest, the pinned `scripts/build_python_guest.py` component recipe, or the raw `run_wasm(..., abi="component")` primitive.
+- **No breaking core-API change** to `run_wasm` / `run_isolated` / `WASISandbox.run`; the additions are additive and the isolation mandate is the one behavioural tightening.
 
 ## Testing & Verification
 
-**Current gate on main (post-v1.1.0 hardening), measured on a fresh clone of this commit** — not a per-host constant: 1084 tests passing (4 skipped) · 90% statement coverage (4098/4548 measured on this commit; gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 72-pass official wasi-testsuite conformance (pinned, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — plus, on that same clone: a wheel-only smoke against the installed artifact (recorded in the v1.1.0 GitHub release) and an sdist clean-room container run.
+**Current gate on main (post-v1.1.0 hardening), measured in this release-candidate tree** — not a per-host constant: 1747 tests passing (27 skipped) · 88% statement coverage (88.44% of 6,598 statements — 5,835 executed, 763 unexecuted — measured 2026-10-21 in a fresh checkout of this candidate on the qualified runtime, with no packaged language guest installed and no wheel built in that checkout; gate 80%) · 8/8 attack vectors blocked (default posture, WASI Preview1 path) · 71-pass official wasi-testsuite conformance (pinned, 1 documented by-design expected-failure, 0 fail) · CI-enforced on every push (tests, coverage, pip-audit, SBOM, bandit, official MCP SDK interop) — **enforced by workflow definition, not yet by an executed run for this state**: the `release/1.2.0-preparation` branch has not been pushed, so the numbers above are measured locally on this commit and no CI job has reproduced them yet — plus, from the built artefacts: a wheel-only smoke against the installed artifact (recorded in the v1.1.0 GitHub release) and an sdist clean-room container run. The counts above are measured on the qualified `49.0.3` fix-line runtime (`wasmtime 49.0.3.post2+git.1d21c90f`), and on a development venv carrying the older `wasmtime 49.0.0` the same tree reports 1743 passing / 31 skipped **with the documented escape hatch set** (`EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1`) — the only way such a machine runs guest code at all, and every one of those runs is stamped `unqualified_runtime_allowed: true`. Without the hatch that venv does not produce a green suite and is not meant to: the gate refuses the execution legs, so the run is red by design. Under the hatch the identity legs that require the qualified binary skip and the refusal legs take their `environment` branch, so the count is not comparable to the release gate and is not offered as one; `ephemora-cell doctor` names the runtime it actually loaded instead of hiding it. What `policy check --language` promises about Python and JavaScript grants is measured rather than asserted: [`benchmarks/results/2026-10-19/language_grant_views_measured.json`](benchmarks/results/2026-10-19/language_grant_views_measured.json) holds the run-side comparison (adapter-built `allow_dirs` by guest **and** host path, the ABI each branch passes, the worker flag, the `/sandbox` presence and the guest's own `argv`), with the four bring-your-own guest digests pinned and the interpreter stamped (`wasmtime 49.0.3.post2+git.1d21c90f`, `doctor` runtime-floor `ok`); regenerate it with [`benchmarks/language_grant_evidence.py`](benchmarks/language_grant_evidence.py).
 
-**What "the suite" means here — one canonical number.** 1084/4 (1088 collected) is what `pytest` reports on the environment CI uses on both legs: `requirements.txt` (the pinned `wasmtime`), the test deps, and the optional `tools-signing` extra (`cryptography>=42`) that every Ed25519 path needs. The count is machine-checked against `pytest --collect-only` by `scripts/check_test_count.py`, so the release-count sentences cannot drift from the code. The figures around it — the minimal-install count without `cryptography`, the sdist container range, the toolchain-skip asymmetry, what host load does to the `io_cpu_seconds` watchdog — each describe a different installation state and are kept with their conditions in [docs/release_assurance.md](docs/release_assurance.md), re-measured by hand at each release rather than by the guard.
+**What "the suite" means here — one canonical number.** 1747/27 (1774 collected), measured in a fresh checkout of this candidate on the qualified `49.0.3` runtime with the CI test dependencies (`pytest 8.4.2`, `pytest-cov 7.1.0`, `cryptography`) and no packaged language guest installed — and because the number depends on what the machine can actually run, the conditions are part of it: the CI-shape count is what `git clone` + the pinned requirements produce, and `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it. One of those 27 is `tests/test_distribution_guard.py`'s scan of `dist/`: it skips when no wheel has been built in that checkout, so on a machine that has just built them the same tree reports one pass more and one skip less. Installing the packaged language guests moves the other way — four resolver legs (`tests/test_lang_guest.py`'s three fail-closed refusals and `tests/test_lang_unified.py`'s missing-entrypoint refusal) assert the refusal that happens only where NO packaged guest exists, so on a wheelhouse install they skip with that reason (one `tests/test_cli_new_commands.py` leg goes the other way, because the guest it expects to be missing is now installed) and the tree reads 1744/30; pinning the guests themselves through `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` turns those round-trips into passes and the same tree reads 1756/18. Supplying a bring-your-own guest turns further skips into passes (never the reverse), and coverage's missing-line count moves with whichever optional paths executed — 763 lines unexecuted in the run quoted above. The remaining skips are the experimental opt-in JavaScript and Python adapters' bring-your-own-guest round-trips (including the modern CPython-WASI component-guest round-trip and its `sys.argv` forwarding check, which skip unless `EPHEMORA_PY_COMPONENT_GUEST` is supplied, and the QuickJS JavaScript source-interpreter round-trips (a clean run, a thrown error and a deliberate `process.exit`), which skip unless `EPHEMORA_JS_INTERPRETER_GUEST` is supplied) plus the opt-in heavy language-guest qualification gates (the componentize-py Python-guest build/run test, which skips unless `EPHEMORA_PY_GUEST_QUALIFY=1` and the toolchain is present, and the javy JavaScript-guest build/run test, which skips unless `EPHEMORA_JS_GUEST_QUALIFY=1` and the `javy` CLI is present) plus the opt-in live MCP HTTP-bridge round-trip (skips unless `EPHEMORA_MCP_BRIDGE_LIVE=1`, because it binds a socket) — all of which skip whenever no Javy-built module or CPython-WASI/componentize-py guest is provided out-of-band (no interpreter binaries ship in the core, by design) — is what `pytest` reports on the environment CI uses on both legs: `requirements.txt` (the pinned `wasmtime`), the test deps, and the optional `tools-signing` extra (`cryptography>=42`) that every Ed25519 path needs. The count is machine-checked against `pytest --collect-only` by `scripts/check_test_count.py`, so the release-count sentences cannot drift from the code. The figures around it — the minimal-install count without `cryptography`, the sdist container range, the toolchain-skip asymmetry, what host load does to the `io_cpu_seconds` watchdog — each describe a different installation state and are kept with their conditions in [docs/release_assurance.md](docs/release_assurance.md), re-measured by hand at each release rather than by the guard.
 
 ## Documentation
 
-**Security & evidence** · [SECURITY.md](SECURITY.md) — policy, execution-path matrix, vulnerability reporting · [docs/threat-model.md](docs/threat-model.md) — trust boundaries, adversary model, resource-exhaustion matrix · [docs/security_posture.md](docs/security_posture.md) — evidence ladder, results tables, CVE replay detail · [conformance/README.md](conformance/README.md) — official wasi-testsuite and core-spec results · [docs/release_assurance.md](docs/release_assurance.md) — measured counts per installation state · [docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md) — what six red-team lanes found, what closed with a biting test, the three posture decisions the operator made afterwards (grant scope, ungranted tools, handshake order), the second pass that audited that same day's code, and the items left open with the reason
+**Security & evidence** · [SECURITY.md](SECURITY.md) — policy, execution-path matrix, vulnerability reporting · [docs/threat-model.md](docs/threat-model.md) — trust boundaries, adversary model, resource-exhaustion matrix · [docs/security_posture.md](docs/security_posture.md) — evidence ladder, results tables, CVE replay detail · [docs/runtime_provenance.md](docs/runtime_provenance.md) — the qualified engine's bytes, its source, and what a reviewer cannot verify · [docs/license_matrix.md](docs/license_matrix.md) — per-artifact licence and notice inventory, with the open counsel questions isolated · [conformance/README.md](conformance/README.md) — official wasi-testsuite and core-spec results · [docs/release_assurance.md](docs/release_assurance.md) — measured counts per installation state
 
-**Getting started** · [Quick Start](#quick-start) · [docs/recipes.md](docs/recipes.md) — usage patterns (FastAPI, serverless, air-gapped, WASI 0.2) and troubleshooting · [`integration/`](integration/) — agent-framework examples
+**Getting started** · [Quick Start](#quick-start) · [docs/installation.md](docs/installation.md) — the release artefact set, verified offline install, first checks · [docs/product_contract.md](docs/product_contract.md) — what is `supported` / `experimental` / `unavailable` on which platform, and the test that keeps each claim alive · [docs/recipes.md](docs/recipes.md) — usage patterns (FastAPI, serverless, air-gapped, WASI 0.2) and troubleshooting · [docs/cli-errors.md](docs/cli-errors.md) — what each exit status means, and when guest code is refused outright · [`integration/`](integration/) — agent-framework examples
 
 **Performance** · [docs/performance.md](docs/performance.md) — benchmarks and per-path latency, including the CoreMark measurement's version scope · [`benchmarks/results/`](benchmarks/results/) — raw `measured:true` JSON
 
-**Integrations & languages** · [docs/mcp.md](docs/mcp.md) — MCP server · [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md) — CVE-to-probe mapping · [`action/README.md`](action/README.md) — composite GitHub Action · [docs/languages.md](docs/languages.md) — compile matrix and interpreter guests · [docs/egress_patterns.md](docs/egress_patterns.md) — sanctioned API-call patterns · [docs/observations.md](docs/observations.md) — the watch items we are deliberately not acting on, each with its exit condition
+**Integrations & languages** · [docs/mcp.md](docs/mcp.md) — MCP server · [docs/comparison-mcp-servers.md](docs/comparison-mcp-servers.md) — CVE-to-probe mapping · [`action/README.md`](action/README.md) — composite GitHub Action · [docs/languages.md](docs/languages.md) — compile matrix and interpreter guests · [docs/egress_patterns.md](docs/egress_patterns.md) — sanctioned API-call patterns
 
 **Decisions & changes** · [ADR-001…015](docs/decisions/) — all decision records, including ADR-006 on who may change a running workload's security boundary · `examples/signed_record_demo.py` — sign and tamper-check a run · [CHANGELOG.md](CHANGELOG.md)
 
@@ -406,14 +485,14 @@ Full details: [SECURITY.md](SECURITY.md) (policy, known limitations) · [docs/th
 
 Ephemora-cell is licensed under the [Business Source License 1.1](LICENSE) (BUSL-1.1) — source-available, not open source.
 
-- **Free for non-production use** — evaluation, development, research, testing.
-- **Business/production use before the applicable Change Date requires a license from the Licensor, Michael Soppa** — see [docs/enterprise.md](docs/enterprise.md).
+- **Free for non-production use** — evaluation, development, research, testing. This applies to individuals and organizations alike; non-production use inside a company does not require a commercial license.
+- **Production use before the applicable Change Date requires a commercial license from the Licensor, Michael Soppa (unless another grant applies)** — see [docs/licensing.md](docs/licensing.md) and [docs/enterprise.md](docs/enterprise.md).
 - **Automatic conversion:** each version converts to **Apache 2.0** four years after its first publicly available distribution.
 - **License history by version:** versions ≤ 1.0.4.3 are Apache-2.0. Versions 1.0.5 and later are BUSL-1.1 ([ADR-010](docs/decisions/ADR-010-relicensing-bsl11.md) carries each version's first public distribution date and its Change Date).
 - **No warranty:** the Licensed Work is provided on an "AS IS" basis, with all warranties and conditions disclaimed, in the terms the [LICENSE](LICENSE) states.
 - **Third-party material** is not relicensed here: what ships or is referenced under another license is listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Ephemora-cell is the standalone execution boundary — no Ephemora dependency. The Ephemora enterprise edition builds on this boundary for production and regulated deployments: Cell is complete for isolation, the enterprise edition is complete for operation.
+Ephemora-cell is the standalone execution boundary — no Ephemora dependency. The Ephemora enterprise offering builds on this boundary for production and regulated deployments: Cell is complete for isolation, the enterprise offering covers production-use rights and support for the operational layer, built on the same boundary.
 
 ---
 mcp-name: io.github.MichaelS1011/ephemora-cell-mcp

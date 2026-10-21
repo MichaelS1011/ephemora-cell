@@ -1,0 +1,124 @@
+{
+  "generated": "2026-10-14",
+  "subject": "Agent-framework integration review \u2014 run against REAL installed SDKs (isolated venv) on ephemora-cell 1.2.0 core wheel",
+  "host": "macOS (Apple silicon), Python 3.12, ephemora-cell 1.2.0 + wasmtime 49.0.0",
+  "sdk_versions": {
+    "langchain-core": "1.6.10",
+    "langgraph": "1.2.15",
+    "crewai": "1.15.28",
+    "openai-agents": "0.20.0",
+    "openai": "2.54.0"
+  },
+  "what_is_proven": [
+    "LangGraph: a compiled StateGraph executed 4 real Ephemora Cell runs (3 lightweight tools SUCCESS, 1 heavy module correctly bounded by fuel).",
+    "LangChain: a real @tool (StructuredTool) invoked across 3 workloads (2 SUCCESS, 1 fuel-bounded) through the SDK wrapper.",
+    "CrewAI: the Ephemora Cell function is a real BaseTool registered on an Agent; invoking it through the framework executes WASM (SUCCESS).",
+    "OpenAI Agents: the Ephemora Cell function is a real FunctionTool bound to an Agent; the Cell-backed function it wraps executes WASM (SUCCESS)."
+  ],
+  "what_is_NOT_exercised_here": [
+    "The autonomous LLM decision loop (crew.kickoff() / Runner.run) \u2014 requires a model endpoint or OPENAI_API_KEY; deliberately NOT run (no unauthorized paid/ network LLM calls on this host). Both examples report llm_loop=skipped with the reason and still prove the tool-binding surface.",
+    "AutoGen and Semantic Kernel examples remain un-run here (their SDKs are heavier / Semantic Kernel is primarily .NET); they are documented as needing their own install and are not part of this evidence.",
+    "These are standalone scripts under integration/agent_frameworks/, NOT part of the CI pytest suite (testpaths=[tests]); running them does not change the collected test count."
+  ],
+  "runs": {
+    "langchain": {
+      "test": "langchain_integration",
+      "request_id": "5edcba79",
+      "timestamp": "2026-10-14T21:05:23.336990+00:00",
+      "framework": "langchain",
+      "langchain_core_version": "1.6.10",
+      "tool_type": "StructuredTool",
+      "tools_invoked": 3,
+      "runs": [
+        {
+          "tool": "hello",
+          "wasm": "hello.wasm",
+          "status": "success",
+          "elapsed_ms": 9.06
+        },
+        {
+          "tool": "data_transform",
+          "wasm": "data_transform.wasm",
+          "status": "success",
+          "elapsed_ms": 41.37
+        },
+        {
+          "tool": "code_review_heavy",
+          "wasm": "code_review.wasm",
+          "status": "fuel_exhausted",
+          "elapsed_ms": 8.62
+        }
+      ],
+      "lightweight_tools_succeeded": true,
+      "heavy_tool_bounded_by_fuel": true
+    },
+    "langgraph": {
+      "test": "langgraph_integration",
+      "request_id": "c3767883",
+      "timestamp": "2026-10-14T21:05:28.732248+00:00",
+      "framework": "langgraph",
+      "langgraph_version": "1.2.15",
+      "nodes_executed": 4,
+      "tool_calls": [
+        {
+          "tool": "data_transform",
+          "wasm": "data_transform.wasm",
+          "status": "success",
+          "blocked": false,
+          "elapsed_ms": 12.37
+        },
+        {
+          "tool": "hello_rust",
+          "wasm": "hello_rust.wasm",
+          "status": "success",
+          "blocked": false,
+          "elapsed_ms": 111.42
+        },
+        {
+          "tool": "hello",
+          "wasm": "hello.wasm",
+          "status": "success",
+          "blocked": false,
+          "elapsed_ms": 25.06
+        },
+        {
+          "tool": "code_review_heavy",
+          "wasm": "code_review.wasm",
+          "status": "fuel_exhausted",
+          "blocked": true,
+          "elapsed_ms": 16.36
+        }
+      ],
+      "all_tools_ran": true,
+      "lightweight_tools_succeeded": true,
+      "heavy_tool_bounded_by_fuel": true
+    },
+    "crewai": {
+      "test": "crewai_integration",
+      "request_id": "1f4e3e1d",
+      "timestamp": "2026-10-14T21:05:38.106845+00:00",
+      "framework": "crewai",
+      "tools_registered": [
+        "ephemora_cell_execute"
+      ],
+      "tool_binding_verified": true,
+      "tool_execution_status": "success",
+      "llm_loop": "skipped",
+      "llm_reason": "OPENAI_API_KEY not set \u2014 crew.kickoff() requires an LLM provider"
+    },
+    "openai_agents": {
+      "test": "openai_agents_integration",
+      "request_id": "e6b33d66",
+      "timestamp": "2026-10-14T21:05:44.839064+00:00",
+      "framework": "openai_agents",
+      "llm_loop": "skipped",
+      "llm_reason": "OPENAI_API_KEY not set \u2014 Runner.run() requires a model endpoint",
+      "tools_registered": [
+        "execute_wasm"
+      ],
+      "tool_binding_verified": true,
+      "tool_execution_status": "success"
+    }
+  },
+  "honesty_note": "Every SUCCESS above is a real WASM execution inside the Ephemora Cell sandbox driven through the named framework SDK installed in an isolated virtualenv; fuel_exhausted rows are the sandbox correctly enforcing a tight budget, not integration failures."
+}

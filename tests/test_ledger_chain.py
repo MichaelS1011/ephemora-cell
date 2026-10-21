@@ -309,6 +309,20 @@ class TestLedgerCLI:
         assert "linkage" in payload["proves"]
         assert "truncated" in payload["cannot_see"]
 
+    def test_json_rejects_a_file_that_is_not_an_execution_ledger(self, tmp_path):
+        path = tmp_path / "tenant-book.jsonl"
+        path.write_text(
+            json.dumps({"tenant": "t1", "admitted": 1, "fuel": 10}) + "\n",
+            encoding="utf-8",
+        )
+        result = self._cli("ledger", "--json", str(path))
+        assert result.returncode == 1, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["entries"] == 1
+        assert payload["intact"] is False
+        assert payload["head_sequence"] is None
+        assert "ledger_version" in payload["break_reason"]
+
 
 class TestWriterSemantics:
     def test_concurrent_appends_produce_one_gapless_chain(self, tmp_path):

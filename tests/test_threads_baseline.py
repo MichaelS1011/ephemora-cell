@@ -27,7 +27,7 @@ positive control proving the parser accepts shared-memory modules once
 ``wasm_threads`` is enabled (so rejection in our sandbox is caused by our
 freeze).
 
-See docs/threads_roadmap.md for the full threat model and phased roadmap.
+See the Threading section of SECURITY.md for the public thread policy.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ from ephemora_cell import (
     WASIConfig,
     WASISandbox,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 
 # Shared memory WITHOUT a max size would fail to compile even with threads
 # enabled; the (1 2) min/max form is accepted by the parser once
@@ -201,17 +202,27 @@ class TestEngineConfigFreeze:
                 assert cfg.tracked.get(flag) is False, flag
 
     def test_wasi_sandbox_inline_engine_frozen(self, monkeypatch, trivial_wasm):
-        """WASISandbox non-pooled engine freezes threads + mirrors memory64."""
+        """WASISandbox non-pooled engine freezes threads + mirrors memory64.
+
+        The ADR-015 mandate routes the default (unknown) posture to the worker,
+        so this test of the IN-PROCESS engine-config construction site must
+        declare the sanctioned in-process path (``trust='trusted'``) for its
+        parent-side ``wasmtime.Config`` spy to observe anything.
+        """
         spy_config = _patch_config(monkeypatch, "ephemora_cell.wasi_runtime")
         sandbox = WASISandbox(config=WASIConfig())
-        result = sandbox.run(str(trivial_wasm), use_engine_pool=False)
+        result = sandbox.run(
+            str(trivial_wasm), use_engine_pool=False, trust=TRUST_TRUSTED
+        )
         assert result.status == ExecutionStatus.SUCCESS
         self._assert_site(spy_config, WASIConfig())
 
     def test_wasi_sandbox_inline_engine_memory64_optin(self, monkeypatch, trivial_wasm):
         spy_config = _patch_config(monkeypatch, "ephemora_cell.wasi_runtime")
         sandbox = WASISandbox(config=WASIConfig(memory64=True))
-        result = sandbox.run(str(trivial_wasm), use_engine_pool=False)
+        result = sandbox.run(
+            str(trivial_wasm), use_engine_pool=False, trust=TRUST_TRUSTED
+        )
         assert result.status == ExecutionStatus.SUCCESS
         self._assert_site(spy_config, WASIConfig(memory64=True))
 

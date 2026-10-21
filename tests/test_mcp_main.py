@@ -49,8 +49,11 @@ def _capture_server(monkeypatch):
     yield
 
 
-def test_default_builds_no_egress_policy():
-    assert main(["--tools-dir", "/nonexistent-tools"]) == 0
+def test_default_builds_no_egress_policy(tmp_path):
+    # An existing directory: a nonexistent --tools-dir now refuses startup (see
+    # test_missing_tools_dir_is_a_clean_error_not_an_empty_server), and this test
+    # is about the egress policy the server is built with, not path tolerance.
+    assert main(["--tools-dir", str(tmp_path)]) == 0
     (server,) = _RecordingServer.instances
     assert server.kwargs["egress_policy"] is None
     assert _RecordingServer.served == 1
@@ -272,6 +275,27 @@ def test_grants_dir_without_a_ledger_is_a_clean_error(tmp_path, capsys):
     assert "--grant-ledger" in capsys.readouterr().err
     # fail-closed: no server, so a cap/expiry is never silently unenforced
     assert _RecordingServer.instances == []
+
+
+def test_missing_tools_dir_is_a_clean_error_not_an_empty_server(tmp_path, capsys):
+    """A typo in --tools-dir must not start a live server that serves no tools.
+
+    Measured on 2026-10-15: a nonexistent directory was accepted silently, the
+    server started with exit 0 and advertised only `get-policy`, so every real
+    tool call answered "unknown tool" — an operator-visible endpoint with
+    nothing executable behind it. An existing but empty directory stays legal.
+    """
+    missing = tmp_path / "no-such-tools"
+    code = main(["--tools-dir", str(missing)])
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "--tools-dir is not a directory" in err, err
+    # fail-closed: the server is never constructed
+    assert _RecordingServer.instances == []
+    # and the legal near-miss still is: an existing directory with no .wasm files
+    empty = tmp_path / "empty-tools"
+    empty.mkdir()
+    assert main(["--tools-dir", str(empty)]) == 0
 
 
 def test_grants_dir_without_a_trust_root_is_a_clean_error(tmp_path, capsys):

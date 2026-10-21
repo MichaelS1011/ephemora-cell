@@ -2,6 +2,26 @@
 # push: the smoke job executes a benign module, the enforcement job feeds
 # the SAME module a 100-unit fuel budget and expects the sandbox to stop
 # it with status fuel_exhausted. If either behavior regresses, CI is red.
+#
+# Scope (2026-10-16, K-BR4-05): both jobs drive the SHIPPED engine through the
+# composite action, so they now run on the qualified platform (macOS arm64,
+# macos-15) with the hash-pinned runtime asset. macos-14 is retired on
+# 2026-11-02 (actions/runner-images#13518); macos-15 is the arm64 image. There is NO Linux/Docker-specific subject here: the
+# demo asserts the action's CLI contract, the sandbox status reporting and fuel
+# accounting, and the `--isolated` OS walls are implemented with
+# resource.setrlimit (ephemora_cell/process_worker.py), which macOS enforces as
+# well. A Linux leg could only install and run the unpatched 49.0.0 (no 49.0.3
+# runtime wheel exists for Linux), so the ubuntu legs were dropped instead of
+# being kept permanently red — Linux stays NOT QUALIFIED for 1.2.x.
+#
+# The composite action installs the package itself (`pip install ephemora-cell`,
+# action/action.yml:79-81) — that command is outside this workflow's control.
+# Both jobs install the checkout first (`pip install -e . --no-deps`), so that
+# requirement is already satisfied and needs no index. Every `uses: ./action`
+# step still carries PIP_NO_INDEX=1: if the requirement were ever unsatisfied,
+# the action would fail closed instead of pulling an unpinned package from PyPI.
+# The runtime itself is installed by scripts/ci_runtime_bootstrap.py, not by the
+# action.
 name: action-demo
 
 on:
@@ -13,40 +33,178 @@ on:
 
 permissions: read-all
 
+# Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
+# controlled wasmtime 49.0.3 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 ab4f1ea6…0fb73). It is a versioned, hash-pinned
+# HTTPS release asset, not a PyPI package. scripts/ci_runtime_bootstrap.py
+# downloads it, verifies the wheel and native digests, installs it with
+# --no-index --no-deps, and verifies the loaded library. A missing or changed
+# asset FAILS the job; there is no 49.0.0 fallback and no local cache.
+# The asset URL is a constant in scripts/ci_runtime_bootstrap.py; changing it
+# is a reviewed code change, not a repository setting.
+
 jobs:
   smoke:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
+        run: |
+          python -m pip install --upgrade pip
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py
+          python -m pip install -e . --no-deps
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
+          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       - id: hello
         uses: ./action
+        env:
+          # The checkout is installed above, so the action's own
+          # `pip install ephemora-cell` is already satisfied. No index: if that
+          # ever changes, the action fails closed instead of using PyPI.
+          PIP_NO_INDEX: "1"
         with:
           module: examples/hello.wasm
           profile: llm
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
+          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       - name: Assert the run succeeded
         run: |
           [ "${{ steps.hello.outputs.status }}" = "success" ] || { echo "unexpected status: ${{ steps.hello.outputs.status }}"; exit 1; }
-          echo "smoke OK on ${{ matrix.os }}: status=${{ steps.hello.outputs.status }} fuel=${{ steps.hello.outputs.fuel_consumed }} elapsed=${{ steps.hello.outputs.elapsed_ms }}ms"
+          echo "smoke OK on macos-15/$(uname -m): status=${{ steps.hello.outputs.status }} fuel=${{ steps.hello.outputs.fuel_consumed }} elapsed=${{ steps.hello.outputs.elapsed_ms }}ms"
 
   enforcement:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
+        run: |
+          python -m pip install --upgrade pip
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py
+          python -m pip install -e . --no-deps
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
+          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       # fuel_bomb.wasm is an infinite loop — it exhausts ANY budget on ANY
       # platform. (hello.wasm is NOT suitable: fuel costs are not cross-
       # platform deterministic — the same module burns 16397 units on
       # macOS arm64 but only 12 on Linux x86_64, so 100 fuel does not stop
-      # it on Linux.)
+      # it on Linux.) Both figures were re-measured on the qualified platform
+      # during this work: hello.wasm = 16397 units, fuel bomb = exactly 100
+      # (the demo-CLI run of the qualification pass).
       - id: fuel-bomb
         uses: ./action
+        env:
+          # Same fail-closed binding as in the smoke job (see the file header).
+          PIP_NO_INDEX: "1"
         with:
           module: examples/fuel_bomb.wasm
           profile: llm
           fuel: 100
         continue-on-error: true
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
+          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
+      # `continue-on-error` above is deliberate and NOT a mask: this step checks
+      # the masked step's `outcome` (must be failure) AND the expected status and
+      # fuel values, so a failed install or a broken sandbox cannot pass as
+      # "fuel_exhausted". Verified with literal values — including the
+      # empty-output case — in the qualification assertion run (5/5).
       - name: Assert the fuel bomb was stopped
         run: |
           [ "${{ steps.fuel-bomb.outcome }}" = "failure" ] || { echo "action should have failed on fuel exhaustion"; exit 1; }

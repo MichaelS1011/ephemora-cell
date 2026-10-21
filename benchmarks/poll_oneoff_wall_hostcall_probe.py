@@ -31,6 +31,7 @@ Exit 1 = not contained (STOP-CONDITION candidate -> escalate, do not merge).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -63,7 +64,11 @@ TIMEOUT_SECONDS = 2  # worker process deadline = max(2+5, 5) = 7 s
 
 
 def _write_blocking_wasm() -> str:
-    path = tempfile.mktemp(suffix=".wasm")
+    # mkstemp, not the deprecated mktemp: the name is created atomically with
+    # O_EXCL, so no other process can win the race to that path between the
+    # guess and the write (CWE-377).
+    fd, path = tempfile.mkstemp(suffix=".wasm")
+    os.close(fd)
     Path(path).write_bytes(wasmtime.wat2wasm(WAT_BLOCKING_POLL))
     return path
 
@@ -153,7 +158,14 @@ def main() -> int:
     ev.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, indent=2))
     print(f"\nEvidence -> {ev}")
-    print("VERDICT:", "PASS (outer wall enforced during blocking hostcall)" if ok else "FAIL (not contained)")
+    print(
+        "VERDICT:",
+        (
+            "PASS (outer wall enforced during blocking hostcall)"
+            if ok
+            else "FAIL (not contained)"
+        ),
+    )
     return 0 if ok else 1
 
 

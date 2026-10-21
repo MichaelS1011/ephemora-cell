@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -49,6 +50,7 @@ from .wasi_runtime import (
     WASIConfig,
     WASISandbox,
     module_size_cap_error,
+    set_isolation_boundary,
 )
 
 # Re-exported from wasi_runtime (single source) — the MCP tool registry load
@@ -58,6 +60,32 @@ from .wasi_runtime import (
 _RLIMIT_NOFILE = 256
 
 __all__ = ["DEFAULT_MAX_WASM_BYTES", "main", "run_worker"]
+
+# Bootstrap deadline for reading the run payload from stdin. Defense-in-depth
+# against orphans: a worker blocks on ``sys.stdin.read()`` until EOF, which is
+# normally signalled the moment the parent finishes writing the pipe. If the
+# parent dies while still holding the write end open (pathological teardown),
+# this timer hard-exits the worker so no uncontrolled process lingers.
+_PAYLOAD_READ_DEADLINE_SECONDS = float(
+    os.environ.get("EPHEMORA_WORKER_PAYLOAD_DEADLINE_SECONDS", "120")
+)
+
+
+def _abort_payload_wait() -> None:
+    """Hard-exit a worker still waiting for its payload past the deadline.
+
+    ``os._exit`` is deliberate: interpreter teardown at this point could itself
+    block, and the parent maps a non-zero return to a fail-closed ``ERROR``
+    (never an in-process fallback).
+    """
+    try:
+        sys.stderr.write("worker aborted: payload not received before deadline\n")
+        sys.stderr.flush()
+    except OSError:
+        pass
+    os._exit(4)
+
+
 # Address-space headroom above the guest memory limit (best effort).
 _RLIMIT_MARGIN_BYTES = 64 * 1024 * 1024
 # RLIMIT_AS floor. wasmtime reserves a large virtual address space per
@@ -173,6 +201,10 @@ def _build_report(
     report = {
         "status": result.status.value,
         "exit_code": result.exit_code,
+        # Whether a GUEST exit status reached this result. The parent reads it
+        # back to decide what `exit_status_fidelity` may claim, so a worker whose
+        # module never loaded cannot report an exit channel it did not use.
+        "guest_exit_observed": result.guest_exit_observed,
         "stdout": result.stdout,
         "stderr": result.stderr,
         "elapsed_ms": result.elapsed_ms,
@@ -312,13 +344,21 @@ def run_worker(
             config.io_cpu_seconds, interrupt_event, done_event, watchdog_seen
         )
     try:
-        result = sandbox.run(
-            str(resolved),
-            args=args or [],
-            stdin_data=stdin_data,
-            interrupt_event=interrupt_event,
-            expected_sha256=expected_sha256,
-        )
+        # This process IS the mandated isolation boundary. Mark it so the
+        # central ADR-015 gate runs the guest in-process here instead of
+        # recursively spawning a sub-worker (the 759-incident fan-out). Restored
+        # in the finally so the suppression cannot leak to any later run.
+        prev_boundary = set_isolation_boundary(True)
+        try:
+            result = sandbox.run(
+                str(resolved),
+                args=args or [],
+                stdin_data=stdin_data,
+                interrupt_event=interrupt_event,
+                expected_sha256=expected_sha256,
+            )
+        finally:
+            set_isolation_boundary(prev_boundary)
     finally:
         done_event.set()
         io_cpu_used = max(0.0, _cpu_usage() - cpu_at_start)
@@ -380,7 +420,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if opts.payload_stdin:
-            payload = json.loads(sys.stdin.read())
+            payload_timer = threading.Timer(
+                _PAYLOAD_READ_DEADLINE_SECONDS, _abort_payload_wait
+            )
+            payload_timer.daemon = True
+            payload_timer.start()
+            try:
+                payload = json.loads(sys.stdin.read())
+            finally:
+                payload_timer.cancel()
             if not isinstance(payload, dict):
                 raise ValueError("payload must be a JSON object")
             config = WASIConfig(**payload.get("config", {}))

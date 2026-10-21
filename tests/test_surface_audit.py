@@ -132,11 +132,18 @@ def test_wasmtime_version_floor_covers_april_2026_advisories():
 
 def test_declared_install_floor_guarantees_vqjp_fix():
     """The security improvement must hold for the *supported install path*, not
-    only the internal CI pins. GHSA-vqjp is fixed in engine 47.0.4, and PyPI
-    ships one wasmtime wheel per major (47.0.1 / 48.0.0 / 49.0.0), so the
-    pyproject floor must be >= 49.0.0: a fresh ``pip install`` then resolves only
-    to a wheel past the GHSA-vqjp window and can never pull an affected engine.
-    requirements.txt must pin the exact tested revision."""
+    only the internal CI pins — and the install path must FAIL CLOSED.
+
+    Since 2026-10-16 the floor is the patched 49.0.3 line: GHSA-vqjp is fixed
+    in 47.0.4, and the release excludes the async-lifted class from the
+    shipped execution paths (loader guard); engine patch parity for the
+    2026-10-14 wave is not independently verified. PyPI still ships no 49.0.3
+    wheel, so the declared range makes a plain ``pip install`` resolve
+    UNSATISFIABLE rather than silently pulling 49.0.0; the patched engine
+    ships from the release wheelhouse as the pinned controlled build.
+    requirements.txt must declare that range (a bare ``wasmtime==49.0.3`` can
+    never match the qualified 49.0.3.postN build); requirements.lock must pin
+    the exact qualified build, carry its hash and name the wheelhouse."""
     import re
     from pathlib import Path
 
@@ -149,11 +156,26 @@ def test_declared_install_floor_guarantees_vqjp_fix():
     assert floor >= (
         49,
         0,
-        0,
-    ), f"pyproject floor {floor} is below the 49.0.0 GHSA-vqjp guarantee"
+        3,
+    ), f"pyproject floor {floor} is below the patched 49.0.3 line"
     assert ceiling == 50, f"unexpected wasmtime ceiling {ceiling}"
 
     reqs = (repo / "requirements.txt").read_text(encoding="utf-8")
     assert re.search(
-        r"wasmtime==49\.0\.0", reqs
-    ), "requirements.txt must pin wasmtime==49.0.0"
+        r"wasmtime\s*>=\s*49\.0\.3\s*,\s*<\s*50", reqs
+    ), "requirements.txt must declare the fail-closed wasmtime>=49.0.3,<50 range"
+
+    lock = (repo / "requirements.lock").read_text(encoding="utf-8")
+    assert re.search(
+        r"wasmtime==49\.0\.3\.post2\+git\.1d21c90f", lock
+    ), "requirements.lock must pin the qualified 49.0.3.post2+git.1d21c90f build"
+    assert "cee4bb220d5f58fe68a67a1e6bbe92ff5c5f9a95671e0eb1e4142cbfbae55356" in lock, (
+        "requirements.lock must hash-pin the clean controlled wheel shipped via "
+        "the release wheelhouse"
+    )
+    # Negative control: the discarded ".dirty" build must not come back as a
+    # productive reference (its hash belongs to no qualified artifact).
+    assert (
+        "01991655e7cf678bdbac409af4811e819064723e1cb562993cd329f65aaaab7f" not in lock
+    ), "requirements.lock must not reference the discarded dirty build"
+    assert "wheelhouse" in lock, "requirements.lock must name the wheelhouse delivery"

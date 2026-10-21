@@ -1,0 +1,402 @@
+{
+  "measured": true,
+  "uid": 10001,
+  "sections": {
+    "proc_status": {
+      "proc_status": {
+        "Uid": "10001\t10001\t10001\t10001",
+        "Gid": "10001\t10001\t10001\t10001",
+        "Threads": "1",
+        "CapPrm": "0000000000000000",
+        "CapEff": "0000000000000000",
+        "CapBnd": "0000000000000000",
+        "CapAmb": "0000000000000000",
+        "NoNewPrivs": "1",
+        "Seccomp": "2",
+        "Seccomp_filters": "1",
+        "Speculation_Store_Bypass": "thread vulnerable"
+      }
+    },
+    "namespaces": {
+      "namespaces_self": {
+        "mnt": "4026533128",
+        "pid": "4026533132",
+        "net": "4026533133",
+        "uts": "4026533129",
+        "ipc": "4026533131",
+        "user": "4026531837",
+        "cgroup": "4026531835"
+      },
+      "uid_map": "0          0 4294967295",
+      "gid_map": "0          0 4294967295",
+      "apparmor_label": "docker-default (enforce)",
+      "seccomp_apparmor_note": "docker-default profile expected under enforce on native Linux; absent/unconfined means the layer is NOT active"
+    },
+    "mounts": {
+      "mountinfo": [
+        {
+          "mount_point": "/",
+          "fstype": "overlay",
+          "source": "overlay",
+          "options": "ro,relatime",
+          "super_options": "rw,lowerdir=/var/lib/docker/overlay2/l/LOROY4BKQDMEOYT6NTZV6ZUFVT:/var/lib/docker/overlay2/l/MVN4GIHLASLDBFZFU5ZOIYWXVW:/var/lib/docker/overlay2/l/5APJQHAPQCDK47QEHLQWIG2F6Y:/var/lib/docker/overlay2/l/FRO5OU7OVN6TGG7UW4P6QERPUA:/var/lib/docker/overlay2/l/WJSZ2XQAA4YTIZYQX4LPWEEFCN:/var/lib/docker/overlay2/l/D3XRCJBRXIGXC25UNGE6IC47YM:/var/lib/docker/overlay2/l/E6L4R34MRM7HWBN2GTICUMRZPZ:/var/lib/docker/overlay2/l/MWG7LDALIR3ILX337CZOBNJB57:/var/lib/docker/overlay2/l/J4TJFRY3VRNFXYO5UQBNU4IIOX:/var/lib/docker/overlay2/l/XEEIKFCVPMOEQ4J73TELD7ZSG6,upperdir=/var/lib/docker/overlay2/d6857ccea7df40b936bdf5853130be1d7bb26140397c34c95cabb39082abc10a/diff,workdir=/var/lib/docker/overlay2/d6857ccea7df40b936bdf5853130be1d7bb26140397c34c95cabb39082abc10a/work,nouserxattr"
+        },
+        {
+          "mount_point": "/proc",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "rw,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/dev",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/dev/pts",
+          "fstype": "devpts",
+          "source": "devpts",
+          "options": "rw,nosuid,noexec,relatime",
+          "super_options": "rw,gid=5,mode=620,ptmxmode=666"
+        },
+        {
+          "mount_point": "/sys",
+          "fstype": "sysfs",
+          "source": "sysfs",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "ro"
+        },
+        {
+          "mount_point": "/sys/fs/cgroup",
+          "fstype": "cgroup2",
+          "source": "cgroup",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/dev/mqueue",
+          "fstype": "mqueue",
+          "source": "mqueue",
+          "options": "rw,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/dev/shm",
+          "fstype": "tmpfs",
+          "source": "shm",
+          "options": "rw,nosuid,nodev,noexec,relatime",
+          "super_options": "rw,size=65536k,inode64"
+        },
+        {
+          "mount_point": "/tmp",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid,nodev,noexec,relatime",
+          "super_options": "rw,size=65536k,inode64"
+        },
+        {
+          "mount_point": "/abortlab",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/input",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/probe/escape_probe.py",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/resolv.conf",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/hostname",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/hosts",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/proc/bus",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/proc/fs",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/proc/irq",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/proc/sys",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/proc/sysrq-trigger",
+          "fstype": "proc",
+          "source": "proc",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/proc/acpi",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "ro,relatime",
+          "super_options": "ro,inode64"
+        },
+        {
+          "mount_point": "/proc/asound",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "ro,relatime",
+          "super_options": "ro,inode64"
+        },
+        {
+          "mount_point": "/proc/interrupts",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/proc/kcore",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/proc/keys",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/proc/latency_stats",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/proc/scsi",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "ro,relatime",
+          "super_options": "ro,inode64"
+        },
+        {
+          "mount_point": "/proc/timer_list",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "rw,nosuid",
+          "super_options": "rw,size=65536k,mode=755,inode64"
+        },
+        {
+          "mount_point": "/sys/firmware",
+          "fstype": "tmpfs",
+          "source": "tmpfs",
+          "options": "ro,relatime",
+          "super_options": "ro,inode64"
+        }
+      ],
+      "mount_source_escapes": [
+        {
+          "mount_point": "/",
+          "fstype": "overlay",
+          "source": "overlay",
+          "options": "ro,relatime",
+          "super_options": "rw,lowerdir=/var/lib/docker/overlay2/l/LOROY4BKQDMEOYT6NTZV6ZUFVT:/var/lib/docker/overlay2/l/MVN4GIHLASLDBFZFU5ZOIYWXVW:/var/lib/docker/overlay2/l/5APJQHAPQCDK47QEHLQWIG2F6Y:/var/lib/docker/overlay2/l/FRO5OU7OVN6TGG7UW4P6QERPUA:/var/lib/docker/overlay2/l/WJSZ2XQAA4YTIZYQX4LPWEEFCN:/var/lib/docker/overlay2/l/D3XRCJBRXIGXC25UNGE6IC47YM:/var/lib/docker/overlay2/l/E6L4R34MRM7HWBN2GTICUMRZPZ:/var/lib/docker/overlay2/l/MWG7LDALIR3ILX337CZOBNJB57:/var/lib/docker/overlay2/l/J4TJFRY3VRNFXYO5UQBNU4IIOX:/var/lib/docker/overlay2/l/XEEIKFCVPMOEQ4J73TELD7ZSG6,upperdir=/var/lib/docker/overlay2/d6857ccea7df40b936bdf5853130be1d7bb26140397c34c95cabb39082abc10a/diff,workdir=/var/lib/docker/overlay2/d6857ccea7df40b936bdf5853130be1d7bb26140397c34c95cabb39082abc10a/work,nouserxattr"
+        },
+        {
+          "mount_point": "/sys/fs/cgroup",
+          "fstype": "cgroup2",
+          "source": "cgroup",
+          "options": "ro,nosuid,nodev,noexec,relatime",
+          "super_options": "rw"
+        },
+        {
+          "mount_point": "/abortlab",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/input",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/probe/escape_probe.py",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/resolv.conf",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/hostname",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        },
+        {
+          "mount_point": "/etc/hosts",
+          "fstype": "ext4",
+          "source": "/dev/nvme0n1p2",
+          "options": "ro,relatime",
+          "super_options": "rw,errors=remount-ro"
+        }
+      ],
+      "cgroup_self": "0::/system.slice/docker-a79599ad940ff0e98c6a4497bd80e804fe3a04552657ecc126c0369238a508d6.scope",
+      "cgroup_top_listing": [
+        "cgroup.controllers",
+        "cgroup.max.depth",
+        "cgroup.max.descendants",
+        "cgroup.pressure",
+        "cgroup.procs",
+        "cgroup.stat",
+        "cgroup.subtree_control",
+        "cgroup.threads",
+        "cpu.pressure",
+        "cpu.stat",
+        "cpu.stat.local",
+        "cpuset.cpus.effective",
+        "cpuset.cpus.isolated",
+        "cpuset.mems.effective",
+        "dev-hugepages.mount",
+        "dev-mqueue.mount",
+        "dmem.capacity",
+        "dmem.current",
+        "init.scope",
+        "io.cost.model",
+        "io.cost.qos",
+        "io.pressure",
+        "io.prio.class",
+        "io.stat"
+      ],
+      "cgroup_v2_memory_max": "unreadable:2",
+      "cgroup_v2_pids_max": "unreadable:2",
+      "cgroup_v2_cpu_max": "unreadable:2",
+      "cgroup_v1_memory": "unreadable:2"
+    },
+    "docker_socket": {
+      "docker_socket_paths": {
+        "/var/run/docker.sock": "absent",
+        "/run/docker.sock": "absent",
+        "/var/run": "unreadable:21",
+        "/run": "unreadable:21"
+      },
+      "dev_listing": [
+        "core",
+        "fd",
+        "full",
+        "mqueue",
+        "null",
+        "ptmx",
+        "pts",
+        "random",
+        "shm",
+        "stderr",
+        "stdin",
+        "stdout",
+        "tty",
+        "urandom",
+        "zero"
+      ]
+    },
+    "syscalls": {
+      "syscall_probes": {
+        "arch": "aarch64",
+        "personality_ADDR_NO_RANDOMIZE__seccomp_only": "rc=-1 errno=1 (Operation not permitted)",
+        "personality_PER_LINUX__control": "rc=0 errno=0 (keine errno)",
+        "mount_proc": "rc=-1 errno=1 (Operation not permitted)",
+        "bpf_map_lookup": "rc=-1 errno=1 (Operation not permitted)",
+        "unshare_CLONE_NEWNS": "rc=-1 errno=1 (Operation not permitted)",
+        "ptrace_ATTACH_pid1": "{\"attach_rc\": -1, \"attach_errno\": 1}",
+        "setuid_0": "rc=-1 errno=1 (Operation not permitted)"
+      }
+    },
+    "network": {
+      "net_interfaces": {
+        "lo": "unknown"
+      },
+      "resolv_conf": "# Generated by Docker Engine.\n# This file can be edited; Docker Engine will not make further changes once it\n# has been modified.\n\nnameserver 192.168.0.1\nsearch <mesh-search-domain>\n\n# Based on host file: '/run/systemd/resolve/resolv.conf' (legacy)\n# Overrides: []",
+      "hosts_file": "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost ip6-loopback\nfe00::\tip6-localnet\nff00::\tip6-mcastprefix\nff02::1\tip6-allnodes\nff02::2\tip6-allrouters",
+      "network_probes": {
+        "8.8.8.8:53": "refused errno 101",
+        "172.17.0.1:2375": "refused errno 101",
+        "127.0.0.1:2375": "refused errno 111",
+        "dns_example_com": "refused: Temporary failure in name resolution",
+        "raw_socket": "refused errno 1 (Operation not permitted)"
+      }
+    },
+    "host_leaks": {
+      "proc_sys_writable": {
+        "/proc/sys/kernel/panic": "refused errno 30",
+        "/proc/sysrq-trigger": "refused errno 30",
+        "/proc/sys/net/ipv4/ip_forward": "refused errno 30"
+      },
+      "kernel_versions": {
+        "uname": "Linux a79599ad940f 6.17.0-1032-nvidia #32-Ubuntu SMP PREEMPT_DYNAMIC Wed Aug 19 17:40:46 UTC 2026 aarch64",
+        "os_release": "PRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\" ; NAME=\"Debian GNU/Linux\" ; VERSION_ID=\"13\" ; VERSION=\"13 (trixie)\" ; VERSION_CODENAME=trixie ; DEBIAN_VERSION_FULL=1"
+      },
+      "rlimits": {
+        "RLIMIT_NOFILE": "(1024, 524288)",
+        "RLIMIT_NPROC": "(-1, -1)",
+        "RLIMIT_AS": "(-1, -1)",
+        "RLIMIT_FSIZE": "(-1, -1)",
+        "RLIMIT_CORE": "(-1, -1)"
+      },
+      "dev_kvm": "absent"
+    }
+  }
+}

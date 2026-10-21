@@ -7,9 +7,23 @@ on:
 
 permissions: read-all
 
+# Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
+# controlled wasmtime 49.0.3 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 ab4f1ea6…0fb73). PyPI carries no 49.0.3 wheel, so the
+# scripts/ci_runtime_bootstrap.py downloads the versioned HTTPS asset, verifies the
+# wheel and native digests, and installs it with --no-index --no-deps. A missing,
+# truncated or substituted asset FAILS the job on purpose — the
+# unpatched 49.0.0 is never accepted as the product runtime (fail-closed, no
+# silent fallback, no continue-on-error).
+
 jobs:
   fuzz-smoke:
-    runs-on: ubuntu-latest
+    # Scope (2026-10-16): the fuzz smoke drives the SHIPPED engine, so it runs on
+    # the qualified platform. Linux has no 49.0.3 runtime wheel, so a Linux leg
+    # could only fuzz the unpatched 49.0.0 (excluded by design) — its results
+    # would not describe the engine that ships. No Linux-specific dependency is
+    # involved (pure Python + wasmtime), so macOS arm64 is the honest platform.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -18,11 +32,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py
           python -m pip install -e . --no-deps
+
+      # Same fail-closed identity assertion as the ci.yml runtime legs: EXACT
+      # version (not a 49.0.3 prefix) + embedded dylib digest, so neither the
+      # unpatched 49.0.0 nor a ".dirty"/foreign build can pass this leg.
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
+          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
 
       - name: Run fuzz smoke (100 random WASM modules)
         run: |

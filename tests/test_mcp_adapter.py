@@ -1134,7 +1134,7 @@ def test_host_traceback_never_reaches_the_client():
 
     host_frames = (
         "Traceback (most recent call last):\n"
-        '  File "/Users/operator/.venv/lib/python3.12/site-packages/'
+        '  File "/Users/example/.venv/lib/python3.12/site-packages/'
         'ephemora_cell/wasi_runtime.py", line 900, in run\n'
         "TypeError: bad import wiring"
     )
@@ -1158,7 +1158,7 @@ def test_host_traceback_never_reaches_the_client():
     body = json.dumps(message)
     assert "Traceback" not in body, body[:300]
     assert "site-packages" not in body, body[:300]
-    assert "/Users/operator" not in body
+    assert "/Users/example" not in body
     # The detail still exists for the operator side of the boundary.
     assert outcome.result.host_traceback.startswith("Traceback")
 

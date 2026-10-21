@@ -1,0 +1,3 @@
+REPOSITORY          TAG          DIGEST    IMAGE ID       CREATED          SIZE
+ephemora-cell-ref   1.1.0-ref   <none>    bd26fe35f744   21 minutes ago   184MB
+id=sha256:bd26fe35f7449dcdad7a4d006138f8055dd871ed04fa12971cbc3d7817066f92 arch=arm64 os=linux created=2026-10-13T15:49:47.813405825+02:00 config_user=cell entrypoint=[python -m ephemora_cell.process_worker]

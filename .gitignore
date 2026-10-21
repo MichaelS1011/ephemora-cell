@@ -19,6 +19,7 @@ coverage.xml
 !tests/fixtures/*.wat
 !benchmarks/workloads/*.wasm
 !ephemora_cell_mcp/tools/*.wasm
+!deploy/linux-reference/fixtures/*.wasm
 !examples/*.wasm
 !examples/*.wat
 .DS_Store
@@ -72,7 +73,6 @@ docs/whitepaper_linkedin.md
 docs/threads_roadmap.md
 assets/carousel/
 assets/make_carousel.py
-benchmarks/workloads/hello_rust.wasm
 
 # internal social/content production — stays local, never ships with the repo
 social/
@@ -86,6 +86,8 @@ assets/make_fuel_bomb_meme.py
 
 # internal program records (planning, risk register, decision workflow) — stay local
 docs/program/
+# local scratch directories (never published)
+.tmp*/
 BERICHT_*.md
 VORSCHLAG_*.md
 TEST_REPORT_*.md

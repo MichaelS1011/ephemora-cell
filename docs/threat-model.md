@@ -120,9 +120,9 @@ concurrency threat analysis.
 
 ## How this model is verified
 
-- 8/8 attack-vector suite, live: [`benchmarks/verify_8_vectors.py`](../benchmarks/verify_8_vectors.py)
-- 11 exploitation strategies from arXiv 2509.11242, evaluated:
-  [security_posture.md](security_posture.md#arxiv-250911242--tested-attack-surface)
+- 8/8 attack-vector suite, live (WASI Preview1 default path, reproduced on this commit): [`benchmarks/verify_8_vectors.py`](../benchmarks/verify_8_vectors.py)
+- 11 exploitation strategies from arXiv 2509.11242, evaluated (7 blocked / 3 bounded / 1 permitted within budget): [security_posture.md](security_posture.md#arxiv-250911242--tested-attack-surface)
+- All scenarios across both, the native-Linux containment probes, the resource-DoS sweeps and the open advisories, classified one-per-row with commit/runtime/platform: [docs/security_attack_matrix.md](security_attack_matrix.md)
 - Security regression suite (`tests/test_security.py` et al.) on every push,
   plus the I/O-DoS attack harness in [`benchmarks/io_dos/`](../benchmarks/io_dos/)
 

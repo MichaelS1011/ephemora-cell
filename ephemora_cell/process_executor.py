@@ -26,11 +26,23 @@ The parent enforces a wall-clock process timeout of config.timeout_seconds
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
+from .runtime_qualification import (
+    runtime_qualification,
+    unqualified_runtime_allowed,
+)
 from .wasi_runtime import (
     DEFAULT_MAX_WASM_BYTES,
     ExecutionStatus,
@@ -46,6 +58,44 @@ _PROCESS_TIMEOUT_MARGIN = 5
 _MIN_PROCESS_TIMEOUT = 5
 
 _STATUS_BY_VALUE = {status.value: status for status in ExecutionStatus}
+
+# Seconds to let a SIGKILLed worker group drain before force-reaping its pipes.
+_REAP_GRACE_SECONDS = 5
+
+
+def _default_max_concurrent_workers() -> int:
+    """Bound on concurrently-spawned worker subprocesses.
+
+    The 1.2.0 default posture routes every ``untrusted``/``unknown`` run through
+    a worker; an unbounded fan-out (parallel test suite, MCP request fan-out)
+    spawns hundreds of OS processes and any that outlive the caller become
+    uncontrolled orphans — the observed 759-worker incident. The semaphore below
+    turns that fan-out into backpressure: excess calls queue for a slot instead
+    of spawning. Constrained CI/pilot hosts can lower it via
+    ``EPHEMORA_MAX_CONCURRENT_WORKERS``.
+    """
+    raw = os.environ.get("EPHEMORA_MAX_CONCURRENT_WORKERS", "0")
+    try:
+        requested = int(raw)
+    except ValueError:
+        requested = 0
+    if requested > 0:
+        return requested
+    return max(1, min(8, os.cpu_count() or 4))
+
+
+MAX_CONCURRENT_WORKERS = _default_max_concurrent_workers()
+_worker_slots = threading.BoundedSemaphore(MAX_CONCURRENT_WORKERS)
+
+
+@contextmanager
+def _worker_slot() -> Iterator[None]:
+    """Admission control: at most MAX_CONCURRENT_WORKERS workers spawn at once."""
+    _worker_slots.acquire()
+    try:
+        yield
+    finally:
+        _worker_slots.release()
 
 
 def _payload_bytes(
@@ -110,23 +160,80 @@ def _worker_cmd(wasm_path: str, max_wasm_bytes: int, abi: str = "auto") -> list[
     ]
 
 
+def _kill_worker_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the worker and every process it spawned.
+
+    The worker is started with ``start_new_session=True``, so its pid is also
+    the process-group id; killing the group reaps any grandchild a runaway
+    guest forked, which a bare ``proc.kill()`` would leave as an orphan. Best
+    effort — the group may already be gone (a clean exit) or the platform may
+    not support ``killpg``; fall back to killing the direct child.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def _reap(proc: subprocess.Popen) -> tuple[bytes, bytes]:
+    """Collect a killed worker's output and guarantee it is reaped (no zombie)."""
+    try:
+        return proc.communicate(timeout=_REAP_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        # A stream still open after SIGKILLing the whole group means a
+        # descendant holds the fd: close the pipes and force-reap rather than
+        # hang the caller forever.
+        _kill_worker_group(proc)
+        for stream in (proc.stdout, proc.stderr):
+            try:
+                if stream is not None:
+                    stream.close()
+            except OSError:
+                pass
+        proc.wait()
+        return b"", b""
+    except (OSError, ValueError):
+        _kill_worker_group(proc)
+        proc.wait()
+        return b"", b""
+
+
 def _spawn_worker(
-    cmd: list[str], payload: bytes, process_timeout: float
+    cmd: list[str],
+    payload: bytes,
+    process_timeout: float,
+    env: dict[str, str] | None = None,
 ) -> tuple[int, bytes, bytes]:
     """Run the worker, return (returncode, stdout, stderr).
 
-    The payload is written to the worker's stdin pipe. Raises
-    subprocess.TimeoutExpired after killing the worker when
-    process_timeout is exceeded.
+    The payload is written to the worker's stdin pipe and the pipe is closed on
+    EOF, so a worker blocked on ``sys.stdin.read()`` always sees the end of the
+    payload. Raises ``subprocess.TimeoutExpired`` after killing the whole worker
+    process group when ``process_timeout`` is exceeded. Any other interruption
+    (``KeyboardInterrupt``, a broken pipe on a huge payload, ``OSError``) also
+    kills and reaps the group before propagating, so no worker outlives this
+    call as an orphan.
     """
     proc = subprocess.Popen(
-        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        env=env,
     )
     try:
         raw_out, raw_err = proc.communicate(input=payload, timeout=process_timeout)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        raw_out, raw_err = proc.communicate()
+        _kill_worker_group(proc)
+        _reap(proc)
+        raise
+    except BaseException:
+        _kill_worker_group(proc)
+        _reap(proc)
         raise
     return proc.returncode, raw_out, raw_err
 
@@ -172,6 +279,19 @@ def run_isolated(
     """
     start = time.monotonic()
 
+    # The spawn point carries the runtime precondition itself, not only the
+    # facade: ``ephemora_cell.run_isolated`` is public API and reaches this
+    # function without passing :meth:`WASISandbox.run`, so a caller could
+    # otherwise get a worker running a guest on an engine the release was never
+    # audited against. Nothing is spawned, resolved or sized before this.
+    qualified, why = runtime_qualification()
+    if not qualified and not unqualified_runtime_allowed():
+        return _failure_result(
+            ExecutionStatus.ERROR,
+            f"refused: unqualified runtime — {why}",
+            (time.monotonic() - start) * 1000,
+        )
+
     cap = config.max_wasm_bytes if max_wasm_bytes is None else max_wasm_bytes
     if cap < 0:
         return _failure_result(
@@ -193,79 +313,115 @@ def run_isolated(
             ExecutionStatus.ERROR, cap_error, (time.monotonic() - start) * 1000
         )
 
+    # The parent owns the worker's scratch root. A hard parent kill cannot be
+    # cleaned by the worker's own finally block; pointing TMPDIR and
+    # sandbox_base_dir at one root lets the parent remove every capture
+    # directory even when the child never reaches its cleanup.
+    if config.sandbox_base_dir is None:
+        worker_root = Path(tempfile.mkdtemp(prefix="ephemora_worker_"))
+    else:
+        worker_root = Path(
+            tempfile.mkdtemp(prefix="ephemora_worker_", dir=config.sandbox_base_dir)
+        )
+    worker_config = replace(config, sandbox_base_dir=str(worker_root))
+    worker_env = os.environ.copy()
+    worker_env.update(
+        {"TMPDIR": str(worker_root), "TEMP": str(worker_root), "TMP": str(worker_root)}
+    )
+
     process_timeout = max(
-        config.timeout_seconds + _PROCESS_TIMEOUT_MARGIN, _MIN_PROCESS_TIMEOUT
+        worker_config.timeout_seconds + _PROCESS_TIMEOUT_MARGIN, _MIN_PROCESS_TIMEOUT
     )
     cmd = _worker_cmd(str(resolved), cap, abi)
-    payload = _payload_bytes(config, args or [], stdin_data, expected_sha256)
+    payload = _payload_bytes(worker_config, args or [], stdin_data, expected_sha256)
     try:
-        returncode, raw_out, raw_err = _spawn_worker(cmd, payload, process_timeout)
-    except subprocess.TimeoutExpired:
-        return _failure_result(
-            ExecutionStatus.TIMEOUT,
-            (
-                f"Worker process timed out after {process_timeout:.0f}s "
-                f"(config timeout {config.timeout_seconds}s + margin)"
-            ),
-            (time.monotonic() - start) * 1000,
-        )
+        try:
+            with _worker_slot():
+                returncode, raw_out, raw_err = _spawn_worker(
+                    cmd, payload, process_timeout, worker_env
+                )
+        except subprocess.TimeoutExpired:
+            return _failure_result(
+                ExecutionStatus.TIMEOUT,
+                (
+                    f"Worker process timed out after {process_timeout:.0f}s "
+                    f"(config timeout {worker_config.timeout_seconds}s + margin)"
+                ),
+                (time.monotonic() - start) * 1000,
+            )
+        except OSError as exc:
+            # Spawn/pipe failure (fork pressure, broken pipe on a huge payload):
+            # fail closed with no in-process fallback, exactly like a crash.
+            return _failure_result(
+                ExecutionStatus.ERROR,
+                f"worker could not be started: {exc!r}",
+                (time.monotonic() - start) * 1000,
+            )
 
-    elapsed_ms = (time.monotonic() - start) * 1000
-    stderr_text = raw_err.decode("utf-8", errors="replace").strip()
+        elapsed_ms = (time.monotonic() - start) * 1000
+        stderr_text = raw_err.decode("utf-8", errors="replace").strip()
 
-    if returncode != 0:
-        return _failure_result(
-            ExecutionStatus.ERROR,
-            "worker crashed" + (f": {stderr_text}" if stderr_text else ""),
-            elapsed_ms,
-        )
+        if returncode != 0:
+            return _failure_result(
+                ExecutionStatus.ERROR,
+                "worker crashed" + (f": {stderr_text}" if stderr_text else ""),
+                elapsed_ms,
+            )
 
-    try:
-        payload = json.loads(raw_out.decode("utf-8", errors="replace"))
-    except (json.JSONDecodeError, ValueError):
-        return _failure_result(
-            ExecutionStatus.ERROR,
-            "worker produced invalid output"
-            + (f": {stderr_text}" if stderr_text else ""),
-            elapsed_ms,
-        )
+        try:
+            payload = json.loads(raw_out.decode("utf-8", errors="replace"))
+        except (json.JSONDecodeError, ValueError):
+            return _failure_result(
+                ExecutionStatus.ERROR,
+                "worker produced invalid output"
+                + (f": {stderr_text}" if stderr_text else ""),
+                elapsed_ms,
+            )
 
-    if not isinstance(payload, dict):
-        return _failure_result(
-            ExecutionStatus.ERROR, "worker produced invalid JSON report", elapsed_ms
-        )
+        if not isinstance(payload, dict):
+            return _failure_result(
+                ExecutionStatus.ERROR, "worker produced invalid JSON report", elapsed_ms
+            )
 
-    status = _STATUS_BY_VALUE.get(str(payload.get("status", "")))
-    if status is None:
-        return _failure_result(
-            ExecutionStatus.ERROR,
-            f"worker reported unknown status: {payload.get('status')!r}",
-            elapsed_ms,
-        )
+        status = _STATUS_BY_VALUE.get(str(payload.get("status", "")))
+        if status is None:
+            return _failure_result(
+                ExecutionStatus.ERROR,
+                f"worker reported unknown status: {payload.get('status')!r}",
+                elapsed_ms,
+            )
 
-    report = {
-        "status": status,
-        "exit_code": int(payload.get("exit_code", 1)),
-        "stdout": str(payload.get("stdout", "")),
-        "stderr": str(payload.get("stderr", "")),
-        "elapsed_ms": float(payload.get("elapsed_ms", 0.0)),
-        "fuel_consumed": payload.get("fuel_consumed"),
-        "sandbox_dir": payload.get("sandbox_dir"),
-        "effective_preopens": tuple(payload.get("effective_preopens", ())),
-        "io_cpu_used_seconds": payload.get("io_cpu_used_seconds"),
-        "io_bytes_written": payload.get("io_bytes_written"),
-        "io_budget_exceeded": bool(payload.get("io_budget_exceeded", False)),
-        "baseline_ms": float(payload.get("baseline_ms", 0.0)),
-    }
-    # ADR-014: the ABI the worker ACTUALLY ran under is a top-level
-    # runtime fact (not only a baseline field) so _result_from_report can carry
-    # it back to the parent as ExecutionResult.abi. It stays in
-    # security_baseline too — the worker stamps both from one source decision.
-    if "abi" in payload:
-        report["abi"] = payload["abi"]
-    if "security_baseline" in payload:
-        report["security_baseline"] = payload["security_baseline"]
-    return report
+        report = {
+            "status": status,
+            "exit_code": int(payload.get("exit_code", 1)),
+            "stdout": str(payload.get("stdout", "")),
+            "stderr": str(payload.get("stderr", "")),
+            "elapsed_ms": float(payload.get("elapsed_ms", 0.0)),
+            "fuel_consumed": payload.get("fuel_consumed"),
+            "sandbox_dir": payload.get("sandbox_dir"),
+            "effective_preopens": tuple(payload.get("effective_preopens", ())),
+            "io_cpu_used_seconds": payload.get("io_cpu_used_seconds"),
+            "io_bytes_written": payload.get("io_bytes_written"),
+            "io_budget_exceeded": bool(payload.get("io_budget_exceeded", False)),
+            "baseline_ms": float(payload.get("baseline_ms", 0.0)),
+        }
+        # ADR-014: the ABI the worker ACTUALLY ran under is a top-level
+        # runtime fact (not only a baseline field) so _result_from_report can carry
+        # it back to the parent as ExecutionResult.abi. It stays in
+        # security_baseline too — the worker stamps both from one source decision.
+        if "abi" in payload:
+            report["abi"] = payload["abi"]
+        # The same source-decision argument applies to the exit channel: only the
+        # worker watched whether a guest exit status actually reached it. The parent
+        # must not infer that from the routed ABI, or a run whose module never loaded
+        # would attest an exit status no guest produced.
+        if "guest_exit_observed" in payload:
+            report["guest_exit_observed"] = bool(payload["guest_exit_observed"])
+        if "security_baseline" in payload:
+            report["security_baseline"] = payload["security_baseline"]
+        return report
+    finally:
+        shutil.rmtree(worker_root, ignore_errors=True)
 
 
 def measure_overhead(num_runs: int = 16, wasm_path: str | None = None) -> dict:
@@ -279,22 +435,32 @@ def measure_overhead(num_runs: int = 16, wasm_path: str | None = None) -> dict:
 
     import wasmtime
 
+    created_dir: str | None = None
     if wasm_path is None:
         wat = (
             b'(module (import "wasi_snapshot_preview1" "proc_exit" '
             b'(func $exit (param i32))) (memory (export "memory") 1) '
             b'(func (export "_start") i32.const 0 call $exit))'
         )
-        tmp = Path(tempfile.mkdtemp(prefix="ephemora_overhead_")) / "trivial.wasm"
+        created_dir = tempfile.mkdtemp(prefix="ephemora_overhead_")
+        tmp = Path(created_dir) / "trivial.wasm"
         tmp.write_bytes(wasmtime.wat2wasm(wat))
         wasm_path = str(tmp)
 
     config = WASIConfig(max_fuel=1_000_000)
     samples = []
-    for _ in range(num_runs):
-        t0 = time.monotonic()
-        run_isolated(wasm_path, config)
-        samples.append((time.monotonic() - t0) * 1000)
+    try:
+        for _ in range(num_runs):
+            t0 = time.monotonic()
+            run_isolated(wasm_path, config)
+            samples.append((time.monotonic() - t0) * 1000)
+    finally:
+        # measure_overhead owns the scratch dir only when it created it; drop
+        # it so the overhead probe leaves no ephemora_overhead_ residue.
+        if created_dir is not None:
+            import shutil
+
+            shutil.rmtree(created_dir, ignore_errors=True)
     samples.sort()
     return {
         "num_runs": num_runs,

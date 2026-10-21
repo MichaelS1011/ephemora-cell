@@ -54,10 +54,17 @@ class TestRunInProcess:
         assert "security_baseline" in doc
 
     def test_json_mode_attests_in_process_mode(self, monkeypatch, capsys, tmp_path):
-        """ADR-014: the default (in-process) run attests its own path in the
-        signed report — the guarantee is read off the record, not inferred."""
+        """ADR-014: a run on the in-process path attests its own path in the
+        signed report — the guarantee is read off the record, not inferred.
+
+        Under the 1.2.0 mandate the CLI default (unknown) is isolated to the
+        worker; the in-process path is the explicit, host-authorised
+        ``--trust trusted`` posture, which is what this test must request to
+        exercise the in_process attestation."""
         wasm = _write_module(tmp_path, PRINTING_WAT)
-        code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--json"])
+        code, out = _run(
+            monkeypatch, capsys, ["run", str(wasm), "--json", "--trust", "trusted"]
+        )
         assert code == 0
         doc = json.loads(out.out)
         assert doc["security_baseline"]["execution_mode"] == "in_process"
@@ -90,8 +97,10 @@ class TestRunInProcess:
     def test_malformed_allow_env_rejected(self, monkeypatch, capsys, tmp_path):
         wasm = _write_module(tmp_path, PRINTING_WAT)
         code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--allow-env", "BAD"])
-        # SystemExit carries the message string; the interpreter turns it into rc 1
-        assert "NAME=VALUE" in str(code)
+        # caller class with the reason on stderr; the message used to travel as the
+        # SystemExit argument, which is why str(code) once contained it
+        assert code == 2, (code, out.err)
+        assert "NAME=VALUE" in out.err, out.err
         assert "Traceback" not in out.err
 
 
@@ -103,7 +112,8 @@ class TestTenantFlags:
     ):
         wasm = _write_module(tmp_path, PRINTING_WAT)
         code, out = _run(monkeypatch, capsys, ["run", str(wasm), "--tenant", "acme"])
-        assert code == 1
+        # caller class: the call cannot be honoured as stated, nothing ran
+        assert code == 2
         assert "--tenant-book" in out.err
         assert "Traceback" not in out.err
 
