@@ -148,8 +148,8 @@ pre-compiled JavaScript **module** route (Javy): that guest is behind an opt-in
 gate (`EPHEMORA_JS_GUEST_QUALIFY=1`) and was not built on this host, so the route is
 listed by its rule, not by a measurement it does not have.
 
-Two different causes for the two guest routes, both measured on the qualified
-`49.0.3` runtime:
+Two different causes for the two guest routes, both measured on the then-qualified
+`49.0.3` runtime (withdrawn 2026-10-22; not re-measured on 49.0.4):
 
 * the component ABI delivers only the *fact* of a non-zero exit — `exit(3)` and
   `exit(7)` both reach wasmtime as `Exited with i32 exit status 1` — so the

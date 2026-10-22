@@ -14,11 +14,11 @@ a substitute for the section it links to. Nothing here is a production-security 
 | Publicly available version | **`1.1.0`** on PyPI (wheel + sdist), BUSL-1.1 | [PyPI project page](https://pypi.org/project/ephemora-cell/) · [CHANGELOG](CHANGELOG.md) |
 | Software actually tested | source at the frozen security-base commit **`284b577`** (product tree byte-identical to `7303274`) | `benchmarks/results/2026-10-14/release_identity.json` |
 | Native runtime tested against | the **controlled build on the 49.0.4 fix line** (embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`), assembled from the official Bytecode Alliance C-API 49.0.4 asset and pinned by wheel/native digest — engine patch parity for the async class **not independently verified** (see the GHSA-32h6 notes); CPython 3.12 CI/lab interpreter. The previously published `49.0.3.post2` build (`ab4f1ea6…0fb73`) is **withdrawn** and no longer accepted by the gate | `requirements.lock` · release-identity records → `native_runtime` |
-| Conformance | pinned wasi-testsuite: 71 pass / 1 documented by-design expected-failure / 0 fail of 72 executed · official core spec: 31,896 pass with 81 failures the harness does not classify; those command totals cover the 157 of 257 files that produced per-command results, while 100 files aborted before measurement and contribute one file-level deviation each — **standards conformance, not full-suite coverage and not a security certification** | [conformance/README.md](conformance/README.md) |
+| Conformance | pinned wasi-testsuite: 71 pass / 1 documented by-design expected-failure / 0 fail of 72 executed · official core spec: 31,896 pass with 81 failures the harness does not classify; those command totals cover the 157 of 257 files that produced per-command results, while 100 files aborted before measurement and contribute one file-level deviation each — measured on the **then-qualified, now-withdrawn 49.0.3 runtime** and **not re-run on 49.0.4**; **standards conformance, not full-suite coverage and not a security certification** | [conformance/README.md](conformance/README.md) |
 | Last reproduced Linux run | **2026-10-13** on a native Linux **aarch64** reference host (Ubuntu 24.04): blocked-worker OS-wall probe holds; plus an `sdist` clean-room `linux/amd64` container run — predates the 1.2.x qualification; not transferable | `benchmarks/results/2026-10-13/native_linux/` · `linux_reference_boundary_probe.json` · [docs/release_assurance.md](docs/release_assurance.md) |
 | Supported workloads | untrusted code compiled to **WASM** — WASI Preview1 modules and WASI 0.2 components; the subprocess path (`run_isolated()` / `use_subprocess=True`) for guests that must not run in-process; MCP tool server | [Execution paths](#execution-paths--which-control-runs-where) |
 | Platforms qualified for 1.2.x | **macOS arm64** only, measured against the 1.2.0 candidate runtime; Linux, Windows, musl/Android **NOT QUALIFIED** — no release evidence claimed there | “Supported platforms (1.2.x)” note below |
-| Excluded / out of scope | multi-tenant isolation between concurrent modules in one process (single-tenant; a tenant is a billing identity, never a security boundary); guest network or process spawning (none exposed, by design); cryptographic memory zeroing; in-process execution of untrusted guests | [Scope](#scope) · [Known Limitations](#known-limitations) |
+| Excluded / out of scope | **native worker compromise (A7): after an engine escape turns input into arbitrary native code, the worker has the same-user files, environment and network; the worker is a crash/containment boundary, not an OS sandbox**; local write access to the installed package (A8); multi-tenant isolation between concurrent modules in one process (single-tenant; a tenant is a billing identity, never a security boundary); guest network or process spawning (none exposed, by design); cryptographic memory zeroing; in-process execution of untrusted guests | [Scope](#scope) · [Known Limitations](#known-limitations) · [threat model](docs/threat-model.md#native-worker-compromise-a7) |
 | Open risks (not closed) | on the **shipped artifact** (`247c1529…`, engine 49.0.4 fix line): the loader-excluded async component class (GHSA-32h6 — engine patch **not independently verified**) and the documented info/availability classes (GHSA-96f6, preview0/WASIp3 gates); I/O syscalls bypass fuel metering. The 2026-10 aarch64 `br_table` escape (GHSA-mghf-wjfp-p5xm) is **closed** by this build and was measured on the withdrawn one. The `49.0.0`-line statements below and their "no wheel on PyPI" notes document the intermediate `49.0.0` development pin (moved from `47.0.1` on 2026-10-12, after the 1.1.0 release) and the plain-`pip` path; they no longer describe the shipped runtime asset. | [Known Limitations](#known-limitations) · [Dependency & Upgrade Policy](#dependency--upgrade-policy) · [published vs. source](https://github.com/MichaelS1011/ephemora-cell/blob/main/docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where) |
 | Independent external security audit | **None yet** — no third party has certified or audited Cell; the badge is *security-evaluation-pending* | [README](README.md) · this file |
 | Production release | **NO-GO** — see *Why there is no production GO* below | — |
@@ -315,7 +315,11 @@ choke-point **enforces** it, before any guest execution, across every entry poin
   configuration, never in the receipt.
 - This is process isolation, **not** full OS sandboxing (no seccomp/pledge is
   claimed), and it does **not** add a component sync blockade — see the
-  attestation truth table below. **No false guarantees.**
+  attestation truth table below. **No false guarantees.** In particular, it does
+  not protect against **A7**, a native compromise of the worker after an engine
+  escape: that process still has the invoking user's file, environment and
+  network access. The v1.2 contract and the measured Option B research boundary
+  are stated in [docs/threat-model.md](docs/threat-model.md#native-worker-compromise-a7).
 
 **Build scope.** Every bullet above describes the **current source**, not the
 published release: `1.1.0` was cut on 2026-10-05 (`75b7bc2`), before the gate
@@ -453,6 +457,21 @@ A signature is a claim about bytes, so the three questions get three answers:
   pass as evidence about an execution, or the other way round. Replay detection stays
   with the verifier: **Cell proves uniqueness; the verifier decides whether it has
   been seen before** — the evidence persists, the execution state does not.
+- **A bare execution receipt has no module or policy digest.** The signed
+  `PreExecutionRecord` carries `module_sha256`, `config_fingerprint` and
+  `input_hash`; `verify_chain` binds the receipt to exactly that record through
+  `back_link`. A receipt verified alone therefore proves its own fields, not
+  which module or policy ran — do not read it as that proof.
+- **Output and resource limits are not inferred by the verifier.** `stdout_bytes`
+  counts the bytes the host captured **after** the 10 KB capture cap; truncation
+  is marked inside the captured text, not as a separate signed boolean. A `null`
+  `memory_mb` means "not measured", never "0 MB". The signature covers those
+  recorded facts, not the guest's total output or a measurement that was never
+  made.
+- **The ledger's tail is not self-authenticating.** `verify` detects reordering,
+  edits and interior drops, but a chain shortened at the end needs an external
+  head anchor; the verifier prints that limit explicitly. Freshness and single use
+  of a receipt likewise stay with the caller.
 
 ### Effective enforcement attestation — claim vs configured intent
 
@@ -560,6 +579,12 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   (`limit: "timeout"`; measured: 8 s of trickle refused against a 1 s budget).
   Empty userinfo (`http://:@host`) was accepted because an empty username is
   falsy and the `:@` still reached the wire; any `@` in the netloc is refused.
+- **A policy decision is not a transfer.** An allowlisted request whose TLS
+  handshake, DNS lookup or connection fails keeps `decision: "allowed"` (the
+  policy did allow it) but carries `transport_ok: false` and a failing response
+  document; a delivered response carries `transport_ok: true`. Policy and grant
+  denials leave it `null` because no socket was attempted. This stops "allowed"
+  from reading as "successfully transmitted" in `_meta.egress`.
 - **The audit trail cannot claim a hop it never opened.** The stdlib calls
   `redirect_request()` *before* applying its own loop limit, so the last hop of a
   long chain was recorded as followed while the entry read `allowed, fetch
@@ -837,8 +862,9 @@ CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
   `36.0.18`, `48.0.6` and `49.0.3`. Affected platforms are macOS and FreeBSD
   (Linux and Windows are **not** affected). The advisory lists **no workaround** —
   the only remediation is an engine upgrade. **Cell's exposure
-  at the shipped artifact (engine 49.0.3 fix line, embedded `_libwasmtime.dylib`
-  sha256 `ab4f1ea6…0fb73`, macOS arm64, measured 2026-10-16): not reachable** —
+  at the shipped artifact (engine 49.0.4 fix line, embedded `_libwasmtime.dylib`
+  sha256 `247c1529…a30b`, macOS arm64; first measured on the now-withdrawn
+  49.0.3 build 2026-10-16 and rechecked on 49.0.4): not reachable** —
   `path_rename("up/" -> "grabbed")` is denied with errno 54 (ENOTDIR); the target
   directory stays untouched and no host byte is readable. In a "continue" variant
   the follow-up guest `path_open` is denied as well (errno 44 / ENOENT). The
@@ -1259,7 +1285,7 @@ PyPI (re-confirmed 2026-10-14), so **this pin does not fix it and it is not clos
 
 **Loader exclusion vs. engine patch — clarification (2026-10-16).** The loader guard
 excludes the **product execution path**; it does not patch the engine. For the shipped
-artifact (engine 49.0.3 fix line, `_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`, macOS
+artifact (engine 49.0.4 fix line, `_libwasmtime.dylib` sha256 `247c1529…a30b`, macOS
 arm64), no evidence is held that the native overflow itself is fixed there — an engine
 patch parity in the artifact is **not independently verified**. Until a negative
 reproduction of the overflow form, a positive control, the artifact digest and a dated

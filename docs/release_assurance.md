@@ -200,9 +200,10 @@ test carries the fourth skip; the totals are invariant.
 
 ## Host load: the Python guest under measured contention
 
-Measured 2026-10-21 on the qualified runtime (`wasmtime
-49.0.3.post2+git.1d21c90f`), with the 19,812,760-byte Python component guest and
-three runs per profile on a 10-core macOS arm64 host:
+Measured 2026-10-21 on the then-qualified, now-withdrawn runtime (`wasmtime
+49.0.3.post2+git.1d21c90f`; not re-measured on 49.0.4), with the
+19,812,760-byte Python component guest and three runs per profile on a 10-core
+macOS arm64 host:
 
 | Profile | Added load | Wall per run | Worker CPU per run | Result |
 |---|---|---|---|---|

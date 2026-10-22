@@ -36,6 +36,18 @@ carries the leftovers on exactly those interpreters, the contract is pinned by
 tests that run on every version, and the divergence that remains is stated in
 that function's docstring rather than smoothed over.
 
+## What the product does not promise
+
+**A7 — native worker compromise — is outside the support claim.** If an engine
+escape turns untrusted input into arbitrary native code inside the worker, the
+worker still runs with the invoking user's files, environment and network. The
+worker contains guest behavior and host crashes; it is not an operating-system
+sandbox. A second, kernel-enforced boundary is a hardening-version research
+direction, not a v1.2 capability. **A8 — local write access to the installed
+package — is also outside:** whoever can modify the installed code can modify
+the gate itself. The measured scope and the Option A/Option B comparison are in
+[docs/threat-model.md](threat-model.md#native-worker-compromise-a7).
+
 ## What the four statuses mean
 
 - **supported** — qualified on the platforms above; at least one executable

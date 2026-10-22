@@ -13,6 +13,8 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -40,9 +42,6 @@ def wat_payloads():
         "stdout_flood": wasmtime.wat2wasm(STDOUT_FLOOD_WAT),
         "fsync_import": wasmtime.wat2wasm(FSYNC_IMPORT_WAT),
         "write_flood": wasmtime.wat2wasm(WRITE_FLOOD_WAT),
-        "symlink_escape": wasmtime.wat2wasm(
-            TestSecurity4_3_Path_Traversal.SYMLINK_ESCAPE_WAT
-        ),
     }
 
 
@@ -104,47 +103,78 @@ MEMORY_EXHAUST_WAT = """
 # 4.6 Timeout: identical to CPU_DOS_WAT — exercised via max_fuel=None
 TIMEOUT_WAT = CPU_DOS_WAT  # Dedup: identical payload, different purpose (timeout test)
 
-# 4.7 Preopen default-deny: attempt to open a file without preopened dirs.
-# path_open Signatur (WASI Preview1):
-#   param[0] dirfd:     fd of the parent directory (0 = AT_FDCWD via wasmtime)
-#   param[1] path_name: pointer to the filename string in linear memory
-#   param[2] path_name_len: length of the filename
-#   param[3] path_flags: 0 (no symlink, no create)
-#   param[4] fs_flags:   0 (no O_CREAT, no O_EXCL)
-#   param[5] rights:     desired rights (0 = minimal)
-#   param[6] fd_flags:   0 (no append, no synchronous)
-#   param[7] preopen_fds_count: number of preopen fds in the output buffer
-# result: errno code (0 = success, >0 = error)
-PATH_OPEN_WAT = """
+# 4.7 / 4.3 probe: open a relative name on preopen fd 3 and put the
+# observed byte on stdout. A normal _start return keeps the sandbox result
+# SUCCESS, so an invalid module or a type mismatch cannot pass as a security
+# result through the ERROR branch. The 9-parameter WASI Preview1 signature
+# matters: rights are i64 and the last argument is the opened_fd POINTER
+# (the 8x i32 shape used here before did not validate at all).
+_OPEN_PROBE_TEMPLATE = """
 (module
-  (import "wasi_snapshot_preview1" "path_open" (func $path_open
-    (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)))
-  (import "wasi_snapshot_preview1" "fd_open" (func $fd_open
-    (param i32 i32 i32 i32 i32 i32) (result i32)))
-  (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+  (import "wasi_snapshot_preview1" "path_open" (func $open
+    (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_read" (func $read
+    (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_write" (func $write
+    (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_close" (func $close
+    (param i32) (result i32)))
   (memory (export "memory") 1)
-  (data (i32.const 0) "/tmp/test\\00000000000000")  ;; path string at offset 0
+  (data (i32.const 0) "@PATH@")
+  (func $emit (param $b i32)
+    (i32.store8 (i32.const 512) (local.get $b))
+    (i32.store (i32.const 520) (i32.const 512))
+    (i32.store (i32.const 524) (i32.const 1))
+    (drop (call $write (i32.const 1) (i32.const 520) (i32.const 1) (i32.const 528))))
+  (func $open_read (result i32)
+    (local $errno i32)
+    (local $fd i32)
+    (local.set $errno
+      (call $open (i32.const 3) (i32.const 1) (i32.const 0) (i32.const @PLEN@)
+                  (i32.const 0) (i64.const 2) (i64.const 2) (i32.const 0)
+                  (i32.const 8)))
+    (if (i32.ne (local.get $errno) (i32.const 0))
+      (then (return (local.get $errno))))
+    (local.set $fd (i32.load (i32.const 8)))
+    (i32.store (i32.const 520) (i32.const 512))
+    (i32.store (i32.const 524) (i32.const 1))
+    (local.set $errno
+      (call $read (local.get $fd) (i32.const 520) (i32.const 1) (i32.const 528)))
+    (drop (call $close (local.get $fd)))
+    (if (i32.ne (local.get $errno) (i32.const 0))
+      (then (return (local.get $errno))))
+    (i32.load8_u (i32.const 512)))
   (func (export "_start")
-    ;; path_open(dirfd=0, path="/tmp/test", len=9, ...)
-    ;; Without preopened dirs path_open MUST be denied. Calibrated errno
-    ;; naming: 63 = EPERM (preopen boundary / traversal + symlink),
-    ;; 76 = ENOTCAPABLE. This module drops the real path_open errno and
-    ;; exits with the fixed marker 63 below.
-    i32.const 0      ;; dirfd
-    i32.const 0      ;; path_name pointer
-    i32.const 9      ;; path_name_len
-    i32.const 0      ;; path_flags
-    i32.const 0      ;; fs_flags
-    i32.const 0      ;; rights
-    i32.const 0      ;; fd_flags
-    i32.const 0      ;; preopen_fds_count
-    call $path_open
-    drop
-    i32.const 63     ;; EPERM (63) marker - errno naming see above
-    call $proc_exit
-  )
+    (local $i i32)
+    (local $r i32)
+    (local $flag i32)
+    (if (i32.eq (i32.const @MODE@) (i32.const 0))
+      (then (call $emit (call $open_read)) (return)))
+    ;; Race mode: many opens; emit "1" if ANY read saw the outside byte 'O'.
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $l
+        (br_if $done (i32.ge_u (local.get $i) (i32.const @N@)))
+        (local.set $r (call $open_read))
+        (if (i32.eq (local.get $r) (i32.const 79))
+          (then (local.set $flag (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $l)))
+    (call $emit (i32.add (i32.const 48) (local.get $flag))))
 )
 """
+
+
+def _open_probe_wat(path: str, *, repeats: int = 0) -> str:
+    return (
+        _OPEN_PROBE_TEMPLATE.replace("@PATH@", path)
+        .replace("@PLEN@", str(len(path)))
+        .replace("@MODE@", "1" if repeats else "0")
+        .replace("@N@", str(repeats))
+    )
+
+
+PATH_OPEN_WAT = _open_probe_wat("../outside.txt")
 
 # 4.8 Stdout Flood: 1000x fd_write(32 bytes) = ~32KB — exercises the 10 KB output limit
 STDOUT_FLOOD_WAT = """
@@ -315,52 +345,22 @@ class TestSecurity4_2_Memory_Exhaustion:
 class TestSecurity4_3_Path_Traversal:
     """4.3: Symlink escape via allow_dirs — MUST NOT follow symlinks outside sandbox."""
 
-    # WASM: tries to open and read a file via a symlink inside the preopened dir.
-    # path_open(dirfd=3, "/escape_link", flags=0, ...) -> must be blocked.
-    SYMLINK_ESCAPE_WAT = """
-    (module
-      (import "wasi_snapshot_preview1" "path_open" (func $path_open
-        (param i32 i32 i32 i32 i32 i32 i32 i32) (result i32)))
-      (import "wasi_snapshot_preview1" "fd_read" (func $fd_read
-        (param i32 i32 i32 i32) (result i32)))
-      (import "wasi_snapshot_preview1" "fd_close" (func $fd_close
-        (param i32) (result i32)))
-      (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
-      (memory (export "memory") 2)
-      ;; "/escape_link\\0" — the symlink name inside the preopened dir
-      (data (i32.const 0) "/escape_link\\0000000000000000")
-      (func (export "_start")
-        (local $fd i32)
-        (local $err i32)
-        ;; path_open: dirfd=3(AT_FDCWD), path_ptr=0, path_len=11,
-        ;; oflags=0(O_RDONLY), dirs=0, fds=0, fd_count=1, rights=0
-        i32.const 3
-        i32.const 0
-        i32.const 11
-        i32.const 0
-        i32.const 0
-        i32.const 0
-        i32.const 1
-        i32.const 0
-        call $path_open
-        local.set $fd
-        ;; If fd < 0 (as unsigned: very large), it was blocked -> test passed
-        local.get $fd
-        i32.const 1000
-        i32.gt_u
-        if
-          ;; error code -> symlink escape blocked (good)
-          i32.const 0
-          call $proc_exit
-        end
-        ;; If it did open: read contents and exit 1 (bad)
-        local.get $fd
-        call $fd_close
-        i32.const 1
-        call $proc_exit
-      )
-    )
-    """
+    @staticmethod
+    def _probe(tmp_path: Path, name: str, path: str, *, repeats: int = 0) -> Path:
+        wasm_path = tmp_path / f"{name}.wasm"
+        wasm_path.write_bytes(wasmtime.wat2wasm(_open_probe_wat(path, repeats=repeats)))
+        return wasm_path
+
+    @staticmethod
+    def _run_probe(wasm_path: Path, preopen: Path) -> dict[str, object]:
+        from ephemora_cell import run_isolated
+
+        config = WASIConfig(
+            allow_dirs=(f"{preopen}::/",),
+            max_fuel=5_000_000,
+            timeout_seconds=20,
+        )
+        return run_isolated(str(wasm_path), config)
 
     @staticmethod
     def _make_safe_dir() -> Path:
@@ -373,51 +373,93 @@ class TestSecurity4_3_Path_Traversal:
         """
         return Path(tempfile.mkdtemp(prefix="ephemora_safe_"))
 
-    def test_symlink_not_followed_via_wasm(self):
-        """Real WASM tries to read through a symlink — must be blocked."""
-        # Setup: safe dir with a symlink to /tmp (outside the sandbox)
-        safe_dir = self._make_safe_dir()
+    def test_symlink_not_followed_via_wasm(self, tmp_path):
+        """A valid guest opens a relative symlink: inside works, outside is
+        refused at path_open, and a live swap never yields outside bytes.
+
+        The guest returns normally, so SUCCESS plus the exact observed byte is
+        required. A type error or instantiation failure can no longer pass as
+        a blocked escape via the generic ERROR branch.
+        """
+        root = tmp_path / "root"
+        safe = root / "safe"
+        outside = root / "outside"
+        safe.mkdir(parents=True)
+        outside.mkdir()
+        (safe / "inside.txt").write_text("INSIDE\n")
+        (outside / "secret.txt").write_text("OUTSIDE\n")
+        link = safe / "link"
+        link.symlink_to("inside.txt")
+
+        # Positive control: a relative symlink that stays inside the preopen
+        # must resolve and deliver the inside sentinel.
+        result = self._run_probe(
+            self._probe(tmp_path, "inside_link", "link"), preopen=safe
+        )
+        assert result["status"] is ExecutionStatus.SUCCESS, result["stderr"]
+        assert result["stdout"] == "I", "relative inside symlink did not open"
+
+        # Negative control: the same guest name pointing outside must be
+        # refused with a capability errno (63 EPERM / 76 ENOTCAPABLE), never
+        # by an unrelated ERROR state.
+        link.unlink()
+        link.symlink_to("../outside/secret.txt")
+        result = self._run_probe(
+            self._probe(tmp_path, "outside_link", "link"), preopen=safe
+        )
+        assert result["status"] is ExecutionStatus.SUCCESS, result["stderr"]
+        assert result["stdout"] in {chr(63), chr(76)}, (
+            f"outside symlink returned {result['stdout']!r}, expected a "
+            "capability denial"
+        )
+
+        # Race: the host swaps the link while one worker performs 2,000
+        # opens. Any outside read emits "1"; held means "0".
+        link.unlink()
+        link.symlink_to("inside.txt")
+        stop = threading.Event()
+        swaps = 0
+
+        def swapper() -> None:
+            nonlocal swaps
+            while not stop.is_set():
+                target = "../outside/secret.txt" if swaps % 2 == 0 else "inside.txt"
+                tmp = safe / f".swap-{threading.get_ident()}"
+                tmp.unlink(missing_ok=True)
+                tmp.symlink_to(target)
+                os.replace(tmp, link)
+                swaps += 1
+                time.sleep(0.0002)
+
+        thread = threading.Thread(target=swapper, daemon=True)
+        thread.start()
         try:
-            target = Path("/tmp")
-            symlink = safe_dir / "escape_link"
-            try:
-                symlink.symlink_to(target)
-            except OSError:
-                pytest.skip("Symlinks not supported on this platform")
-
-            # Write a test file into the safe dir (so it is not empty)
-            (safe_dir / "allowed.txt").write_text("this is allowed")
-
-            # Compile the attack payload
-            wasm_bytes = wasmtime.wat2wasm(self.SYMLINK_ESCAPE_WAT)
-            wasm_path = (
-                Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "symlink.wasm"
+            result = self._run_probe(
+                self._probe(tmp_path, "race", "link", repeats=2_000), preopen=safe
             )
-            wasm_path.write_bytes(wasm_bytes)
-
-            # Run with allow_dirs=safe_dir
-            config = WASIConfig(
-                allow_dirs=(str(safe_dir),),
-                max_fuel=1_000_000,
-            )
-            sandbox = WASISandbox(config=config)
-            result = sandbox.run(str(wasm_path))
-            sandbox.cleanup()
         finally:
-            shutil.rmtree(safe_dir, ignore_errors=True)
+            stop.set()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert swaps > 0, "race control did not run"
+        assert result["status"] is ExecutionStatus.SUCCESS, result["stderr"]
+        assert (
+            result["stdout"] == "0"
+        ), f"symlink race read outside bytes after {swaps} swaps"
 
-        # Defense holds: path_open on the symlink must fail
-        # The module exits 0 when blocked, 1 when the escape succeeded
-        if result.status == ExecutionStatus.SUCCESS:
-            assert (
-                result.exit_code == 0
-            ), "Symlink escape SUCCESSFUL — guest read outside sandbox!"
-        else:
-            # Trap/ERROR is also acceptable (symlink not found at all)
-            assert result.status in (
-                ExecutionStatus.ERROR,
-                ExecutionStatus.FUEL_EXHAUSTED,
-            )
+        # Mutation control: if the capability boundary is deliberately
+        # widened to the parent, the SAME guest must see the outside byte.
+        # This proves the assertion above is capable of detecting an escape.
+        link.unlink()
+        link.symlink_to("../outside/secret.txt")
+        result = self._run_probe(
+            self._probe(tmp_path, "widened", "safe/link"), preopen=root
+        )
+        assert result["status"] is ExecutionStatus.SUCCESS, result["stderr"]
+        assert result["stdout"] == "O", (
+            "oracle control failed: outside data was not detectable even with "
+            "the parent granted"
+        )
 
     # Positive control: guest WRITES a file into the preopen dir
     # (same proven pattern as tests/test_disk_quota.py). exit 0 = the
@@ -689,24 +731,24 @@ class TestSecurity4_6_Timeout_Enforcement:
 class TestSecurity4_7_Preopen_Default_Deny:
     """4.7: Default deny — no preopened dirs means NO file access."""
 
-    def test_no_preopen_blocks_path_open(self):
-        """NEGATIVE: with empty allow_dirs, path_open must not succeed."""
+    def test_no_preopen_blocks_path_open(self, tmp_path):
+        """NEGATIVE: with empty allow_dirs, the only preopen is /sandbox and
+        a traversal outside it must return a capability errno.
+
+        The valid guest writes the errno it actually got; SUCCESS is required
+        so an instantiation error cannot be mistaken for a denial.
+        """
+        from ephemora_cell import run_isolated
+
         config = WASIConfig(max_fuel=1_000_000)  # No allow_dirs
-        sandbox = WASISandbox(config=config)
+        wasm_path = tmp_path / "preopen.wasm"
+        wasm_path.write_bytes(wasmtime.wat2wasm(PATH_OPEN_WAT))
+        result = run_isolated(str(wasm_path), config)
 
-        wasm_bytes = wasmtime.wat2wasm(PATH_OPEN_WAT)
-        wasm_path = Path(tempfile.mkdtemp(prefix="ephemora_cell_sec_")) / "preopen.wasm"
-        wasm_path.write_bytes(wasm_bytes)
-
-        result = sandbox.run(str(wasm_path))
-
-        # The module crashes or exits with an error — never SUCCESS
-        assert result.status in (
-            ExecutionStatus.ERROR,
-            ExecutionStatus.FUEL_EXHAUSTED,
-        ), (
-            f"Preopen default-deny failed. Module completed with {result.status}. "
-            f"Stderr: {result.stderr[:200]}"
+        assert result["status"] is ExecutionStatus.SUCCESS, result["stderr"]
+        assert result["stdout"] in {chr(63), chr(76)}, (
+            f"Preopen default-deny returned {result['stdout']!r}, expected a "
+            "capability denial"
         )
 
     def test_default_deny_no_allow_dirs_config(self):

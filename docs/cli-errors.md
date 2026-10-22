@@ -45,7 +45,7 @@ artefact never leaves status `0`, and no class is ever reported as a success.
 ## `environment`: the runtime is a precondition, not a label
 
 The release is qualified against one controlled Wasmtime line
-(`wasmtime>=49.0.3,<50`). Guest code does not run on an engine outside it on any
+(`wasmtime>=49.0.4,<50`). Guest code does not run on an engine outside it on any
 execution route the package offers — the CLI, the `WASISandbox.run` facade,
 `run_isolated` at its spawn point, and the low-level `ComponentSandbox` primitive
 each make that decision before a byte is read, compiled or billed — because the

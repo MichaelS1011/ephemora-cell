@@ -3,7 +3,7 @@
 # Copyright 2026 Michael Soppa
 """Install the one qualified Wasmtime runtime in CI, fail-closed.
 
-The product's security floor is the upstream 49.0.3 fix line, and the wheel that
+The product's security floor is the upstream 49.0.4 fix line, and the wheel that
 carries it is not on PyPI. CI therefore downloads ONE versioned HTTPS artifact
 and accepts it only if all of these hold:
 

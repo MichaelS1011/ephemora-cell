@@ -56,10 +56,10 @@ its tag names — 41 SHA-pinned refs, no floating version names.
 | `package-version` | `''` (latest) | `ephemora-cell` version to install from PyPI |
 
 **Which engine the step gets.** The action's install step pulls from PyPI, and
-1.2.0 floors its runtime at the patched `wasmtime>=49.0.3,<50` line. That floor
-is deliberate and fails closed: PyPI carries no 49.0.3 engine wheel, so an
+1.2.0 floors its runtime at the patched `wasmtime>=49.0.4,<50` line. That floor
+is deliberate and fails closed: PyPI carries no 49.0.4 engine wheel, so an
 unconfigured `pip install ephemora-cell==1.2.0` on a runner resolves to
-*unsatisfiable* rather than quietly pulling the unpatched 49.0.0. The supported
+*unsatisfiable* rather than quietly pulling an unpatched 49.0.0–49.0.3. The supported
 runner recipe is therefore to install from the release wheelhouse in an earlier
 step and let the action's install see a satisfied requirement:
 

@@ -297,7 +297,7 @@ pytest counterparts in `tests/test_fs_escape_matrix.py`,
   re-opening vector turns CI red (re-measured green on linux/amd64 in addition
   to macOS arm64, and re-run green on the 49.0.0 pin, 2026-10-12).
   The GHSA-vqjp version-boundary is closed by the 47.0.4 fix and therefore by the
-  current `wasmtime>=49.0.3,<50` floor (measured on the 49.0.0 pin at the time);
+  current `wasmtime>=49.0.4,<50` floor (measured on the 49.0.0 pin at the time);
   the strict matrix stays wired so a future engine move that re-opens a shape
   fails CI rather than trusting the version number.
 - **Persistence / worm** — a marker written by run N is invisible to

@@ -39,6 +39,25 @@ running it, and the allowlisted egress policy an operator configures.
 Cell does not defend the guest *from* the host, and it does not evaluate
 whether guest code is *good* — only contained.
 
+**Explicitly outside the v1.2 boundary — native worker compromise (A7).**
+An engine escape that turns guest input into arbitrary **native** code inside
+the worker is not contained by the WASM boundary, the process boundary or the
+current resource limits. The worker is a separate process, but it runs as the
+same OS user, with the same environment, and on macOS without a kernel sandbox.
+A native compromise can therefore read and write the user's files, open network
+connections, inspect credentials in its environment, and signal other processes
+of the same user. v1.2 promises guest-to-host isolation and containment of host
+**crashes**; it does **not** promise host-file, network or credential isolation
+after native code execution. A second, independently enforced OS boundary is a
+hardening-version design (see [Native worker compromise](#native-worker-compromise-a7)),
+not a v1.2 capability.
+
+**Also outside:** A8, write access to the installed package. An attacker who can
+modify the installed Python package or the native runtime can change the gate,
+the limits and the evidence producer themselves; local installation integrity is
+an operator/deployment responsibility, not something the sandbox can attest about
+its own code.
+
 ## Trust boundaries
 
 | Boundary | What crosses it | Enforcement |
@@ -46,8 +65,62 @@ whether guest code is *good* — only contained.
 | Guest → WASI Preview1 surface | syscalls only (`fd_*`, `path_open`, `clock`, `random`, `environ`) | capability-based: preopened dirs only, dangerous dirs denied, sync calls refused at the CALL layer for `fd_sync`/`fd_datasync`/`fd_psync` (imports stay legal — Zig and CPython both link the symbols without calling them; `allow_fsync` opts out, `fd_psync` stays trapped) |
 | Guest → host compute | fuel, memory pages, wall clock | fuel metering, `Store.set_limits`, epoch interruption — enforced on **both** execution paths |
 | Sandbox dir → host disk | guest-written bytes | `io_budget_bytes` wall (both paths); `disk_quota_bytes` (RLIMIT_FSIZE) and `io_cpu_seconds` rusage watchdog on the **subprocess path only** — see the [execution-path matrix](../SECURITY.md#execution-paths--which-control-runs-where) |
-| Worker → OS (subprocess path) | process creation itself | RLIMIT_NOFILE/AS/RSS, 32 MB module cap, hard kill on timeout |
+| Worker → OS (subprocess path) | process creation, crash containment | separate process with `start_new_session`, hard kill on timeout, 32 MB module cap, RLIMIT_NOFILE and RLIMIT_FSIZE on macOS (RLIMIT_AS/RSS are **not enforced by the macOS kernel** and are not claimed there). **Not an OS sandbox:** after native code execution (A7) the same user's files, environment and network remain reachable — see below |
 | Sandbox → network | nothing, by default | WASI Preview1: no socket APIs; the WASI 0.2 world links `wasi:sockets` but connect is denied at call time (measured, CVE-replay component evidence 2026-09-18); the [egress sidecar](egress_patterns.md) is the audited, allowlist-mediated alternative |
+
+## Native worker compromise (A7)
+
+This is the boundary the v1.2 contract deliberately does **not** cross.
+
+**Option A — v1.2 contract (current, documented).** WASM isolation and the
+worker process are containment boundaries for *guest* code and host crashes.
+After a native engine escape, the worker retains the invoking user's effective
+rights. The documented mitigation is prevention (qualified runtime, advisory
+monitoring, digest pinning, loader exclusions), not OS isolation. Treat A7 as
+out of scope; do not describe the worker as a host sandbox.
+
+**Option B — second OS boundary (research direction, not shipped).** A kernel
+sandbox around the worker that independently restricts file, network, process,
+signal and IPC rights. On macOS a Seatbelt profile can do this; on Linux the
+candidate controls are user/mount/network namespaces, seccomp, Landlock,
+cgroups and, where the stronger boundary is required, a microVM. An environment
+whitelist is defense-in-depth, not a sandbox; the sandbox must still apply when
+the environment is inherited unchanged.
+
+**Measured prototype (macOS 26.5.1, 2026-10-22).** A sentinel program with the
+worker's spawn contract was run unconfined and under a strict Seatbelt profile
+(read access limited to the runtime, the product package and the work dir; write
+access limited to the work dir; network denied; exec limited to the interpreter;
+signals limited to self). Results after a **simulated** native compromise:
+
+| Right | Unconfined worker | Seatbelt prototype |
+|---|---|---|
+| Read outside sentinel | yes | denied |
+| Write outside sentinel | yes | denied |
+| Read another worker's file | yes | denied |
+| Read `~/.ssh` | yes | denied |
+| Network to localhost | yes | denied |
+| Signal another process | yes | denied |
+| Execute a non-interpreter binary | yes | denied |
+| Environment variables | all inherited | **still inherited by default** (8 with a minimal spawn env; no sentinel) |
+| Fork | yes | **allowed** because the Python worker start path needs it in this prototype; a compromised worker can fork |
+
+The same profile also ran a normal WASI `hello.wasm` guest successfully through
+the worker path, so the boundary is compatible with the product execution path
+in this limited prototype. It is **not integrated** into v1.2: it has no
+installer/profile lifecycle, no per-platform coverage, no denial telemetry and no
+test that every worker entry point inherits it. Those gaps make Option B a
+hardening-version deliverable, not a claim about the current release.
+
+On the separate Linux/DGX host (Ubuntu 24.04, kernel 6.17, GB10), a bounded
+capability probe found unprivileged user/network namespaces and bubblewrap
+**denied**, while cgroup v2 via a `systemd-run --user --scope` enforced a 64 MiB
+`MemoryMax` (a 100 MiB allocation was killed, rc 137). AppArmor was enabled,
+Landlock was not exposed, and no Firecracker was installed. A Linux Option B
+therefore needs a cgroup-based aggregate budget plus AppArmor/Landlock or a
+supervised root-installed profile, or a microVM — not an unprivileged
+namespace-only design. That path is **NOT VERIFIED** end-to-end and is not a
+v1.2 claim.
 
 ## Resource exhaustion via WASI calls (host-side)
 

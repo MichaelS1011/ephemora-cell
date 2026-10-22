@@ -8,7 +8,7 @@ it does not relicense, amend or overrule anything listed here.
 thereby embedded in the wheel you installed. The sections below separate what
 the wheel itself contains, what pip installs next to it, what only an optional
 extra pulls in, and what lives in the repository without reaching any artifact.
-Measured 2026-10-06 from a clean build, re-verified 2026-10-16 against the 49.0.3 runtime line; dependency licenses were read from each
+Measured 2026-10-06 from a clean build, re-verified 2026-10-22 against the 49.0.4 runtime line; dependency licenses were read from each
 package's PyPI metadata (`info.license_expression` / `info.license`), not from
 memory — the lockfiles in this repo carry no license fields at all, so they
 cannot answer this question.
@@ -36,7 +36,7 @@ Separate distributions, each carrying its own license; not part of our wheel.
 
 | Component | How it arrives | License |
 |---|---|---|
-| `wasmtime` 49.0.3 (fix line; controlled build, not on PyPI — see [SECURITY.md](SECURITY.md)) | required runtime dependency (`pyproject.toml:19`, `wasmtime>=49.0.3,<50`; pinned in `requirements.txt`) | Apache-2.0 WITH LLVM-exception |
+| `wasmtime` 49.0.4 (fix line; controlled build, not on PyPI — see [SECURITY.md](SECURITY.md)) | required runtime dependency (`pyproject.toml:19`, `wasmtime>=49.0.4,<50`; pinned in `requirements.txt`) | Apache-2.0 WITH LLVM-exception |
 
 ## Installed only with an optional extra
 

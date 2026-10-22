@@ -34,7 +34,8 @@ provenance is not evidence.
 
 Latest run (2026-10-21, pinned `b464a4cd100d`, 257 files, 35,942 harness
 outcomes from the 157 files that completed,
-macOS arm64, wasmtime `49.0.3.post2+git.1d21c90f` — the qualified runtime):
+macOS arm64, wasmtime `49.0.3.post2+git.1d21c90f` — the then-qualified runtime,
+withdrawn 2026-10-22; conformance was **not** re-run on 49.0.4):
 **31,896 pass / 3,281 classified deviations-and-limitations / 684 text-format
 skips / 81 failures the harness does not classify**, so the harness exits `1`.
 This job is evidence, not a release gate, and the 81 are itemised in the
@@ -99,7 +100,8 @@ The orchestrator:
    header alongside whenever the two disagree.
 
 Latest run (2026-10-21, pinned `609c44613995`, observed revision identical to the
-pin, macOS arm64, wasmtime `49.0.3.post2+git.1d21c90f`, ephemora-cell 1.2.0):
+pin, macOS arm64, wasmtime `49.0.3.post2+git.1d21c90f` (withdrawn; not re-run
+on 49.0.4), ephemora-cell 1.2.0):
 **71 pass, 1 documented by-design expected-failure, 0 fail** across the 72 tests
 the preview-1 suites execute; 55 preview-3 tests skipped (Cell declares preview 1
 only). The run needed no engine-abort retry at all (`engine_abort_retries: []`).

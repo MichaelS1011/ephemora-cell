@@ -98,7 +98,7 @@ def runtime_identity(wheel: Path) -> dict[str, str]:
     """Version, license expression and the embedded native library digest.
 
     The digest is the point: the runtime is the engine the advisories were
-    measured against, and a wheel that merely says ``49.0.3`` is not that
+    measured against, and a wheel that merely says ``49.0.4`` is not that
     artifact. Reading it from the archive makes the statement artifact-derived.
     """
     fields = _metadata(wheel)
