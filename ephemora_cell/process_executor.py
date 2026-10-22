@@ -87,6 +87,45 @@ def _default_max_concurrent_workers() -> int:
 MAX_CONCURRENT_WORKERS = _default_max_concurrent_workers()
 _worker_slots = threading.BoundedSemaphore(MAX_CONCURRENT_WORKERS)
 
+# The worker is Python, not a generic shell: it needs its interpreter search
+# path, locale and temp directory, but not the caller's ambient credentials.
+# A native compromise (A7) already owns the worker process; this whitelist
+# keeps unrelated secrets out of its initial environment, not out of the host.
+_WORKER_ENV_ALLOW = frozenset(
+    {
+        "PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONUTF8",
+        "PYTHONIOENCODING",
+        "PYTHONHASHSEED",
+        "PYTHONDONTWRITEBYTECODE",
+        "VIRTUAL_ENV",
+        "CONDA_PREFIX",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME",
+        "EPHEMORA_WORKER_PAYLOAD_DEADLINE_SECONDS",
+    }
+)
+
+
+def _worker_env(worker_root: Path) -> dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if key in _WORKER_ENV_ALLOW}
+    env.update(
+        {"TMPDIR": str(worker_root), "TEMP": str(worker_root), "TMP": str(worker_root)}
+    )
+    return env
+
 
 @contextmanager
 def _worker_slot() -> Iterator[None]:
@@ -324,10 +363,7 @@ def run_isolated(
             tempfile.mkdtemp(prefix="ephemora_worker_", dir=config.sandbox_base_dir)
         )
     worker_config = replace(config, sandbox_base_dir=str(worker_root))
-    worker_env = os.environ.copy()
-    worker_env.update(
-        {"TMPDIR": str(worker_root), "TEMP": str(worker_root), "TMP": str(worker_root)}
-    )
+    worker_env = _worker_env(worker_root)
 
     process_timeout = max(
         worker_config.timeout_seconds + _PROCESS_TIMEOUT_MARGIN, _MIN_PROCESS_TIMEOUT

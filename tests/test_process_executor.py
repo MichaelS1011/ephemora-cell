@@ -112,15 +112,20 @@ class TestWorkerFailureHandling:
 
     def test_worker_crash_reports_error(self, monkeypatch, tmp_path):
         wasm_path = _write_module(tmp_path, TRIVIAL_WAT)
+        captured: dict[str, str] = {}
 
         def fake_spawn(cmd, payload, process_timeout, env):
+            captured.update(env)
             return 1, b"", b"boom traceback"
 
+        monkeypatch.setenv("EPHEMORA_SENTINEL_SECRET", "must-not-reach-worker")
         monkeypatch.setattr(process_executor, "_spawn_worker", fake_spawn)
         result = run_isolated(str(wasm_path), WASIConfig())
         assert result["status"] == ExecutionStatus.ERROR
         assert "worker crashed" in result["stderr"]
         assert "boom traceback" in result["stderr"]
+        assert "EPHEMORA_SENTINEL_SECRET" not in captured
+        assert "TMPDIR" in captured and captured["TMPDIR"].startswith("/")
 
     def test_non_json_output_reports_error(self, monkeypatch, tmp_path):
         wasm_path = _write_module(tmp_path, TRIVIAL_WAT)

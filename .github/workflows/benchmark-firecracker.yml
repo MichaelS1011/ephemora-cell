@@ -14,8 +14,8 @@ name: Benchmark Firecracker vs Cell
 # This leg now fails closed with an explicit ::error:: instead of a cryptic pip
 # resolution error that could be "fixed" by reinstalling 49.0.0. Re-enable it
 # only once a qualified Linux runtime wheel exists — then install
-# "wasmtime>=49.0.4,<50" from the hash-pinned release asset, exactly as
-# scripts/ci_runtime_bootstrap.py does.
+# "wasmtime>=49.0.4,<50" from the release set or a verified build artifact,
+# exactly as scripts/ci_runtime_bootstrap.py does for macOS.
 
 on:
   workflow_dispatch:

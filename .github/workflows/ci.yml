@@ -10,23 +10,25 @@ on:
 
 permissions: read-all
 
-# Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
-# controlled wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
-# _libwasmtime.dylib sha256 247c1529…a30b). It is a versioned, hash-pinned
-# HTTPS release asset, not a PyPI package: PyPI carries no 49.0.4 wheel.
-# scripts/ci_runtime_bootstrap.py downloads that ONE wheel, verifies its name,
-# sha256 and embedded native digest, installs it with --no-index --no-deps, and
-# verifies the loaded library. A missing asset, a 404 or a substituted wheel is
+# Runtime artifact. 1.2.x ships exactly ONE qualified runtime: the controlled
+# wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). PyPI carries no 49.0.4 wheel and no
+# intermediate release is published; the runtime-wheel job builds it from the
+# two pinned upstream inputs with the checked-in recipe, verifies the input
+# hashes, wheel sha256, native sha256 and arm64 Mach-O, and hands the wheel to
+# every dependent job as a workflow artifact. A missing or substituted input is
 # a red leg; there is no 49.0.0 fallback and no local cache.
 #
 # Runner: macos-15 (arm64). GitHub retires the macos-14 image on 2026-11-02
 # (brownouts from 2026-10-05; actions/runner-images#13518). macos-15 is the
 # arm64 image; macos-15-intel is x64 and would fail the bootstrap's arm64 gate.
-# The asset URL is a constant in scripts/ci_runtime_bootstrap.py; changing it
-# is a reviewed code change, not a repository setting.
 
 jobs:
+  runtime-wheel:
+    uses: ./.github/workflows/runtime-wheel.yml
+
   test:
+    needs: runtime-wheel
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -47,6 +49,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
@@ -57,10 +65,10 @@ jobs:
             exit 1
           fi
           echo "runner macOS $(sw_vers -productVersion) $(uname -m), python $(python -VV)"
-          # One versioned HTTPS asset, hash-pinned in the script. It fails closed
-          # on a wrong/missing wheel before pip sees it, and verifies the loaded
-          # native library afterwards. No index, no fallback to 49.0.0.
-          python scripts/ci_runtime_bootstrap.py
+          # Install only the wheel this run built from pinned upstream inputs.
+          # The bootstrap re-checks name, wheel hash, native hash and arch, then
+          # verifies the loaded library. No index, no fallback to 49.0.0.
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           # tools-signing extra: the signing-chain tests run for real, not
           # skipped (they importorskip cryptography for bare environments)
@@ -142,6 +150,7 @@ jobs:
           python benchmarks/benchmark_guard.py
 
   coverage:
+    needs: runtime-wheel
     # Runtime-backed leg (the suite executes WASM), hence the qualified platform.
     runs-on: macos-15
     # No job-level `permissions:` override. This job checks out, installs, runs the
@@ -159,13 +168,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
           if [ "$(uname -m)" != "arm64" ]; then
             echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
           fi
-          python scripts/ci_runtime_bootstrap.py
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
@@ -238,6 +253,7 @@ jobs:
         run: python -m pytest tests/test_builder.py -v --tb=short
 
   security:
+    needs: runtime-wheel
     # Static guards + the SBOM from the installed environment. On the qualified
     # platform so the SBOM names the real runtime (wasmtime 49.0.4.postN) instead
     # of an environment where the runtime could not be installed at all.
@@ -300,13 +316,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install dependencies and audit tooling (qualified runtime included)
         run: |
           python -m pip install --upgrade pip
           if [ "$(uname -m)" != "arm64" ]; then
             echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
           fi
-          python scripts/ci_runtime_bootstrap.py
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
           python -m pip install "pip-audit==2.10.1" "cyclonedx-bom==7.5.0"
 
@@ -362,6 +384,7 @@ jobs:
   # claim is continuously re-proven on the pinned wasmtime baseline, not
   # asserted once (README documents the suite; CI keeps it true).
   test-bench:
+    needs: runtime-wheel
     # Executes WASM on the live runtime → qualified platform only.
     runs-on: macos-15
     steps:
@@ -373,13 +396,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
           if [ "$(uname -m)" != "arm64" ]; then
             echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
           fi
-          python scripts/ci_runtime_bootstrap.py
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
 
       # Exit 0 = all 8 documented vectors blocked on the live runtime.
@@ -397,6 +426,7 @@ jobs:
   # is the "verified against the official SDK" evidence and runs the test for
   # real (not green-by-skip) because the entry point is installed on PATH.
   mcp-sdk-interop:
+    needs: runtime-wheel
     # The server executes WASM in this test → qualified platform only.
     runs-on: macos-15
     steps:
@@ -408,13 +438,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install deps + this package (entry point on PATH) + MCP SDK
         run: |
           python -m pip install --upgrade pip
           if [ "$(uname -m)" != "arm64" ]; then
             echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
           fi
-          python scripts/ci_runtime_bootstrap.py
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" -e ".[integration]"
 
       - name: Official MCP SDK interop

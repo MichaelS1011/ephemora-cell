@@ -20,7 +20,7 @@ and what its old "from `/tmp`" wording hid).
 
 | Installation state | Result | Why it differs |
 |---|---|---|
-| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1775 passed / 27 skipped** · 88.38 % of 6,599 statements (5,832 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
+| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1775 passed / 27 skipped** · 88.38 % of 6,603 statements (5,836 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
 | The same checkout after the wheel and sdist were built into `dist/` | **1776 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
 | Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1773 / 29** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
 | The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1785 / 17** | the bring-your-own-guest round-trips run for real |
@@ -86,48 +86,43 @@ The runner-images table lists `macos-15` as the **arm64** image;
 uses `macos-15`. `build-recipes` stays on Ubuntu and stays deliberately red: it
 is not in `release-gate`, and Linux is not qualified for 1.2.x.
 
-**Runtime asset.** `scripts/ci_runtime_bootstrap.py` downloads exactly this
-versioned asset (published 2026-10-22; a 404 is a red leg):
+**PR runtime build.** No public runtime asset is required for PR CI. A dedicated
+`runtime-wheel` job builds the wheel from exactly two pinned upstream inputs with
+the checked-in recipe and uploads it for all dependent jobs:
 
-```
-https://github.com/MichaelS1011/ephemora-cell/releases/download/wasmtime-runtime-49.0.4.post1/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl
-```
-
-It accepts the download only when **all** of these hold, checked before pip sees
-the file and again after installation:
-
-| Check | Value |
+| Input / output | Pinned identity |
 |---|---|
-| wheel name | `wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl` |
-| wheel sha256 | `5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e` |
+| official C-API tarball | `wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz`, sha256 `f83147d18f6089bfb0c5f01b8158f051fe98d26fb0a0e0dbb40a6b8cd8045460` |
+| official bindings wheel | `wasmtime-49.0.0-py3-none-macosx_11_0_arm64.whl`, sha256 `de98d6282c61d5dd4dc1ff1b410936ceb6fff3a27439e9cab51a375b8da2ec2f` |
+| built wheel name | `wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl` |
+| built wheel sha256 | `5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e` |
 | embedded `_libwasmtime.dylib` sha256 | `247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b` |
+| architecture | thin arm64 Mach-O (`CPU_TYPE_ARM64`) |
 | version / licence | `49.0.4.post1+git.2c2970205f` / `Apache-2.0 WITH LLVM-exception` |
-| interpreter | `platform.machine() == "arm64"` and the platform tag is `macosx-<version>-arm64` or `-universal2` (a native arm64 or universal2 build); the host must report macOS 11.0 or newer |
 
-The URL must be HTTPS; the download is size-bounded; pip runs with
-`--no-index --no-deps --force-reinstall`; the temporary wheel is deleted. There
-is no index fallback, no local cache and no downgrade to 49.0.0. `--wheel` is
-only for the local release audit and is subject to the same checks. A mirror
-needs a reviewed change to the script's `DEFAULT_URL` and `ALLOWED_HOSTS`
-constants — no URL is read from the environment — and the script still rejects
-any wheel whose sha256 differs.
+The build job verifies both input hashes before building, then the wheel name,
+wheel hash, native hash, version and Mach-O architecture. Dependent jobs
+download that artifact and the installer re-checks the same values before and
+after installation. No write credential, secret, public release asset, PyPI
+engine substitution or local cache is used.
 
-**Status, stated rather than assumed.** The `49.0.3.post2` asset remains
-published under its immutable tag for history, but it is **withdrawn**: the
-aarch64 `br_table` escape GHSA-mghf-wjfp-p5xm was confirmed on it with a native
-crash on this hardware. The 49.0.4 wheel above is assembled and qualified
-locally but **not published**; its planned tag is
-`wasmtime-runtime-49.0.4.post1`, and the bootstrap pins that URL, so CI fails
-closed (404) until a founder-authorized release exists. No completed
-`macos-15` run is claimed as measured. The local
-qualification host reports `sysconfig.get_platform() == macosx-26.0-arm64` and
-the same wheel/native digests. Linux and DGX runs remain historical, dated
-evidence — not a qualification of this build.
+**Status, stated rather than assumed.** There is **no separate runtime release**
+and no intermediate publication. The `49.0.3.post2` asset remains published
+under its immutable tag for history, but it is **withdrawn**: the aarch64
+`br_table` escape GHSA-mghf-wjfp-p5xm was confirmed on it with a native crash on
+this hardware. The 49.0.4 wheel is built PR-internally and is part of the final
+v1.2.0 release; it is not published before that release. No completed
+`macos-15` run is claimed as measured. The local qualification host reports
+`sysconfig.get_platform() == macosx-26.0-arm64` and the same wheel/native
+digests. Linux and DGX runs remain historical, dated evidence — not a
+qualification of this build.
 
-**Provenance limit.** Making the asset reachable proves where the bytes were
-published, not how they were built. There is no committed native build recipe
-and no byte-reproducible rebuild; [runtime_provenance.md](runtime_provenance.md)
-keeps that limit explicit, and the release asset does not change it.
+**Provenance limit.** The assembly is reproducible: two runs of the checked-in
+recipe produced the same wheel sha256. The native dylib is an official upstream
+binary; this page does **not** claim a byte-reproducible native build. The build
+recipe and both upstream input hashes are committed, so the CI artifact is
+reproducible from public inputs without a runtime release. See
+[runtime_provenance.md](runtime_provenance.md) for the exact boundary.
 
 ## Three installation states, three honest numbers
 

@@ -39,12 +39,18 @@ public Python index does not carry a 49.0.4 wheel, so `pip install ephemora-cell
 alone cannot satisfy the requirement. The dependency contract therefore **fails
 closed**: it will not silently fall back to the unpatched 49.0.0 line.
 
-The runtime ships as a wheel next to the Cell wheel in the release artefact set,
-and as a versioned, hash-pinned HTTPS release asset for CI and direct downloads.
+The runtime ships as a wheel next to the Cell wheel in the v1.2.0 release set.
 The wheel sha256 is `5d1ac880…`; the embedded native library is `247c1529…`.
 Both are checked by `scripts/ci_runtime_bootstrap.py` before and after install.
-The asset is published under the tag `wasmtime-runtime-49.0.4.post1`; a missing
-asset is a red CI leg, never a fallback to 49.0.0.
+
+PR CI does **not** need a separate public runtime release. A dedicated macOS
+`runtime-wheel` job downloads the two pinned upstream inputs — the official
+Bytecode Alliance v49.0.4 C-API tarball (sha256 `f83147d1…5460`) and the official
+`wasmtime` 49.0.0 macOS arm64 bindings wheel (sha256 `de98d628…ec2f`) — rebuilds
+the wheel with the checked-in recipe, verifies all hashes and the arm64 Mach-O,
+and passes the wheel to every dependent job as a workflow artifact. Any input,
+build, architecture or digest mismatch is a red leg; there is no public-asset
+404 and no 49.0.0–49.0.3 fallback.
 
 ## Install from the release artefacts
 
@@ -77,20 +83,28 @@ If you want the core without the language guests, use
 
 ## CI install path (repository tool, not shipped)
 
-CI does not use a wheelhouse directory. It downloads the one versioned runtime
-asset and verifies its wheel and native digests before installing it:
+CI does not use a public runtime asset and does not use a wheelhouse directory
+for the test jobs. One job builds the wheel from the pinned upstream inputs and
+uploads it; dependent jobs install exactly that artifact:
 
 ```bash
-python scripts/ci_runtime_bootstrap.py
+# build job
+python scripts/ci_runtime_bootstrap.py --prepare --out "$RUNNER_TEMP/runtime-wheel"
+
+# dependent job (after actions/download-artifact)
+python scripts/ci_runtime_bootstrap.py --wheel \
+  "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
 ```
 
 The script is a repository tool — it is not part of the wheel or sdist. It
-rejects a non-HTTPS URL, a 404, a truncated download, a wheel whose sha256 is not
-`5d1ac880…`, a native library whose sha256 is not `247c1529…`, an exact-version
-mismatch, a non-`Apache-2.0 WITH LLVM-exception` declaration, and an interpreter
-that does not run natively on arm64 macOS (arm64 or universal2) on a host of
-macOS 11.0 or newer. pip runs with
-`--no-index --no-deps`, so an unvetted PyPI engine cannot enter the environment.
+rejects a non-HTTPS input URL, a substituted input, a truncated download, a
+wheel whose sha256 is not `5d1ac880…`, a native library whose sha256 is not
+`247c1529…`, a non-arm64 Mach-O, an exact-version mismatch, a
+non-`Apache-2.0 WITH LLVM-exception` declaration, and an interpreter that does
+not run natively on arm64 macOS (arm64 or universal2) on a host of macOS 11.0 or
+newer. pip runs with `--no-index --no-deps`, so an unvetted PyPI engine cannot
+enter the environment. `--url` exists only for an explicit local/release audit
+of a prebuilt wheel; it is not the CI path.
 
 ## First checks
 

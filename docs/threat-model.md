@@ -102,8 +102,16 @@ signals limited to self). Results after a **simulated** native compromise:
 | Network to localhost | yes | denied |
 | Signal another process | yes | denied |
 | Execute a non-interpreter binary | yes | denied |
-| Environment variables | all inherited | **still inherited by default** (8 with a minimal spawn env; no sentinel) |
+| Environment variables | all inherited | Seatbelt does not filter them, but the v1.2 worker spawn now passes only a small allowlist (interpreter path, temp dirs, locale); an ambient sentinel is not present. Whitelisted path variables and OS-level user data remain visible. |
 | Fork | yes | **allowed** because the Python worker start path needs it in this prototype; a compromised worker can fork |
+
+In v1.2 itself, `process_executor._worker_env` now hands the worker only an
+allowlist of interpreter search paths, temporary directories, locale and a few
+explicitly supported knobs. Unrelated ambient variables (tokens, cloud
+credentials, shell configuration) no longer reach the worker's initial
+environment. This is **defense-in-depth, not an OS boundary**: a native
+compromise can still read the same user's files and can query the OS for user
+data, and the allowlisted path variables remain visible.
 
 The same profile also ran a normal WASI `hello.wasm` guest successfully through
 the worker path, so the boundary is compatible with the product execution path

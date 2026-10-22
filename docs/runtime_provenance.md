@@ -65,13 +65,13 @@ The `.post1+git.2c2970205f` version is a packaging stamp: `.post1` keeps this
 locally assembled wheel distinct from a future official PyPI 49.0.4, and
 `git.2c2970205f` names the upstream tag commit it was assembled from.
 
-**Publication path.** The wheel is **not published yet**. The planned dedicated
-tag is `wasmtime-runtime-49.0.4.post1`, separate from the product release tag;
-`scripts/ci_runtime_bootstrap.py` already pins this wheel sha256 and the native
-digest, so CI fails closed (404) until a founder-authorized release exists. The
-older immutable release `wasmtime-runtime-49.0.3.post2` remains public for
-history, but both the bootstrap pin and the version floor have moved: nothing
-silently treats that asset as qualified any more.
+**Publication path.** The wheel is **not published as a separate runtime
+release** and there is no intermediate release. PR CI rebuilds it from the two
+pinned upstream inputs with the committed recipe and passes it to the test jobs
+as a workflow artifact. The wheel is part of the final v1.2.0 product release.
+The older immutable release `wasmtime-runtime-49.0.3.post2` remains public for
+history, but both the bootstrap source and the version floor have moved:
+nothing silently treats that asset as qualified any more.
 
 ## What an external party can verify
 
@@ -101,7 +101,8 @@ silently treats that asset as qualified any more.
    49.0.4 wheel, which is why the package depends on `wasmtime>=49.0.4,<50` and
    fails closed instead of resolving to a vulnerable 49.0.0–49.0.3. Do not
    expect `pip install wasmtime==49.0.4.post1+git.2c2970205f` to work from the
-   index — it is a release asset of this project, not an upstream publication.
+   index — it is the runtime wheel in the v1.2.0 release set, not an upstream
+   publication.
 
 ## Advisory state
 

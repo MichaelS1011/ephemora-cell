@@ -102,3 +102,17 @@ def test_wheel_name_is_checked_before_the_bytes(tmp_path):
         bootstrap._verify_wheel(
             tmp_path / "wasmtime-49.0.4.post1+git.2c2970205f-py3-none-any.whl"
         )
+    local = tmp_path / "input.bin"
+    local.write_bytes(b"x")
+    with pytest.raises(bootstrap.BootstrapError, match="pinned"):
+        bootstrap._verify_input(local, "00" * 32, "test input")
+    arm64 = b"\xcf\xfa\xed\xfe" + (0x0100000C).to_bytes(4, "little")
+    x64 = b"\xcf\xfa\xed\xfe" + (0x01000007).to_bytes(4, "little")
+    assert bootstrap._is_arm64_macho(arm64)
+    assert not bootstrap._is_arm64_macho(x64)
+    assert (
+        bootstrap._require_https(
+            "https://files.pythonhosted.org/packages/x/wasmtime-49.0.0.whl"
+        )
+        == "https://files.pythonhosted.org/packages/x/wasmtime-49.0.0.whl"
+    )

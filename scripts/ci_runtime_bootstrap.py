@@ -1,29 +1,28 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
-"""Install the one qualified Wasmtime runtime in CI, fail-closed.
+"""Build or install the one qualified Wasmtime runtime, fail-closed.
 
-The product's security floor is the upstream 49.0.4 fix line, and the wheel that
-carries it is not on PyPI. CI therefore downloads ONE versioned HTTPS artifact
-and accepts it only if all of these hold:
+The product's security floor is the upstream 49.0.4 fix line, and PyPI carries
+no 49.0.4 wheel. ``--prepare`` therefore builds the wheel from two pinned
+upstream inputs with the checked-in recipe:
 
-* the URL is HTTPS (no credentials, no ``http://``, no local path);
-* the wheel name, the wheel sha256 and the embedded native library sha256 are
-  the qualified values below, checked *before* pip sees the file;
-* the installed distribution reports the exact version and the loaded native
-  library hashes to the qualified value, checked *after* installation;
-* the interpreter runs natively on Apple Silicon (arm64, or a universal2 build
-  whose ``platform.machine()`` is arm64) on a host of macOS 11.0 or newer, i.e.
-  the only platform the wheel is tagged for. An x64/Rosetta interpreter or an
-  older host is refused.
+* the official C-API tarball ``wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz``
+  (sha256 ``f83147d1…5460``), and
+* the official ``wasmtime`` 49.0.0 macOS arm64 bindings wheel
+  (sha256 ``de98d628…ec2f``).
 
-No index, no fallback, no cache: pip runs with ``--no-index --no-deps`` and the
-download lives in a temporary directory. A missing release asset, a 404, a
-truncated download or a substituted wheel is a red gate, never a downgrade to
-the unpatched 49.0.0 line.
+Both input hashes are checked before the build. The built wheel must then have
+the qualified name, wheel sha256, embedded native-library sha256 and version.
+``--wheel`` installs a wheel produced by that same build (the workflow artifact)
+under the same checks. ``--url`` is retained only for an explicit local/release
+audit of a prebuilt wheel.
 
-CI uses the default URL. ``--wheel`` exists for the local release audit and is
-subject to the same name/hash/native-digest checks; it does not skip them.
+All modes share the platform gate: arm64 hardware, an arm64 or universal2
+interpreter, and a host of macOS 11.0 or newer. Installation is
+``--no-index --no-deps`` and the loaded native library is re-hashed. A missing
+or substituted input, a build failure, a wrong architecture or a foreign PyPI
+wheel is a red gate; there is no fallback to an unpatched 49.0.0-49.0.3 engine.
 """
 
 from __future__ import annotations
@@ -33,6 +32,7 @@ import hashlib
 import importlib.metadata as metadata
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import sysconfig
@@ -48,21 +48,37 @@ WHEEL_SHA256 = "5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e
 NATIVE_MEMBER = "wasmtime/darwin-aarch64/_libwasmtime.dylib"
 NATIVE_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
 
-#: Versioned release asset of this repository. The tag is dedicated to the
-#: runtime; it is not a product release. The wheel sha256 above pins the bytes,
-#: so the URL can move to a mirror only by editing this constant on purpose.
+#: Pinned upstream inputs. Changing either URL or hash is a reviewed code change;
+#: neither is read from an environment variable.
+C_API_URL = (
+    "https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.4/"
+    "wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz"
+)
+C_API_SHA256 = "f83147d18f6089bfb0c5f01b8158f051fe98d26fb0a0e0dbb40a6b8cd8045460"
+BINDINGS_URL = (
+    "https://files.pythonhosted.org/packages/b7/c1/"
+    "2333bb9b9364c28b4d113853d4e002e6ee3ee8d87d33b413dfdb220ce4d1/"
+    "wasmtime-49.0.0-py3-none-macosx_11_0_arm64.whl"
+)
+BINDINGS_SHA256 = "de98d6282c61d5dd4dc1ff1b410936ceb6fff3a27439e9cab51a375b8da2ec2f"
+BUILD_SCRIPT = Path(__file__).resolve().with_name("build_runtime_wheel.py")
+
+#: A prebuilt wheel may still be supplied explicitly for a local release audit.
+#: It is not the default path: the PR workflow builds from the pinned inputs.
 DEFAULT_URL = (
     "https://github.com/MichaelS1011/ephemora-cell/releases/download/"
     "wasmtime-runtime-49.0.4.post1/" + WHEEL_NAME
 )
 #: GitHub serves release downloads from github.com and redirects to one of these
-#: asset hosts. A mirror needs a reviewed change here, not an environment value:
-#: the download URL is part of the supply-chain decision.
+#: asset hosts. The bindings wheel comes directly from PyPI's file CDN. A mirror
+#: needs a reviewed change here, not an environment value: the download URL is
+#: part of the supply-chain decision.
 ALLOWED_HOSTS = frozenset(
     {
         "github.com",
         "objects.githubusercontent.com",
         "release-assets.githubusercontent.com",
+        "files.pythonhosted.org",
     }
 )
 MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
@@ -132,13 +148,29 @@ def _wheel_metadata(archive: zipfile.ZipFile) -> str:
     return archive.read(members[0]).decode("utf-8", "replace")
 
 
-def _native_digest(archive: zipfile.ZipFile) -> str:
+def _native_bytes(archive: zipfile.ZipFile) -> bytes:
     members = [n for n in archive.namelist() if n == NATIVE_MEMBER]
     if len(members) != 1:
         raise BootstrapError(
             f"wheel carries {len(members)} {NATIVE_MEMBER!r} members, expected 1"
         )
-    return hashlib.sha256(archive.read(NATIVE_MEMBER)).hexdigest()
+    return archive.read(NATIVE_MEMBER)
+
+
+def _is_arm64_macho(data: bytes) -> bool:
+    """True for a thin 64-bit little-endian Mach-O with CPU_TYPE_ARM64."""
+    if len(data) < 8 or data[:4] != b"\xcf\xfa\xed\xfe":
+        return False
+    return int.from_bytes(data[4:8], "little") == 0x0100000C
+
+
+def _verify_input(path: Path, expected_sha256: str, label: str) -> str:
+    if not path.is_file():
+        raise BootstrapError(f"{label} not found: {path}")
+    actual = _sha256(path)
+    if actual != expected_sha256:
+        raise BootstrapError(f"{label} sha256 {actual} != pinned {expected_sha256}")
+    return actual
 
 
 def _verify_wheel(
@@ -157,7 +189,8 @@ def _verify_wheel(
         )
     try:
         with zipfile.ZipFile(path) as archive:
-            native = _native_digest(archive)
+            native_bytes = _native_bytes(archive)
+            native = hashlib.sha256(native_bytes).hexdigest()
             fields: dict[str, str] = {}
             for line in _wheel_metadata(archive).splitlines():
                 if not line:
@@ -172,6 +205,8 @@ def _verify_wheel(
             f"embedded native library sha256 {native} != qualified "
             f"{expected_native_sha256}"
         )
+    if not _is_arm64_macho(native_bytes):
+        raise BootstrapError("embedded native library is not a thin arm64 Mach-O")
     if fields.get("Version") != VERSION:
         raise BootstrapError(
             f"runtime wheel declares version {fields.get('Version')!r} != {VERSION!r}"
@@ -267,31 +302,120 @@ def _verify_installed() -> tuple[Path, str]:
     return library, digest
 
 
+def _prepare(
+    out: Path, *, tarball: Path | None, bindings: Path | None
+) -> tuple[Path, str, str]:
+    """Build the qualified wheel from the two pinned upstream inputs."""
+    if (tarball is None) != (bindings is None):
+        raise BootstrapError("--tarball and --bindings must be supplied together")
+    if not BUILD_SCRIPT.is_file():
+        raise BootstrapError(f"build recipe not found: {BUILD_SCRIPT}")
+    out = out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="ephemora-runtime-build-") as directory:
+        work = Path(directory)
+        if tarball is None:
+            tarball = work / "wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz"
+            bindings = work / "wasmtime-49.0.0-py3-none-macosx_11_0_arm64.whl"
+            _download(C_API_URL, tarball)
+            _download(BINDINGS_URL, bindings)
+        _verify_input(tarball, C_API_SHA256, "C-API tarball")
+        _verify_input(bindings, BINDINGS_SHA256, "bindings wheel")
+        build_dir = work / "wheel"
+        subprocess.run(
+            [
+                sys.executable,
+                str(BUILD_SCRIPT),
+                "--tarball",
+                str(tarball),
+                "--bindings",
+                str(bindings),
+                "--out",
+                str(build_dir),
+            ],
+            check=True,
+        )
+        wheel = build_dir / WHEEL_NAME
+        if not wheel.is_file():
+            raise BootstrapError(f"build did not produce {WHEEL_NAME}")
+        wheel_sha256, native_sha256 = _verify_wheel(wheel)
+        target = out / WHEEL_NAME
+        shutil.copy2(wheel, target)
+        if _sha256(target) != wheel_sha256:
+            raise BootstrapError("copied wheel digest changed after the build")
+    return target, wheel_sha256, native_sha256
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--url",
-        default=DEFAULT_URL,
-        help="versioned HTTPS wheel URL (default: the qualified release asset)",
+        "--prepare",
+        action="store_true",
+        help="build the qualified wheel from pinned upstream inputs and stop",
     )
     parser.add_argument(
         "--wheel",
         type=Path,
-        help="local wheel for the release audit; the same checks apply",
+        help="wheel produced by --prepare; install it under the same checks",
+    )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="explicit prebuilt wheel URL for a local/release audit (not the default)",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("dist"),
+        help="directory for --prepare (default: dist)",
+    )
+    parser.add_argument(
+        "--tarball",
+        type=Path,
+        help="local official C-API tarball for an offline build audit",
+    )
+    parser.add_argument(
+        "--bindings",
+        type=Path,
+        help="local official bindings wheel for an offline build audit",
     )
     args = parser.parse_args(argv)
+    if args.prepare and (args.wheel is not None or args.url is not None):
+        parser.error("--prepare cannot be combined with --wheel or --url")
+    if args.wheel is not None and args.url is not None:
+        parser.error("--wheel and --url are mutually exclusive")
+    if (args.tarball is not None) != (args.bindings is not None):
+        parser.error("--tarball and --bindings must be supplied together")
     try:
         tag = _platform_gate()
         _lock_agrees()
+        if args.prepare:
+            wheel, wheel_sha256, native_sha256 = _prepare(
+                args.out, tarball=args.tarball, bindings=args.bindings
+            )
+            print(
+                "prepared runtime: "
+                f"version={VERSION} wheel={wheel} wheel_sha256={wheel_sha256} "
+                f"native_sha256={native_sha256} platform={tag} "
+                f"python={sys.version.split()[0]}"
+            )
+            return 0
         with tempfile.TemporaryDirectory(prefix="ephemora-runtime-") as directory:
             if args.wheel is not None:
                 wheel = args.wheel.resolve()
                 if not wheel.is_file():
                     raise BootstrapError(f"runtime wheel not found: {wheel}")
-            else:
+                wheel_sha256, native_sha256 = _verify_wheel(wheel)
+            elif args.url is not None:
                 wheel = Path(directory) / WHEEL_NAME
                 _download(args.url, wheel)
-            wheel_sha256, native_sha256 = _verify_wheel(wheel)
+                wheel_sha256, native_sha256 = _verify_wheel(wheel)
+            else:
+                wheel, wheel_sha256, native_sha256 = _prepare(
+                    Path(directory) / "wheel",
+                    tarball=args.tarball,
+                    bindings=args.bindings,
+                )
             _install(wheel)
         library, loaded = _verify_installed()
         print(
