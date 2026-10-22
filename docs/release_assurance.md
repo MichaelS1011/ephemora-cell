@@ -20,7 +20,7 @@ and what its old "from `/tmp`" wording hid).
 
 | Installation state | Result | Why it differs |
 |---|---|---|
-| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1775 passed / 27 skipped** · 88.37 % of 6,598 statements (5,831 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
+| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1775 passed / 27 skipped** · 88.38 % of 6,599 statements (5,832 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
 | The same checkout after the wheel and sdist were built into `dist/` | **1776 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
 | Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1773 / 29** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
 | The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1785 / 17** | the bring-your-own-guest round-trips run for real |
