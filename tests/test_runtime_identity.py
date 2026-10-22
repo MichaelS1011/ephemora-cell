@@ -74,7 +74,7 @@ def test_a_layout_change_fails_closed_on_the_qualified_platform(monkeypatch):
 
 
 def test_gate_refuses_a_mismatch_before_the_import_probe(monkeypatch):
-    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.3")
+    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.4")
     monkeypatch.setattr(
         rq,
         "native_engine_identity",
@@ -94,7 +94,7 @@ def test_gate_refuses_a_mismatch_before_the_import_probe(monkeypatch):
 
 
 def test_gate_accepts_a_matching_identity(monkeypatch):
-    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.3")
+    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.4")
     monkeypatch.setattr(
         rq,
         "native_engine_identity",
@@ -112,7 +112,7 @@ def test_gate_accepts_a_matching_identity(monkeypatch):
 
 
 def test_gate_off_platform_checks_only_the_line(monkeypatch):
-    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.3")
+    monkeypatch.setattr(rq, "reported_runtime_version", lambda: "49.0.4")
     monkeypatch.setattr(
         rq,
         "native_engine_identity",

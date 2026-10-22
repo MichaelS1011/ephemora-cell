@@ -16,7 +16,7 @@ authors = [
     {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
-dependencies = ["wasmtime>=49.0.3,<50"]  # fail-closed patched-line floor: the release ships a controlled 49.0.3-engine build (official Bytecode Alliance C-API asset, tarball sha256 0c853eb1…c41b verified before embedding; embedded dylib sha256 ab4f1ea6…0fb73; platform-tagged macosx_11_0_arm64). PyPI still carries no 49.0.3 wheel, so an unconfigured `pip install` resolves UNSATISFIABLE instead of silently pulling the unpatched 49.0.0 — documented wheelhouse install path in the release notes; other platforms are refused by wheel tag (NOT QUALIFIED). Any future 49.x wheel below 49.0.3 stays out; the floor moves only upward deliberately.
+dependencies = ["wasmtime>=49.0.4,<50"]  # fail-closed patched-line floor: the release ships a controlled 49.0.4-engine build (official Bytecode Alliance C-API asset, tarball sha256 f83147d1…5460 verified before embedding; embedded dylib sha256 247c1529…a30b; platform-tagged macosx_11_0_arm64). PyPI still carries no 49.0.4 wheel, so an unconfigured `pip install` resolves UNSATISFIABLE instead of silently pulling a vulnerable 49.0.0–49.0.3 — documented wheelhouse install path in the release notes; other platforms are refused by wheel tag (NOT QUALIFIED). Any future 49.x wheel below 49.0.4 stays out; the floor moves only upward deliberately.
 
 classifiers = [
     # 4 - Beta, deliberately not 5 - Production/Stable: the PyPI classifier is read

@@ -8,8 +8,8 @@ on:
 permissions: read-all
 
 # Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
-# controlled wasmtime 49.0.3 build (wheel tag macosx_11_0_arm64, embedded
-# _libwasmtime.dylib sha256 ab4f1ea6…0fb73). PyPI carries no 49.0.3 wheel, so the
+# controlled wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). PyPI carries no 49.0.4 wheel, so the
 # scripts/ci_runtime_bootstrap.py downloads the versioned HTTPS asset, verifies the
 # wheel and native digests, and installs it with --no-index --no-deps. A missing,
 # truncated or substituted asset FAILS the job on purpose — the
@@ -19,8 +19,8 @@ permissions: read-all
 jobs:
   fuzz-smoke:
     # Scope (2026-10-16): the fuzz smoke drives the SHIPPED engine, so it runs on
-    # the qualified platform. Linux has no 49.0.3 runtime wheel, so a Linux leg
-    # could only fuzz the unpatched 49.0.0 (excluded by design) — its results
+    # the qualified platform. Linux has no qualified runtime wheel, so a Linux leg
+    # could only fuzz a vulnerable 49.x build (excluded by design) — its results
     # would not describe the engine that ships. No Linux-specific dependency is
     # involved (pure Python + wasmtime), so macOS arm64 is the honest platform.
     runs-on: macos-15
@@ -42,7 +42,7 @@ jobs:
           python -m pip install -e . --no-deps
 
       # Same fail-closed identity assertion as the ci.yml runtime legs: EXACT
-      # version (not a 49.0.3 prefix) + embedded dylib digest, so neither the
+      # version (not a 49.0.4 prefix) + embedded dylib digest, so neither the
       # unpatched 49.0.0 nor a ".dirty"/foreign build can pass this leg.
       - name: Assert qualified runtime identity
         run: |
@@ -50,8 +50,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")

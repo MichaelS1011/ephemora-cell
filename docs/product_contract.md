@@ -15,7 +15,7 @@ therefore the source; this page explains it.
 | Python | **3.10, 3.11, 3.12, 3.13** | 3.14 (interpreter-guest only, no host claim) |
 
 "Qualified" means: measured against the patched runtime
-`49.0.3.post2+git.1d21c90f` on this release candidate, with the acceptance tests
+`49.0.4.post1+git.2c2970205f` on this release candidate, with the acceptance tests
 in this repository. A platform outside the matrix is not forbidden — it is
 simply not covered by any claim, and `ephemora doctor` says so instead of
 pretending otherwise. The runtime wheel is `macosx_11_0_arm64` only, so on any
@@ -23,10 +23,10 @@ other platform the execution path fails closed rather than falling back to an
 unpatched engine.
 
 Each of the four Python versions ran the whole suite in its own virtualenv on
-the qualified runtime (3.10/3.11/3.12/3.13: each **1757/27** passed/skipped,
+the qualified runtime (3.10/3.11/3.12/3.13: each **1775/27** passed/skipped,
 measured 2026-10-22; the split moves by a few legs depending on which optional
 guests a virtualenv carries — the 3.12 venv that carries both packaged guests
-reads 1754/30 — so the per-run log is the evidence rather than a constant).
+reads 1773/29 — so the per-run log is the evidence rather than a constant).
 3.10 and 3.11 did not pass that run until a real defect was fixed: CPython only
 learned to intermix a `nargs="*"` positional with optionals in 3.12.5
 ([gh-61252](https://github.com/python/cpython/issues/61252)), so on those
@@ -67,7 +67,7 @@ that function's docstring rather than smoothed over.
 | stdio MCP server (legacy and 2026-07-28 revisions) | MCP | supported |
 | Loopback HTTP bridge | MCP | experimental |
 | Agent code execution over MCP stdio (official SDK client) | Agent integration | supported |
-| Patched Wasmtime 49.0.3 line, exact native digest on macOS arm64 | Runtime | supported |
+| Patched Wasmtime 49.0.4 line, exact native digest on macOS arm64 | Runtime | supported |
 | Python guest distribution | Distribution | unavailable |
 | JavaScript guest distribution | Distribution | unavailable |
 | LangGraph / LangChain tool execution | Agent integration | experimental |

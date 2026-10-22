@@ -16,10 +16,11 @@ not a tamper-proof boundary.
 
 One line, two ways to be wrong about it:
 
-* ``49.0.0`` is the published PyPI build and carries the advisories the 49.0.3
-  fix line exists to close; running a guest on it is not the configuration this
-  release was audited against.
-* a build that merely shares the ``49.0.3`` prefix (``.dirty``, a foreign wheel)
+* ``49.0.0`` through ``49.0.3`` are the published builds that carry the
+  advisories the 49.0.4 fix line exists to close — including the aarch64
+  Cranelift ``br_table`` sandbox escape (GHSA-mghf-wjfp-p5xm). Running a guest
+  on any of them is not the configuration this release was audited against.
+* a build that merely shares the ``49.0.4`` prefix (``.dirty``, a foreign wheel)
   is not the audited *distribution* either — ``requirements.lock`` pins the
   wheel by name and sha256. At runtime, however, the authority is the digest of
   the exact native file the bindings load: if a differently labelled wheel
@@ -59,12 +60,12 @@ __all__ = [
     "version_tuple",
 ]
 
-#: The controlled Wasmtime line this release is qualified against: ``[49.0.3, 50.0)``.
-QUALIFIED_LINE = ((49, 0, 3), (50, 0))
+#: The controlled Wasmtime line this release is qualified against: ``[49.0.4, 50.0)``.
+QUALIFIED_LINE = ((49, 0, 4), (50, 0))
 
 #: sha256 of the qualified native engine build the 1.2.x line ships.
 QUALIFIED_ENGINE_SHA256 = (
-    "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+    "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
 )
 
 #: Documented escape hatch for an operator who knowingly runs a guest on an

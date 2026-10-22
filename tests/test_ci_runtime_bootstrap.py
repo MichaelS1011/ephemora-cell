@@ -100,5 +100,5 @@ def test_download_url_must_be_credential_free_https_on_an_asset_host(url):
 def test_wheel_name_is_checked_before_the_bytes(tmp_path):
     with pytest.raises(bootstrap.BootstrapError, match="wheel name"):
         bootstrap._verify_wheel(
-            tmp_path / "wasmtime-49.0.3.post2+git.1d21c90f-py3-none-any.whl"
+            tmp_path / "wasmtime-49.0.4.post1+git.2c2970205f-py3-none-any.whl"
         )

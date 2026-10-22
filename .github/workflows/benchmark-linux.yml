@@ -6,17 +6,17 @@ name: Linux Benchmark
 # Both require Linux by construction: gVisor/runsc is a Linux kernel feature, and
 # Docker runs natively only on Linux — on macOS it runs inside a VM, which is
 # exactly the caveat the macOS-first README/performance tables state. The
-# qualified 1.2.x runtime is wasmtime 49.0.3.post2+git.1d21c90f, wheel tag
-# macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 ab4f1ea6…0fb73) — macOS
+# qualified 1.2.x runtime is wasmtime 49.0.4.post1+git.2c2970205f, wheel tag
+# macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 247c1529…a30b) — macOS
 # arm64 ONLY; there is no qualified Linux runtime wheel. The jobs used to install
-# `-r requirements.txt` (now wasmtime>=49.0.3,<50, unsatisfiable on Linux) and
+# `-r requirements.txt` (now wasmtime>=49.0.4,<50, unsatisfiable on Linux) and
 # swallow the failure with `continue-on-error: true` — a green run that proved
 # nothing. Moving this to macOS is NOT the fix: it would change the measurement
 # itself (VM instead of native Docker) and gVisor cannot run there at all.
 #
 # Both jobs now fail closed with an explicit ::error:: and no continue-on-error.
 # Re-enable only once a qualified Linux runtime wheel exists — then install
-# "wasmtime==49.0.3.post2+git.1d21c90f" from the hash-pinned release asset, exactly as
+# "wasmtime==49.0.4.post1+git.2c2970205f" from the hash-pinned release asset, exactly as
 # scripts/ci_runtime_bootstrap.py does.
 
 on:
@@ -55,5 +55,5 @@ jobs:
 
       - name: Runtime scope guard (fail closed — no 49.0.0 fallback)
         run: |
-          echo "::error::no qualified 1.2.x runtime for Linux — this gVisor boundary probe needs Cell installed on Linux, and no qualified 49.0.3 runtime wheel exists for Linux (macosx_11_0_arm64 only); the unpatched wasmtime 49.0.0 is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
+          echo "::error::no qualified 1.2.x runtime for Linux — this gVisor boundary probe needs Cell installed on Linux, and no qualified 49.0.4 runtime wheel exists for Linux (macosx_11_0_arm64 only); the unpatched wasmtime 49.0.0 is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
           exit 1

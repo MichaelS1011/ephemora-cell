@@ -38,7 +38,7 @@ Four measurements, in the order a user meets them:
 Skipped, never silently passed, when the SDK is absent:
 
     uv venv /tmp/sdk && uv pip install --python /tmp/sdk/bin/python \
-        --no-index --find-links <wheelhouse> "wasmtime==49.0.3.post2+git.1d21c90f" \
+        --no-index --find-links <wheelhouse> "wasmtime==49.0.4.post1+git.2c2970205f" \
         "pytest" "mcp>=2" -e .
     /tmp/sdk/bin/python -m pytest integration/test_agent_code_execution_mcp.py -v
 """

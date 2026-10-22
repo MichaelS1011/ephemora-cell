@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **Runtime moved to Wasmtime 49.0.4; 49.0.3.post2 withdrawn (P0).**
+  GHSA-mghf-wjfp-p5xm (critical, CVSS 9.9): Cranelift on aarch64 could branch to
+  an incorrect target for a Wasm `br_table` with more than roughly 256k targets,
+  i.e. jump to arbitrary code. The previously shipped 49.0.3.post2 runtime is
+  affected; a 300,000-target probe killed the process with SIGBUS on this
+  hardware. The qualified runtime is now `49.0.4.post1+git.2c2970205f`
+  (official C-API 49.0.4 asset, embedded dylib sha256 `247c1529…a30b`), which
+  rejects tables above 65,520 targets at translation time. The dependency floor
+  is `wasmtime>=49.0.4,<50`; the runtime gate and the CI bootstrap no longer
+  accept the old build. `scripts/check_wasmtime_advisories.py` now watches the
+  upstream GitHub security advisories, not only PyPI.
+
 ### Added
 
 - **Three operator commands: `doctor`, `verify`, `policy check`.**

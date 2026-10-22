@@ -1,19 +1,19 @@
 # Ephemora Cell — dependency specifier set (audit / CI baseline)
 # Exact pins + hashes live in requirements.lock.
 # Tested with: Python 3.10-3.13 (CI matrix); also exercised on 3.14 (dev) + the
-# controlled wasmtime build 49.0.3 (patched engine line).
+# controlled wasmtime build 49.0.4 (patched engine line).
 # Audit with: pip-audit -r requirements.txt
 # NOTE: PyPI carries no 49.0.3 wheel, so this specifier is deliberately NOT
 # resolvable from PyPI alone — a bare "pip install -r" fails closed instead of
 # falling back to the unpatched 49.0.0. It is satisfied from the v1.2.0 release
-# wheelhouse (wasmtime 49.0.3.post2+git.1d21c90f, macosx_11_0_arm64; embedded
-# _libwasmtime.dylib sha256 ab4f1ea6…0fb73).
+# wheelhouse (wasmtime 49.0.4.post1+git.2c2970205f, macosx_11_0_arm64; embedded
+# _libwasmtime.dylib sha256 247c1529…a30b).
 # The former bare pin "wasmtime==49.0.3" was replaced: per PEP 440 it can never
 # match the qualified 49.0.3.post2+git.1d21c90f build (never resolvable).
 #
 # This range is the DECLARED specifier (what the product requires). CI installs the
 # exact locked artifact instead: requirements.lock pins
-# wasmtime==49.0.3.post2+git.1d21c90f with its wheel sha256, installed via
+# wasmtime==49.0.4.post1+git.2c2970205f with its wheel sha256, installed via
 # --require-hashes so no other build (e.g. a ".dirty" one sharing the 49.0.3
 # prefix) can be selected.
-wasmtime>=49.0.3,<50
+wasmtime>=49.0.4,<50

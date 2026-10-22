@@ -13,15 +13,29 @@ a substitute for the section it links to. Nothing here is a production-security 
 |---|---|---|
 | Publicly available version | **`1.1.0`** on PyPI (wheel + sdist), BUSL-1.1 | [PyPI project page](https://pypi.org/project/ephemora-cell/) · [CHANGELOG](CHANGELOG.md) |
 | Software actually tested | source at the frozen security-base commit **`284b577`** (product tree byte-identical to `7303274`) | `benchmarks/results/2026-10-14/release_identity.json` |
-| Native runtime tested against | the **controlled build on the 49.0.3 fix line** (embedded `_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`) shipped as a versioned, hash-pinned release asset — engine patch parity for the async class **not independently verified** (see the GHSA-32h6 notes); CPython 3.12 CI/lab interpreter | `requirements.lock` · release-identity records → `native_runtime` |
+| Native runtime tested against | the **controlled build on the 49.0.4 fix line** (embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`), assembled from the official Bytecode Alliance C-API 49.0.4 asset and pinned by wheel/native digest — engine patch parity for the async class **not independently verified** (see the GHSA-32h6 notes); CPython 3.12 CI/lab interpreter. The previously published `49.0.3.post2` build (`ab4f1ea6…0fb73`) is **withdrawn** and no longer accepted by the gate | `requirements.lock` · release-identity records → `native_runtime` |
 | Conformance | pinned wasi-testsuite: 71 pass / 1 documented by-design expected-failure / 0 fail of 72 executed · official core spec: 31,896 pass with 81 failures the harness does not classify; those command totals cover the 157 of 257 files that produced per-command results, while 100 files aborted before measurement and contribute one file-level deviation each — **standards conformance, not full-suite coverage and not a security certification** | [conformance/README.md](conformance/README.md) |
 | Last reproduced Linux run | **2026-10-13** on a native Linux **aarch64** reference host (Ubuntu 24.04): blocked-worker OS-wall probe holds; plus an `sdist` clean-room `linux/amd64` container run — predates the 1.2.x qualification; not transferable | `benchmarks/results/2026-10-13/native_linux/` · `linux_reference_boundary_probe.json` · [docs/release_assurance.md](docs/release_assurance.md) |
 | Supported workloads | untrusted code compiled to **WASM** — WASI Preview1 modules and WASI 0.2 components; the subprocess path (`run_isolated()` / `use_subprocess=True`) for guests that must not run in-process; MCP tool server | [Execution paths](#execution-paths--which-control-runs-where) |
 | Platforms qualified for 1.2.x | **macOS arm64** only, measured against the 1.2.0 candidate runtime; Linux, Windows, musl/Android **NOT QUALIFIED** — no release evidence claimed there | “Supported platforms (1.2.x)” note below |
 | Excluded / out of scope | multi-tenant isolation between concurrent modules in one process (single-tenant; a tenant is a billing identity, never a security boundary); guest network or process spawning (none exposed, by design); cryptographic memory zeroing; in-process execution of untrusted guests | [Scope](#scope) · [Known Limitations](#known-limitations) |
-| Open risks (not closed) | on the **shipped artifact** (`ab4f1ea6…`, engine 49.0.3 fix line): the loader-excluded async component class (GHSA-32h6 — engine patch **not independently verified**) and the documented info/availability classes (GHSA-96f6, preview0/WASIp3 gates); I/O syscalls bypass fuel metering. The `49.0.0`-line statements below and their "no wheel on PyPI" notes document the intermediate `49.0.0` development pin (moved from `47.0.1` on 2026-10-12, after the 1.1.0 release) and the plain-`pip` path; they no longer describe the shipped runtime asset. | [Known Limitations](#known-limitations) · [Dependency & Upgrade Policy](#dependency--upgrade-policy) · [published vs. source](https://github.com/MichaelS1011/ephemora-cell/blob/main/docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where) |
+| Open risks (not closed) | on the **shipped artifact** (`247c1529…`, engine 49.0.4 fix line): the loader-excluded async component class (GHSA-32h6 — engine patch **not independently verified**) and the documented info/availability classes (GHSA-96f6, preview0/WASIp3 gates); I/O syscalls bypass fuel metering. The 2026-10 aarch64 `br_table` escape (GHSA-mghf-wjfp-p5xm) is **closed** by this build and was measured on the withdrawn one. The `49.0.0`-line statements below and their "no wheel on PyPI" notes document the intermediate `49.0.0` development pin (moved from `47.0.1` on 2026-10-12, after the 1.1.0 release) and the plain-`pip` path; they no longer describe the shipped runtime asset. | [Known Limitations](#known-limitations) · [Dependency & Upgrade Policy](#dependency--upgrade-policy) · [published vs. source](https://github.com/MichaelS1011/ephemora-cell/blob/main/docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where) |
 | Independent external security audit | **None yet** — no third party has certified or audited Cell; the badge is *security-evaluation-pending* | [README](README.md) · this file |
 | Production release | **NO-GO** — see *Why there is no production GO* below | — |
+
+### 2026-10-22 P0 — aarch64 `br_table` escape, runtime withdrawn
+
+GHSA-mghf-wjfp-p5xm (critical, CVSS 9.9, published 2026-10-19) affects
+Wasmtime/Cranelift on aarch64: a `br_table` with more than roughly 256k targets
+can branch to an incorrect target, i.e. to arbitrary code. The published
+`49.0.3.post2` runtime was affected. Measured on this host: a 300,000-target
+module compiled on that build and the default-index call killed the process
+with SIGBUS, while index 0 returned correctly; the 49.0.4 build rejects the
+same module at translation time (`exceeds the implementation limit of 65520`).
+The 49.0.3.post2 asset remains published for history (immutable), but the gate
+floor and the bootstrap pin have moved to 49.0.4; nothing accepts the old
+runtime silently. Measurements in this file that name `ab4f1ea6…` are dated
+evidence for the withdrawn build, not statements about the shipped runtime.
 
 ### Release identity — four distinct states, not one version string
 
@@ -48,7 +62,7 @@ be mistaken for the released one.
 
 ### Why there is no production GO
 
-A green suite (1757 passing / 27 skipped, 88 % statement coverage, measured 2026-10-22 in a fresh checkout of this candidate on the qualified 49.0.3 runtime — on a 49.0.0 development venv the same tree reports 1753/31 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
+A green suite (1775 passing / 27 skipped, 88 % statement coverage, measured 2026-10-22 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the same tree reports 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
 probes establish **laboratory correctness of the tested commit** — they are not, and do not
 automatically become, a production-security approval. General production stays NO-GO until,
 at minimum: an independent external evaluation is completed; the newest isolation controls
@@ -677,28 +691,27 @@ fuel/wall accounting before it can ship.
 ## Dependency & Upgrade Policy
 
 **Runtime dependency:** `wasmtime` is the only runtime dependency. It is declared
-as a **fix-line range** in `pyproject.toml` (`>=49.0.3,<50`); `requirements.txt`
+as a **fix-line range** in `pyproject.toml` (`>=49.0.4,<50`); `requirements.txt`
 carries that declared specifier, and `requirements.lock` pins the **exact**
-controlled build — `wasmtime==49.0.3.post2+git.1d21c90f`
-(`macosx_11_0_arm64`, wheel sha256 `cee4bb22…5356`) — installed with
+controlled build — `wasmtime==49.0.4.post1+git.2c2970205f`
+(`macosx_11_0_arm64`, wheel sha256 `5d1ac880…0865e`) — installed with
 `pip install --require-hashes -r requirements.lock`, which is how the
 release set installs it; CI downloads the same wheel from its versioned asset
-and verifies the digest before install. The bare pin `wasmtime==49.0.3` is deliberately
-not used: per PEP 440 it can never match the `49.0.3.post2+git.1d21c90f` build, and
-the hash-pinned lock is what keeps a `.dirty` build sharing the `49.0.3` prefix
-from being selected. PyPI carries no `49.0.3` wheel, so the lock is satisfied from
+and verifies the digest before install. The bare pin `wasmtime==49.0.4` is deliberately
+not used: per PEP 440 it can never match the `49.0.4.post1+git.2c2970205f` build, and
+the hash-pinned lock is what keeps a `.dirty` build sharing the `49.0.4` prefix
+from being selected. PyPI carries no `49.0.4` wheel, so the lock is satisfied from
 the release set/asset rather than from the index.
 
-**Fail-closed install guarantee (2026-10-16).** PyPI still carries no wasmtime
-49.0.3 wheel, so a plain `pip install` of this package **fails to resolve
-instead of silently installing the unpatched 49.0.0 engine** — fail-closed by
-declared contract, verified against the real resolver. The patched engine
-(49.0.3 fix line) ships as a versioned release asset and in the release set as
-a controlled build: the
+**Fail-closed install guarantee (updated 2026-10-22).** PyPI carries no wasmtime
+49.0.4 wheel, so a plain `pip install` of this package **fails to resolve
+instead of silently installing a vulnerable 49.0.0–49.0.3 engine** — fail-closed
+by declared contract. The patched engine (49.0.4 fix line) ships as a versioned
+release asset and in the release set as a controlled build: the
 official Bytecode Alliance C-API asset
-`wasmtime-v49.0.3-aarch64-macos-c-api.tar.xz` (tarball sha256 `0c853eb1…c41b`,
-verified before embedding) combined with the official binding tag; embedded
-`_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`. The wheel is platform-tagged
+`wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz` (tarball sha256 `f83147d1…5460`,
+verified before embedding), assembled with the byte-identical PyPI 49.0.0 Python
+bindings; embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`. The wheel is platform-tagged
 `macosx_11_0_arm64`, so non-macOS resolution refuses it by tag — no platform
 silently receives an unverified engine. The same rule is stated for the core
 wheel: an install by name from a local index selects a file, not an artifact —
@@ -712,8 +725,8 @@ the fuel / epoch / egress invariants before relaxing the range.
 > **Version scope of this section (added 2026-10-16).** Every "pinned `49.0.0`" statement below
 > describes the intermediate development pin (moved from `47.0.1` to `49.0.0` on 2026-10-12,
 > after the 1.1.0 release) and the plain-`pip`-installable line — not the published 1.1.x wheel
-> (pinned `47.0.1`) and not the 1.2.0 candidate, which ships a controlled build on the 49.0.3 fix
-> line (`_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`, macOS arm64). Where those differ, the
+> (pinned `47.0.1`) and not the 1.2.0 candidate, which ships a controlled build on the 49.0.4 fix
+> line (`_libwasmtime.dylib` sha256 `247c1529…a30b`, macOS arm64). Where those differ, the
 > shipped artifact's re-measurement governs; the PyPI fix-wheel situation still governs what an
 > unconfigured `pip install` resolves to.
 

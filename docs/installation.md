@@ -18,7 +18,7 @@ matrix.
 |---|---|
 | `ephemora_cell-1.2.0-py3-none-any.whl` | the package |
 | `ephemora_cell-1.2.0.tar.gz` | the source distribution it was built from |
-| `wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl` | the qualified native runtime |
+| `wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl` | the qualified native runtime |
 | `ephemora_cell_python_guest-1.2.0-py3-none-any.whl` | the CPython (WASI 0.2) language guest |
 | `ephemora_cell_javascript_guest-1.2.0-py3-none-any.whl` | the QuickJS language guest |
 | `SHA256SUMS` | every artifact's digest, one line each |
@@ -32,18 +32,18 @@ contains an unexpected file.
 
 ## Why the runtime is not a normal dependency
 
-The security floor for 1.2.0 is `wasmtime>=49.0.3,<50`, and the qualified build is
-a controlled patched build (`49.0.3.post2+git.1d21c90f`, wheel tag
-`macosx_11_0_arm64`, embedded `_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`). The
-public Python index does not carry a 49.0.3 wheel, so `pip install ephemora-cell`
+The security floor for 1.2.0 is `wasmtime>=49.0.4,<50`, and the qualified build is
+a controlled patched build (`49.0.4.post1+git.2c2970205f`, wheel tag
+`macosx_11_0_arm64`, embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`). The
+public Python index does not carry a 49.0.4 wheel, so `pip install ephemora-cell`
 alone cannot satisfy the requirement. The dependency contract therefore **fails
 closed**: it will not silently fall back to the unpatched 49.0.0 line.
 
 The runtime ships as a wheel next to the Cell wheel in the release artefact set,
 and as a versioned, hash-pinned HTTPS release asset for CI and direct downloads.
-The wheel sha256 is `cee4bb22…`; the embedded native library is `ab4f1ea6…`.
+The wheel sha256 is `5d1ac880…`; the embedded native library is `247c1529…`.
 Both are checked by `scripts/ci_runtime_bootstrap.py` before and after install.
-The asset is published under the tag `wasmtime-runtime-49.0.3.post2`; a missing
+The asset is published under the tag `wasmtime-runtime-49.0.4.post1`; a missing
 asset is a red CI leg, never a fallback to 49.0.0.
 
 ## Install from the release artefacts
@@ -68,7 +68,7 @@ python3.12 -m venv .venv
 What the two flags buy you, measured: a wheel with a single flipped byte is
 refused with `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS
 FILE`; a directory without the runtime wheel ends in `Could not find a version
-that satisfies the requirement wasmtime==49.0.3.post2+git.1d21c90f (from
+that satisfies the requirement wasmtime==49.0.4.post1+git.2c2970205f (from
 versions: none)` and installs nothing. Neither case falls back.
 
 If you want the core without the language guests, use
@@ -86,7 +86,7 @@ python scripts/ci_runtime_bootstrap.py
 
 The script is a repository tool — it is not part of the wheel or sdist. It
 rejects a non-HTTPS URL, a 404, a truncated download, a wheel whose sha256 is not
-`cee4bb22…`, a native library whose sha256 is not `ab4f1ea6…`, an exact-version
+`5d1ac880…`, a native library whose sha256 is not `247c1529…`, an exact-version
 mismatch, a non-`Apache-2.0 WITH LLVM-exception` declaration, and an interpreter
 that does not run natively on arm64 macOS (arm64 or universal2) on a host of
 macOS 11.0 or newer. pip runs with
@@ -102,7 +102,7 @@ macOS 11.0 or newer. pip runs with
 
 `doctor --json` names the runtime it actually loaded (`runtime-import`), the
 digest of the exact native file the bindings load (`runtime-identity`, which
-must be `ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73`) and
+must be `247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b`) and
 whether the engine sits on the qualified line (`runtime-floor`). A successful
 install shows `PASS` on all three. `run` checks the same exact-file digest on
 the qualified platform before any guest code executes; a different file is
@@ -146,7 +146,7 @@ grepped:
 
 | Situation | What you see |
 |---|---|
-| Runtime missing from the set | step 4 fails: `No matching distribution found for wasmtime==49.0.3.post2+git.1d21c90f` |
+| Runtime missing from the set | step 4 fails: `No matching distribution found for wasmtime==49.0.4.post1+git.2c2970205f` |
 | Tampered artifact | step 2 fails on `FAILED`, step 4 fails on the hash mismatch |
 | Unpatched runtime (49.0.0) present in the environment | `doctor`: `runtime-floor` fails; `run` refuses with error class `environment` — no silent fallback |
 | Tampered native library | `doctor`: `runtime-identity` fails against the qualified digest; `run` refuses with `error_class=environment` before any guest code executes |

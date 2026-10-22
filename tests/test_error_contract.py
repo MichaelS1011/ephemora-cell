@@ -36,9 +36,9 @@ from ephemora_cell.runtime_qualification import QUALIFIED_ENGINE_SHA256
 REPO = Path(__file__).resolve().parent.parent
 FIXTURES = REPO / "tests" / "fixtures"
 
-#: A refusal must name the qualified reference: the line (49.0.3), or — when
+#: A refusal must name the qualified reference: the line (49.0.4), or — when
 #: the installed binary itself differs — the exact qualified digest.
-QUALIFIED_REFERENCE_MARKERS = ("49.0.3", QUALIFIED_ENGINE_SHA256[:12])
+QUALIFIED_REFERENCE_MARKERS = ("49.0.4", QUALIFIED_ENGINE_SHA256[:12])
 
 #: The documented escape hatch, named once so a refusal leg can clear it.
 HATCH = "EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME"
@@ -46,7 +46,7 @@ HATCH = "EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME"
 
 def _engine_is_qualified() -> bool:
     # Use the product gate, not just the version line: on the qualified
-    # platform the gate also binds the exact native file, so a 49.0.3 metadata
+    # platform the gate also binds the exact native file, so a 49.0.4 metadata
     # string over a swapped binary is not "qualified" for these legs either.
     from ephemora_cell.runtime_qualification import runtime_qualification
 
@@ -496,11 +496,11 @@ class TestTheQualificationDecisionItself:
     @pytest.mark.parametrize(
         "version,qualified",
         [
-            ("49.0.3.post2+git.1d21c90f", True),
-            ("49.0.3", True),
+            ("49.0.4.post1+git.2c2970205f", True),
+            ("49.0.4", True),
             ("49.1.0", True),
+            ("49.0.3", False),
             ("49.0.0", False),
-            ("49.0.2", False),
             ("50.0.0", False),
             ("48.0.1", False),
             ("unknown", False),

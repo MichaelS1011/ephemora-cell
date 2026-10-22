@@ -3,8 +3,8 @@ name: Benchmark Firecracker vs Cell
 # Scope (2026-10-16) — this leg is NOT QUALIFIED for the 1.2.x runtime.
 #
 # Firecracker needs Linux/KVM by construction, so this workflow can only ever
-# run on Linux. The qualified 1.2.x runtime is wasmtime 49.0.3.post2+git.1d21c90f,
-# wheel tag macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 ab4f1ea6…0fb73)
+# run on Linux. The qualified 1.2.x runtime is wasmtime 49.0.4.post1+git.2c2970205f,
+# wheel tag macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 247c1529…a30b)
 # — macOS arm64 ONLY; there is no qualified Linux runtime wheel. Cell therefore
 # cannot be installed here, and the step used to paper over that with
 # `pip install wasmtime==49.0.0` (removed 2026-10-16): the unpatched engine is
@@ -14,7 +14,7 @@ name: Benchmark Firecracker vs Cell
 # This leg now fails closed with an explicit ::error:: instead of a cryptic pip
 # resolution error that could be "fixed" by reinstalling 49.0.0. Re-enable it
 # only once a qualified Linux runtime wheel exists — then install
-# "wasmtime>=49.0.3,<50" from the hash-pinned release asset, exactly as
+# "wasmtime>=49.0.4,<50" from the hash-pinned release asset, exactly as
 # scripts/ci_runtime_bootstrap.py does.
 
 on:
@@ -41,5 +41,5 @@ jobs:
       # an unpatched engine is not the runtime this benchmark is about.
       - name: Runtime scope guard (fail closed — no 49.0.0 fallback)
         run: |
-          echo "::error::no qualified 1.2.x runtime for Linux — this Firecracker leg is NOT QUALIFIED and installs no runtime; the qualified wasmtime 49.0.3.post2+git.1d21c90f wheel is macosx_11_0_arm64 only, and the unpatched wasmtime 49.0.0 that this leg used to pin is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
+          echo "::error::no qualified 1.2.x runtime for Linux — this Firecracker leg is NOT QUALIFIED and installs no runtime; the qualified wasmtime 49.0.4.post1+git.2c2970205f wheel is macosx_11_0_arm64 only, and the unpatched wasmtime 49.0.0 that this leg used to pin is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
           exit 1

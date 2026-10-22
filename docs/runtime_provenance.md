@@ -9,23 +9,23 @@ shipped, where they came from, how they were built — and what an external part
 | Field | Value |
 |---|---|
 | Distribution | `wasmtime` (the official Python bindings, `bytecodealliance/wasmtime-py`) |
-| Version string | `49.0.3.post2+git.1d21c90f` |
-| Wheel | `wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl` |
-| Wheel sha256 | `cee4bb220d5f58fe68a67a1e6bbe92ff5c5f9a95671e0eb1e4142cbfbae55356` |
+| Version string | `49.0.4.post1+git.2c2970205f` |
+| Wheel | `wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl` |
+| Wheel sha256 | `5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e` |
 | Embedded native library | `wasmtime/darwin-aarch64/_libwasmtime.dylib` |
-| Native library sha256 | `ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73` |
+| Native library sha256 | `247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b` |
 | Licence (declared in METADATA) | `Apache-2.0 WITH LLVM-exception` |
 | Platform tag | `macosx_11_0_arm64` — no other platform is qualified |
 
 `ephemora doctor --json` reports the *loaded* library digest under
 `runtime-identity`. On the qualified platform a digest that does not match is a
 **failed check** (`doctor` exits 1) — added 2026-10-20 after an independent
-review showed that a 49.0.0 library placed under a 49.0.3 `dist-info` was
+review showed that a 49.0.0 library placed under a 49.0.4 `dist-info` was
 reported as the qualified version with only a warning.
 
 **What the execution gate itself checks:** the declared version, and on the
 qualified platform the sha256 of the exact native file the bindings load
-(`wasmtime/darwin-aarch64/_libwasmtime.dylib`, **25,462,560 bytes**). The gate
+(`wasmtime/darwin-aarch64/_libwasmtime.dylib`, **25,478,368 bytes**). The gate
 hashes the file before its import probe and refuses a mismatch before any guest
 code executes. Importing `ephemora_cell` in the current layout already imports
 `wasmtime`, so this is **not** a guarantee that the native library was never
@@ -44,28 +44,34 @@ this paragraph is the boundary of the claim.
 ## Where it comes from
 
 - **Engine source:** the official Bytecode Alliance C-API release asset
-  `wasmtime-v49.0.3-aarch64-macos-c-api.tar.xz`, tarball sha256
-  `0c853eb1715b3730304f926d111d4b4a3605b961c5693753bfeeb6b19332c41b`
-  (recorded in `requirements.lock` and `SECURITY.md`). 49.0.3 is the upstream
-  release on the fix line, not a locally patched fork.
-- **Bindings:** the official `wasmtime-py` source at git `1d21c90f`.
-- **Local part:** the wheel is built here, not downloaded. The wheel's ZIP
-  entries carry the timestamp `2026-10-16 00:00:00`, i.e. it was produced with
-  `SOURCE_DATE_EPOCH=1792108800`; that epoch is what the digest above belongs to
-  and `requirements.lock` records it. **Whether a second build reproduces the
-  same digest byte-for-byte was not measured** — without a committed recipe (see
-  below) there is nothing to rebuild with, so this page does not claim
-  reproducibility, only the epoch that was used.
+  `wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz`, tarball sha256
+  `f83147d18f6089bfb0c5f01b8158f051fe98d26fb0a0e0dbb40a6b8cd8045460`
+  (upstream tag `v49.0.4`, commit `2c2970205f`, released 2026-10-19). The dylib
+  is taken unchanged from that asset — there is no local compile of Wasmtime.
+  49.0.4 contains the aarch64 `br_table` fix (`994549891c`,
+  GHSA-mghf-wjfp-p5xm) and the 2026-10 wasi-http fixes.
+- **Bindings:** the PyPI `wasmtime` 49.0.0 wheel
+  (`de98d6282c61d5dd4dc1ff1b410936ceb6fff3a27439e9cab51a375b8da2ec2f`); its
+  `wasmtime/*.py` files are byte-identical to the bindings the withdrawn
+  49.0.3.post2 build carried. No binding source was edited.
+- **Local part:** the wheel is assembled here by the committed
+  [`scripts/build_runtime_wheel.py`](../scripts/build_runtime_wheel.py), with
+  fixed ZIP timestamps and sorted entries. Two runs from the pinned inputs
+  produced the same wheel sha256 (`5d1ac880…`) — the **assembly** is
+  reproducible. The native dylib is an upstream binary; this page does **not**
+  claim that the native build itself is byte-reproducible.
 
-The `.post2` in the version is a **packaging revision stamp** of that local
-build. No patch file is part of this repository and none ships in the wheel.
+The `.post1+git.2c2970205f` version is a packaging stamp: `.post1` keeps this
+locally assembled wheel distinct from a future official PyPI 49.0.4, and
+`git.2c2970205f` names the upstream tag commit it was assembled from.
 
-**Publication path.** The wheel is published as an immutable release asset under
-the dedicated tag `wasmtime-runtime-49.0.3.post2` (2026-10-22), not as PyPI
-`wasmtime`. The immutable release locks the asset and its tag after publication;
-the CI input is the direct asset URL, and `scripts/ci_runtime_bootstrap.py`
-checks the wheel sha256 and the native digest before pip sees the file. The
-runtime tag is separate from the product release tag.
+**Publication path.** The wheel is **not published yet**. The planned dedicated
+tag is `wasmtime-runtime-49.0.4.post1`, separate from the product release tag;
+`scripts/ci_runtime_bootstrap.py` already pins this wheel sha256 and the native
+digest, so CI fails closed (404) until a founder-authorized release exists. The
+older immutable release `wasmtime-runtime-49.0.3.post2` remains public for
+history, but both the bootstrap pin and the version floor have moved: nothing
+silently treats that asset as qualified any more.
 
 ## What an external party can verify
 
@@ -92,14 +98,26 @@ runtime tag is separate from the product release tag.
    notice, the distribution would be non-compliant. [license_matrix.md](license_matrix.md)
    records the obligation; this paragraph records the limit of the evidence.
 3. **The published PyPI `wasmtime` is a different artifact.** PyPI carries no
-   49.0.3 wheel, which is why the package depends on `wasmtime>=49.0.3,<50` and
-   fails closed instead of resolving to 49.0.0. Do not expect
-   `pip install wasmtime==49.0.3.post2+git.1d21c90f` to work from the index — it
-   is a release asset of this project, not an upstream publication.
+   49.0.4 wheel, which is why the package depends on `wasmtime>=49.0.4,<50` and
+   fails closed instead of resolving to a vulnerable 49.0.0–49.0.3. Do not
+   expect `pip install wasmtime==49.0.4.post1+git.2c2970205f` to work from the
+   index — it is a release asset of this project, not an upstream publication.
 
 ## Advisory state
 
-The 1.2.0 advisory reasoning — which GHSA/RUSTSEC classes 49.0.3 closes, which
-classes remain open at this line, and what the runtime gate refuses — is
-maintained in `SECURITY.md` (“Dependency upgrade truth” and the 2026 advisory
-sections). This page does not duplicate it; it only binds the bytes.
+49.0.4 closes the 2026-10 wave: the critical aarch64 Cranelift `br_table`
+escape (GHSA-mghf-wjfp-p5xm), the component stream/future panic
+(GHSA-9pvw-hwfg-92h5) and the three wasi-http issues
+(GHSA-9prg-84vf-g5fc, GHSA-r8xh-cgf7-392j, GHSA-jxcf-8qw5-5c33). The macOS
+filesystem escape GHSA-m9f7-9w4p-gv38 was already fixed in 49.0.3 and is
+verified by a behavioural probe on this host (the escape succeeds on 49.0.0 and
+is refused on 49.0.4). The withdrawn 49.0.3.post2 build is **affected** by
+GHSA-mghf-wjfp-p5xm: a 300,000-target `br_table` module compiled on it and
+killed the process with SIGBUS on the default branch, while 49.0.4 rejects the
+module at translation time.
+
+Two watchers keep this current: `scripts/check_wasmtime_advisories.py` reads the
+upstream GitHub security advisories and fails closed when a range matches the
+pinned version; `scripts/check_wasmtime_patch.py` still reports whether a plain
+PyPI install can reach a patched engine. The CI `security` job runs the
+advisory watcher.

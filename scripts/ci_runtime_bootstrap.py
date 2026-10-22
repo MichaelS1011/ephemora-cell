@@ -42,18 +42,18 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-VERSION = "49.0.3.post2+git.1d21c90f"
-WHEEL_NAME = "wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl"
-WHEEL_SHA256 = "cee4bb220d5f58fe68a67a1e6bbe92ff5c5f9a95671e0eb1e4142cbfbae55356"
+VERSION = "49.0.4.post1+git.2c2970205f"
+WHEEL_NAME = "wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
+WHEEL_SHA256 = "5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e"
 NATIVE_MEMBER = "wasmtime/darwin-aarch64/_libwasmtime.dylib"
-NATIVE_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+NATIVE_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
 
 #: Versioned release asset of this repository. The tag is dedicated to the
 #: runtime; it is not a product release. The wheel sha256 above pins the bytes,
 #: so the URL can move to a mirror only by editing this constant on purpose.
 DEFAULT_URL = (
     "https://github.com/MichaelS1011/ephemora-cell/releases/download/"
-    "wasmtime-runtime-49.0.3.post2/" + WHEEL_NAME
+    "wasmtime-runtime-49.0.4.post1/" + WHEEL_NAME
 )
 #: GitHub serves release downloads from github.com and redirects to one of these
 #: asset hosts. A mirror needs a reviewed change here, not an environment value:

@@ -8,8 +8,8 @@ the reason this page exists.
 
 ## v1.2.0 — five states, every one re-measured 2026-10-22 on the 1.2.0 tree
 
-Qualified runtime `wasmtime 49.0.3.post2+git.1d21c90f`, `pytest 8.4.2`,
-`pytest-cov 7.1.0`, Python 3.12.13, macOS arm64. **1,784 tests are collected in
+Qualified runtime `wasmtime 49.0.4.post1+git.2c2970205f`, `pytest 8.4.2`,
+`pytest-cov 7.1.0`, Python 3.12.13, macOS arm64. **1,802 tests are collected in
 every state below** — collection does not depend on the installation, only the
 pass/skip split does. Reproduce row 1 with `python -m pytest tests/` in a fresh
 checkout; reproduce rows 3–5 with the venv's own `pytest` console script (a
@@ -20,11 +20,11 @@ and what its old "from `/tmp`" wording hid).
 
 | Installation state | Result | Why it differs |
 |---|---|---|
-| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1757 passed / 27 skipped** · 88.37 % of 6,598 statements (5,831 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
-| The same checkout after the wheel and sdist were built into `dist/` | **1758 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
-| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1754 / 30** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
-| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1766 / 18** | the bring-your-own-guest round-trips run for real |
-| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` | **1753 / 31** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true` |
+| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1775 passed / 27 skipped** · 88.37 % of 6,598 statements (5,831 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
+| The same checkout after the wheel and sdist were built into `dist/` | **1776 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
+| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1773 / 29** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
+| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1785 / 17** | the bring-your-own-guest round-trips run for real |
+| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` | **1772 / 30** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true` |
 
 Without the hatch the last venv is red by design (the execution legs are refused),
 and its count is not comparable to the release gate and is not offered as one. All five rows were
@@ -32,9 +32,9 @@ measured for this release rather than derived from one another; the earlier prac
 of carrying a state forward by arithmetic is what this table exists to prevent.
 
 Every row above was re-run after the last code change, in this order: matrix
-(3.10.20, 3.11.15 and 3.13.14 — each **1757/27**, rc=0;
-3.12.13 canonical **1757/27** in the clean 3.12 venv, while the guest-carrying
-3.12 venv reads 1754/30), then A, B, C, D, E. Each matrix venv has the core
+(3.10.20, 3.11.15 and 3.13.14 — each **1775/27**, rc=0;
+3.12.13 canonical **1775/27** in the clean 3.12 venv, while the guest-carrying
+3.12 venv reads 1773/29), then A, B, C, D, E. Each matrix venv has the core
 wheel installed: two legs exec the `ephemora` console script and
 `examples/signed_record_demo.py` as a subprocess, so a venv that only carries the
 engine fails those two for want of an installed package — a venv shape, not a
@@ -90,7 +90,7 @@ is not in `release-gate`, and Linux is not qualified for 1.2.x.
 versioned asset (published 2026-10-22; a 404 is a red leg):
 
 ```
-https://github.com/MichaelS1011/ephemora-cell/releases/download/wasmtime-runtime-49.0.3.post2/wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl
+https://github.com/MichaelS1011/ephemora-cell/releases/download/wasmtime-runtime-49.0.4.post1/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl
 ```
 
 It accepts the download only when **all** of these hold, checked before pip sees
@@ -98,10 +98,10 @@ the file and again after installation:
 
 | Check | Value |
 |---|---|
-| wheel name | `wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl` |
-| wheel sha256 | `cee4bb220d5f58fe68a67a1e6bbe92ff5c5f9a95671e0eb1e4142cbfbae55356` |
-| embedded `_libwasmtime.dylib` sha256 | `ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73` |
-| version / licence | `49.0.3.post2+git.1d21c90f` / `Apache-2.0 WITH LLVM-exception` |
+| wheel name | `wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl` |
+| wheel sha256 | `5d1ac8807b9d99d3d6824560d729bf11f93c8b348590d7547557d2345bd0865e` |
+| embedded `_libwasmtime.dylib` sha256 | `247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b` |
+| version / licence | `49.0.4.post1+git.2c2970205f` / `Apache-2.0 WITH LLVM-exception` |
 | interpreter | `platform.machine() == "arm64"` and the platform tag is `macosx-<version>-arm64` or `-universal2` (a native arm64 or universal2 build); the host must report macOS 11.0 or newer |
 
 The URL must be HTTPS; the download is size-bounded; pip runs with
@@ -112,14 +112,14 @@ needs a reviewed change to the script's `DEFAULT_URL` and `ALLOWED_HOSTS`
 constants — no URL is read from the environment — and the script still rejects
 any wheel whose sha256 differs.
 
-**Status, stated rather than assumed.** The asset is published as an immutable
-release (2026-10-22) under the tag `wasmtime-runtime-49.0.3.post2`; the
-downloaded bytes matched the wheel and native digests above, and the GitHub
-release attestation verified. The first `macos-15` execution stopped in the
-runtime bootstrap before any test ran (a universal2 interpreter reports its
-10.13 deployment target, not the host version); the gate now accepts that
-interpreter shape and the corrected execution is **PENDING GITHUB**. This page
-does not claim a completed `macos-15` run as measured. The local
+**Status, stated rather than assumed.** The `49.0.3.post2` asset remains
+published under its immutable tag for history, but it is **withdrawn**: the
+aarch64 `br_table` escape GHSA-mghf-wjfp-p5xm was confirmed on it with a native
+crash on this hardware. The 49.0.4 wheel above is assembled and qualified
+locally but **not published**; its planned tag is
+`wasmtime-runtime-49.0.4.post1`, and the bootstrap pins that URL, so CI fails
+closed (404) until a founder-authorized release exists. No completed
+`macos-15` run is claimed as measured. The local
 qualification host reports `sysconfig.get_platform() == macosx-26.0-arm64` and
 the same wheel/native digests. Linux and DGX runs remain historical, dated
 evidence — not a qualification of this build.
@@ -314,7 +314,7 @@ statement about **the document**, not about the software build and not about the
 qualified Wasmtime wheel (that one is pinned byte-for-byte in
 `requirements.lock` and by the native-library digest in the release manifest).
 
-Measured 2026-10-21 from the release set's own wheelhouse, with the generator CI
+Measured 2026-10-22 from the release set's own wheelhouse, with the generator CI
 pins (`cyclonedx-bom==7.5.0`), twice per document:
 
 ```bash
@@ -335,8 +335,8 @@ cmp /tmp/runtime.cdx.json sbom/ephemora-cell-1.2.0.runtime.cdx.json
 ```
 
 Both documents regenerate **byte-identically** (sha256
-`8892862c577dd20f36680452faef43bdc0d07147d7883c9e9fbccec59edd0e27` and
-`97c4191be7bb9390e2bf3720f80146a17ab907b89022f8b37ef1f0b12d80160a`), with no
+`518edc1e475d4ef1616d73187eed55b000d4e9a498a06effd41af296dd6492d0` and
+`0f0c34237a83841721aefd2e73cd84dca0ffedc45ae4064be3a2fb42482f9d95`), with no
 `serialNumber` and no `timestamp`, and the bytes equal the tracked files — so the
 property is not merely legal, it is reproduced. The documents identify components
 by purl and version; the **byte** identity of the release artifacts lives in

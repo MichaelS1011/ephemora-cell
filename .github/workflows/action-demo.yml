@@ -10,7 +10,7 @@
 # demo asserts the action's CLI contract, the sandbox status reporting and fuel
 # accounting, and the `--isolated` OS walls are implemented with
 # resource.setrlimit (ephemora_cell/process_worker.py), which macOS enforces as
-# well. A Linux leg could only install and run the unpatched 49.0.0 (no 49.0.3
+# well. A Linux leg could only install and run the unpatched 49.0.0 (no 49.0.4
 # runtime wheel exists for Linux), so the ubuntu legs were dropped instead of
 # being kept permanently red — Linux stays NOT QUALIFIED for 1.2.x.
 #
@@ -34,8 +34,8 @@ on:
 permissions: read-all
 
 # Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
-# controlled wasmtime 49.0.3 build (wheel tag macosx_11_0_arm64, embedded
-# _libwasmtime.dylib sha256 ab4f1ea6…0fb73). It is a versioned, hash-pinned
+# controlled wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). It is a versioned, hash-pinned
 # HTTPS release asset, not a PyPI package. scripts/ci_runtime_bootstrap.py
 # downloads it, verifies the wheel and native digests, installs it with
 # --no-index --no-deps, and verifies the loaded library. A missing or changed
@@ -69,8 +69,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
@@ -101,8 +101,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
@@ -146,8 +146,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
@@ -185,8 +185,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")

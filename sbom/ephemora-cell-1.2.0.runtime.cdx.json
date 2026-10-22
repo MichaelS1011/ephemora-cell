@@ -463,7 +463,7 @@
       "version": "7.1.0"
     },
     {
-      "bom-ref": "wasmtime==49.0.3.post2+git.1d21c90f",
+      "bom-ref": "wasmtime==49.0.4.post1+git.2c2970205f",
       "description": "A WebAssembly runtime powered by Wasmtime",
       "externalReferences": [
         {
@@ -494,9 +494,9 @@
         }
       ],
       "name": "wasmtime",
-      "purl": "pkg:pypi/wasmtime@49.0.3.post2%2Bgit.1d21c90f",
+      "purl": "pkg:pypi/wasmtime@49.0.4.post1%2Bgit.2c2970205f",
       "type": "library",
-      "version": "49.0.3.post2+git.1d21c90f"
+      "version": "49.0.4.post1+git.2c2970205f"
     }
   ],
   "dependencies": [
@@ -531,7 +531,7 @@
         "ephemora-cell-python-guest==1.2.0",
         "pytest-cov==7.1.0",
         "pytest==8.4.2",
-        "wasmtime==49.0.3.post2+git.1d21c90f"
+        "wasmtime==49.0.4.post1+git.2c2970205f"
       ],
       "ref": "ephemora-cell==1.2.0"
     },
@@ -570,7 +570,7 @@
         "pycparser==3.11",
         "pytest==8.4.2"
       ],
-      "ref": "wasmtime==49.0.3.post2+git.1d21c90f"
+      "ref": "wasmtime==49.0.4.post1+git.2c2970205f"
     }
   ],
   "metadata": {

@@ -11,9 +11,9 @@ on:
 permissions: read-all
 
 # Runtime artifact location. 1.2.x ships exactly ONE qualified runtime: the
-# controlled wasmtime 49.0.3 build (wheel tag macosx_11_0_arm64, embedded
-# _libwasmtime.dylib sha256 ab4f1ea6…0fb73). It is a versioned, hash-pinned
-# HTTPS release asset, not a PyPI package: PyPI carries no 49.0.3 wheel.
+# controlled wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). It is a versioned, hash-pinned
+# HTTPS release asset, not a PyPI package: PyPI carries no 49.0.4 wheel.
 # scripts/ci_runtime_bootstrap.py downloads that ONE wheel, verifies its name,
 # sha256 and embedded native digest, installs it with --no-index --no-deps, and
 # verifies the loaded library. A missing asset, a 404 or a substituted wheel is
@@ -32,8 +32,8 @@ jobs:
       matrix:
         # 1.2.x is qualified on macOS arm64 only. The former ubuntu-latest legs are
         # NOT removed because Linux is uninteresting — they are removed because no
-        # patched 49.0.3 runtime wheel exists for Linux: such a leg could only run
-        # on the unpatched 49.0.0 (excluded by design) or would have to be masked.
+        # qualified 49.0.4 runtime exists for Linux (the wheel is macOS arm64 only):
+        # such a leg could only run a vulnerable 49.x build or would have to be masked.
         # Re-add a Linux leg once a Linux runtime has been qualified.
         os: [macos-15] # arm64 image; matches the wheel tag macosx_11_0_arm64
         python-version: ["3.10", "3.11", "3.12", "3.13"]
@@ -69,7 +69,7 @@ jobs:
 
       # Fail-closed identity assertion: the runtime that is actually installed and
       # loaded must be the ONE qualified artifact — an EXACT version match, not a
-      # 49.0.3 prefix (a ".dirty"/foreign build sharing the prefix must not pass),
+      # 49.0.4 prefix (a ".dirty"/foreign build sharing the prefix must not pass),
       # plus the embedded dylib digest pinned in requirements.lock/release notes.
       - name: Assert qualified runtime identity
         run: |
@@ -77,8 +77,8 @@ jobs:
           import hashlib, importlib.metadata as md, pathlib, platform, sys
           import wasmtime
 
-          EXPECTED_VERSION = "49.0.3.post2+git.1d21c90f"
-          EXPECTED_DYLIB_SHA256 = "ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73"
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
           version = md.version("wasmtime")
           if version != EXPECTED_VERSION:
               sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
@@ -185,7 +185,7 @@ jobs:
 
   # NOT in the required `release-gate` (see `needs:` there): this leg builds the
   # guest toolchains on Linux and then needs a runtime to exercise them. Linux has
-  # no qualified 49.0.3 runtime wheel for 1.2.x, so the leg cannot be green without
+  # no qualified 49.0.4 runtime wheel for 1.2.x, so the leg cannot be green without
   # either masking or falling back to the unpatched 49.0.0 — both excluded. It stays
   # in the workflow so the gap is visible, and it fails loudly instead of passing
   # as a half-run. Re-add to `needs:` once a Linux runtime is qualified.
@@ -230,7 +230,7 @@ jobs:
           # "fixed" by installing PyPI's 49.0.0, this leg states why it is not a
           # qualified green. Runtime-independent guest builds cannot be separated
           # from the runtime checks in tests/test_builder.py without weakening them.
-          echo "::error::no qualified 49.0.3 runtime for Linux — this leg is NOT QUALIFIED for 1.2.x and is excluded from the required gate; see the runtime proposal"
+          echo "::error::no qualified 49.0.4 runtime for Linux — this leg is NOT QUALIFIED for 1.2.x and is excluded from the required gate; see the runtime proposal"
           exit 1
 
       # Real toolchain builds (rust + go) run in CI
@@ -239,7 +239,7 @@ jobs:
 
   security:
     # Static guards + the SBOM from the installed environment. On the qualified
-    # platform so the SBOM names the real runtime (wasmtime 49.0.3.postN) instead
+    # platform so the SBOM names the real runtime (wasmtime 49.0.4.postN) instead
     # of an environment where the runtime could not be installed at all.
     runs-on: macos-15
     # No job-level `permissions:` override: the workflow default is `read-all`.
@@ -321,7 +321,7 @@ jobs:
           python scripts/distribution_guard.py artifacts "dist/*"
 
       # Audits the INSTALLED environment, not a requirements listing: requirements.txt
-      # declares wasmtime>=49.0.3,<50, and PyPI carries no 49.0.3 wheel, so that
+      # declares wasmtime>=49.0.4,<50, and PyPI carries no 49.0.4 wheel, so that
       # specifier is satisfied only by the hash-pinned runtime asset — a listing-based
       # audit cannot resolve it here, and an unresolvable specifier must not be papered
       # over by a different engine version. --local reports the packages that actually
@@ -338,6 +338,12 @@ jobs:
         run: |
           python -m pip install "bandit==1.9.4"
           bandit -r ephemora_cell/ ephemora_cell_mcp/ -ll
+
+      # Upstream advisories are published before (or without) a PyPI wheel;
+      # the 2026-10 aarch64 br_table escape is the example. Fail closed when a
+      # published advisory matches the pinned runtime version.
+      - name: Watch Wasmtime security advisories
+        run: python scripts/check_wasmtime_advisories.py
 
       # SBOM from the INSTALLED environment (true dependency tree,
       # includes the package itself), not from a requirements listing.
@@ -440,7 +446,7 @@ jobs:
   # lands through a branch and a pull request, which is the point of the rule.
   #
   # `build-recipes` is intentionally NOT in `needs:` (see the job comment above):
-  # no qualified 49.0.3 runtime exists for Linux in 1.2.x, so that leg cannot be
+  # no qualified 49.0.4 runtime exists for Linux in 1.2.x, so that leg cannot be
   # green without masking or downgrading the engine.
   release-gate:
     runs-on: ubuntu-latest

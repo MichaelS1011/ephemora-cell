@@ -5,11 +5,11 @@
 **Last live re-verification on this commit:** 2026-10-15, macOS arm64, commit `e11fcfb`.
 
 > **Version scope.** The rows below were measured on the intermediate `49.0.0`
-> development pin. The 1.2.0 candidate ships a controlled build on the **49.0.3**
+> development pin. The 1.2.0 candidate ships a controlled build on the **49.0.4**
 > fix line from the release wheelhouse and floors the dependency at
-> `wasmtime>=49.0.3,<50`, so the "no wheel on PyPI" statements describe what was
+> `wasmtime>=49.0.4,<50`, so the "no wheel on PyPI" statements describe what was
 > true of the plain-`pip` path at measurement time, not of the shipped artifact.
-> The suite and the fidelity/guard legs were re-run on the 49.0.3 build; the
+> The suite and the fidelity/guard legs were re-run on the 49.0.4 build; the
 > attack rows were **not** all re-run on it, and each row keeps the runtime it
 > was actually observed on.
 
@@ -188,7 +188,7 @@ two filesystem-escape CVEs, not a broad CVE score.
 `tests/test_fs_escape_matrix.py`, `tests/test_host_file_boundaries.py`,
 `tests/test_grant_trust.py`, `tests/test_grant_ledger.py`, `tests/test_transport.py`,
 `tests/test_signed_receipt.py`, `tests/test_execution_invariants.py` and the rest of
-the suite pin the behaviours above as executable gates. On this commit: **1757 passing
+the suite pin the behaviours above as executable gates. On this commit: **1775 passing
 / 27 skipped / 88 % statement coverage** (gate 80 %). These are **gates, not a scored
 attack matrix** — they keep the mechanisms from regressing and are not added to any
 "vectors blocked" total.
@@ -203,7 +203,7 @@ commit. They are release blockers and residual risk, not blocked attacks:
 
 | Advisory | Nature | Status on 49.0.0 |
 |---|---|---|
-| GHSA-32h6-97mm-8q3c (RUSTSEC-2026-0327) | native stack-buffer overflow in async-lifted component callback result-count validation | **engine defect UNRESOLVED at the measured pin** — fix is 49.0.2, no 49.0.2 wheel on PyPI at measurement time → **release blocker** for the plain-`pip` dependency. The 1.2.0 candidate instead ships a controlled build on the **49.0.3** fix line (embedded `_libwasmtime.dylib` sha256 `ab4f1ea6…0fb73`); patch parity for this specific class is **not independently verified**, so the line is treated as fixed upstream, not as proven fixed here. The product *execution* path stays **enforced-excluded at the loader**: `component_guard.py` refuses any component-model async construct (async-lift / future / stream) before the single `Component()` site, fail-closed (regression-tested). On native Linux the same abort is additionally *contained* by the worker boundary (worker crashes, parent survives). Loader exclusion + containment are **not** an engine patch. |
+| GHSA-32h6-97mm-8q3c (RUSTSEC-2026-0327) | native stack-buffer overflow in async-lifted component callback result-count validation | **engine defect UNRESOLVED at the measured pin** — fix is 49.0.2, no 49.0.2 wheel on PyPI at measurement time → **release blocker** for the plain-`pip` dependency. The 1.2.0 candidate instead ships a controlled build on the **49.0.4** fix line (embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`); patch parity for this specific class is **not independently verified**, so the line is treated as fixed upstream, not as proven fixed here. The product *execution* path stays **enforced-excluded at the loader**: `component_guard.py` refuses any component-model async construct (async-lift / future / stream) before the single `Component()` site, fail-closed (regression-tested). On native Linux the same abort is additionally *contained* by the worker boundary (worker crashes, parent survives). Loader exclusion + containment are **not** an engine patch. |
 | GHSA-j2g9 | datetime overflow | OPEN — documented mitigation |
 | GHSA-m63x | fuel amplification | OPEN — documented mitigation |
 | GHSA-2r75 | TRUNCATE bypass | distinct, limited/mitigated |

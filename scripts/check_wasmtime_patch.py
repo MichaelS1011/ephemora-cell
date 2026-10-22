@@ -4,10 +4,10 @@
 The 2026 advisory wave (GHSA-j366-h8gg-77pm, GHSA-gqmc-89g8-p25r,
 GHSA-96f6-r43r-8c24, RUSTSEC-2026-0324, on top of GHSA-m63x-6p34-q65x and
 GHSA-vqjp-4c8c-hfgg) is closed by the 49.0.3 fix line. 1.2.0 is therefore
-qualified against `wasmtime>=49.0.3,<50`, and the audited build it actually runs
-on is `49.0.3.post2+git.1d21c90f` — a local build of the patched source, supplied
-from the release wheelhouse, because the binding publishes one wheel per major
-(47.0.1, 48.0.0, 49.0.0) and PyPI carries no 49.0.3 wheel.
+qualified against `wasmtime>=49.0.4,<50`, and the audited build it actually runs
+on is `49.0.4.post1+git.2c2970205f` — assembled from the official 49.0.4 C-API
+asset, because the binding publishes one wheel per major (47.0.1, 48.0.0,
+49.0.0) and PyPI carries no 49.0.4 wheel.
 
 What is still being waited for is the ordinary-install path: an OFFICIAL PyPI
 wheel inside the qualified line, so a plain `pip install` reaches a patched engine
@@ -31,7 +31,7 @@ import urllib.request
 
 # Candidate targets, most preferred first: any of these inside the 49.0.3 line
 # would let a plain install reach a patched engine.
-TARGETS = ("49.0.3", "49.0.4", "49.1.0")
+TARGETS = ("49.0.4", "49.1.0", "50.0.0")
 FULLY_PATCHED = TARGETS
 REQUIRED_WHEEL_MARKERS = ("macosx", "manylinux")  # Cell ships macOS + Linux
 
@@ -62,7 +62,7 @@ def summarize(version: str) -> str:
 
 def main() -> int:
     print(
-        "wasmtime wheels for the 2026 security advisories (qualified line: >=49.0.3,<50):"
+        "wasmtime wheels for the 2026 security advisories (qualified line: >=49.0.4,<50):"
     )
     for version in TARGETS:
         print(summarize(version))

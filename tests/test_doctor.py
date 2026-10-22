@@ -22,7 +22,7 @@ class TestVersionTuple:
         assert version_tuple("49.0.3") == (49, 0, 3)
 
     def test_post_and_local_suffix_dropped(self):
-        assert version_tuple("49.0.3.post2+git.1d21c90f") == (49, 0, 3)
+        assert version_tuple("49.0.4.post1+git.2c2970205f") == (49, 0, 4)
 
     def test_zero_micro(self):
         assert version_tuple("49.0.0") == (49, 0, 0)
@@ -32,13 +32,13 @@ class TestRuntimeFloor:
     """The line rule the gate and this diagnosis share (one source)."""
 
     def test_below_floor_fails(self):
-        assert runtime_line_ok("49.0.2") is False
+        assert runtime_line_ok("49.0.3") is False
 
     def test_floor_ok(self):
-        assert runtime_line_ok("49.0.3") is True
+        assert runtime_line_ok("49.0.4") is True
 
     def test_qualified_build_ok(self):
-        assert runtime_line_ok("49.0.3.post2+git.1d21c90f") is True
+        assert runtime_line_ok("49.0.4.post1+git.2c2970205f") is True
 
     def test_zero_build_fails(self):
         assert runtime_line_ok("49.0.0") is False

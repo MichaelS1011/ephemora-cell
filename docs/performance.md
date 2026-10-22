@@ -1,6 +1,6 @@
 # Performance — Detail (reproducible)
 
-**Latest measured micro-benchmark (raw results pending the release commit) — 2026-10-16, Mac M5, release candidate `1.2.0rc2` with patched `wasmtime 49.0.3.post2+git.1d21c90f`, `examples/hello.wasm`, n=300 after 50 warmup (`pool_vs_budget.py`). Since 1.2.0 the ADR-015 posture decides the path: only `trust="trusted"` stays in-process; the default (`unknown`) runs in the disposable worker.**
+**Latest measured micro-benchmark (raw results pending the release commit) — 2026-10-16, Mac M5, release candidate `1.2.0rc2` with the now-withdrawn patched `wasmtime 49.0.3.post2+git.1d21c90f` (withdrawn 2026-10-22 for GHSA-mghf-wjfp-p5xm; the numbers describe that build, not the 49.0.4 runtime), `examples/hello.wasm`, n=300 after 50 warmup (`pool_vs_budget.py`). Since 1.2.0 the ADR-015 posture decides the path: only `trust="trusted"` stays in-process; the default (`unknown`) runs in the disposable worker.**
 
 | Posture | Wall min | Wall median | Guest median |
 |---------|----------|-------------|--------------|
