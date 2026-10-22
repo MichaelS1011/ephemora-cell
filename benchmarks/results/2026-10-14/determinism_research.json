@@ -1,0 +1,118 @@
+{
+  "environment": {
+    "branch": "<unpublished-pre-release-work-branch>",
+    "commit": "8d3d0641c3cbc1be6c4d96d5f156613a207e65b4",
+    "config": {
+      "max_fuel": 2000000,
+      "max_memory_mb": 128,
+      "timeout_seconds": 30
+    },
+    "machine": "arm64",
+    "platform": "Darwin 25.5.0",
+    "python": "3.12.13",
+    "wasmtime_dist": "49.0.0"
+  },
+  "measured": true,
+  "method": "same tool + same config + same stdin, N back-to-back runs on one interpreter via the real in-process Engine",
+  "results": {
+    "echo": {
+      "fuel_determinism": {
+        "fuel_identical_across_runs": true,
+        "fuel_median": 20891,
+        "fuel_spread": 0,
+        "fuels": [
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891,
+          20891
+        ]
+      },
+      "per_run": [
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        },
+        {
+          "fuel_consumed": 20891,
+          "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+          "status": "success",
+          "stdout_len": 32
+        }
+      ],
+      "result_determinism": {
+        "distinct_output_digests": 1,
+        "distinct_statuses": 1,
+        "output_identical_across_runs": true,
+        "output_sha256": "aa78e344124e72170f47fe391467a19a8729942f328f7cded568a6f8020a0dd9",
+        "status_identical_across_runs": true
+      },
+      "runs": 11,
+      "tool": "echo"
+    }
+  },
+  "scope_note": "This measures a DETERMINISTIC guest (echo). It does NOT exercise guest reads of clock_time_get / random_get, which the WASI surface exposes; those are classified separately as host-controlled non-determinism sources, see this research record.",
+  "title": "Deterministic execution research \u2014 result vs fuel, separated"
+}

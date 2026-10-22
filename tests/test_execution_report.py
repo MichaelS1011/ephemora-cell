@@ -14,6 +14,7 @@ Covers:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import struct
 import sys
@@ -684,3 +685,38 @@ class TestSyncBlockadeEnforcement:
             "sync_blockade_enforced": True,
         }
         assert not ExecutionReport.verify(flipped, _sha256_verifier)
+
+
+class TestMemoryMeasurement:
+    """`memory_mb` says what was measured — and says so when nothing was.
+
+    No 1.2.0 execution path measures resident memory, so the field's default
+    used to be a serialized 0.0 that reads as a measurement. The contract now:
+    a number only when a caller actually has one, `None`/`null` otherwise, and
+    the key stays present so consumers do not have to branch on its existence.
+    """
+
+    def test_a_run_without_a_measurement_reports_null_and_says_so(self):
+        report = ExecutionReport(status="success", exit_code=0, elapsed_ms=1.0)
+        assert report.memory_mb is None
+        payload = report.to_dict()
+        assert "memory_mb" in payload
+        assert payload["memory_mb"] is None
+        assert json.loads(report.to_json())["memory_mb"] is None
+        assert "Memory: not measured" in report.summary()
+
+    def test_a_measured_value_round_trips_and_renders(self):
+        report = _sample_report()
+        assert report.to_dict()["memory_mb"] == 8.5
+        assert json.loads(report.to_json())["memory_mb"] == 8.5
+        assert "Memory: 8.5 MB" in report.summary()
+
+    def test_the_key_survives_a_signed_record_and_verify(self):
+        """Backward compatibility: adding/removing a measurement must not change
+        how a record verifies — the signature covers the payload as sent."""
+        report = _sample_report()
+        signed = report.sign(_sha256_signer, alg="HS256")
+        assert signed["memory_mb"] == 8.5
+        assert ExecutionReport.verify(dict(signed), _sha256_verifier)
+        nulled = dict(signed, memory_mb=None)
+        assert not ExecutionReport.verify(nulled, _sha256_verifier)

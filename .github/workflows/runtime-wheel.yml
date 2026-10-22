@@ -1,0 +1,39 @@
+name: Qualified runtime wheel
+
+# PR-internal replacement for the former public release asset. The workflow
+# downloads ONLY the two pinned upstream inputs, rebuilds the wheel with the
+# checked-in recipe and uploads it for the dependent test jobs. No release asset,
+# repository write permission or secret is used.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Rebuild the qualified wheel from pinned upstream inputs
+        run: |
+          if [ "$RUNNER_OS" != "macOS" ] || [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::the qualified runtime wheel is macOS arm64 only; runner is $RUNNER_OS/$(uname -m)"
+            exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --prepare --out "$RUNNER_TEMP/runtime-wheel"
+
+      - name: Upload the qualified wheel for dependent jobs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl
+          if-no-files-found: error
+          retention-days: 7

@@ -1,6 +1,16 @@
 # Performance — Detail (reproducible)
 
-**Current 2026-09-14 — Mac M5, wasmtime 47.0.1, `examples/hello.wasm`, n=1000 after 50 warmup (`pool_vs_budget.py`)**
+**Latest measured micro-benchmark (raw results pending the release commit) — 2026-10-16, Mac M5, release candidate `1.2.0rc2` with the now-withdrawn patched `wasmtime 49.0.3.post2+git.1d21c90f` (withdrawn 2026-10-22 for GHSA-mghf-wjfp-p5xm; the numbers describe that build, not the 49.0.4 runtime), `examples/hello.wasm`, n=300 after 50 warmup (`pool_vs_budget.py`). Since 1.2.0 the ADR-015 posture decides the path: only `trust="trusted"` stays in-process; the default (`unknown`) runs in the disposable worker.**
+
+| Posture | Wall min | Wall median | Guest median |
+|---------|----------|-------------|--------------|
+| Default posture (`unknown` → disposable worker) | 114.710 ms | 132.868 ms | 3.607 ms |
+| `trust="trusted"` pooled (`io_budget_bytes=None`) | 0.924 ms | 1.430 ms | 0.566 ms |
+| `trust="trusted"` default (per-run engine, 64 MiB I/O budget) | 1.634 ms | 2.281 ms | 1.440 ms |
+
+Raw: `benchmarks/results/2026-10-16/pool_vs_budget.json` (`measured:true`). Min is the load-stable statistic on this host; medians and p95 move with background load (median/min up to ≈1.5×, p95/min up to ≈3.1× in these runs). The same day's `pov_benchmark.py` run (second harness, `max_fuel=100k` config) measured the default posture at wall min 102.5 ms (cold) / 100.4 ms (warm) — raw: `benchmarks/results/2026-10-16/pov_benchmark.json`.
+
+**History — the 2026-09-14 rows below measured the pre-1.2.0 in-process default (wasmtime 47.0.1). Kept dated: in 1.2.0 that path requires the explicit `trust="trusted"` posture.**
 
 | Scenario | Wall median | Wall p95 | Wall min | Guest median |
 |----------|-----------|----------|----------|--------------|
@@ -16,7 +26,7 @@ Raw: `benchmarks/results/2026-09-14/pool_vs_budget.json` (`measured:true`)
 | Cold (fresh sandbox per run) | 0.590 ms | 0.957 ms | 0.994 ms | 1.447 ms |
 | Warm (cached engine) | 0.550 ms | 0.791 ms | 0.926 ms | 1.313 ms |
 
-Sandbox overhead (warm wall median − guest median): **0.376 ms** — fuel metering, epoch deadline, preopen grant, output capture.
+Sandbox overhead (warm wall median − guest median): **0.376 ms** — fuel metering, epoch deadline, preopen grant, output capture (in-process path; pre-1.2.0 default, today `trust="trusted"`).
 Raw: `benchmarks/results/2026-09-14/pov_benchmark.json` (`cold_start_raw`/`warm_start_raw` arrays included)
 
 ## Fuel boundary 2026-09-14 (`fuel_boundary.py`, macOS arm64)

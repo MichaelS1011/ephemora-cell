@@ -520,9 +520,9 @@ class TestRunEnforcement:
         seen: list[bytes] = []
         original = process_executor._spawn_worker
 
-        def spy(cmd, payload, process_timeout):
+        def spy(cmd, payload, process_timeout, env):
             seen.append(payload)
-            return original(cmd, payload, process_timeout)
+            return original(cmd, payload, process_timeout, env)
 
         monkeypatch.setattr(process_executor, "_spawn_worker", spy)
         store = _store(tmp_path)

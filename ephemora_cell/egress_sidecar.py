@@ -354,6 +354,12 @@ class EgressAuditEntry:
     method: str
     decision: str  # "allowed" | "denied"
     reason: str
+    # None means no transport was attempted (a policy/grant/parse denial).
+    # False means the policy allowed the request but no response was delivered
+    # (TLS verification, DNS, reset, timeout or an HTTP protocol failure).
+    # Keeping this separate from `decision` stops "allowed" from reading like
+    # "delivered" in the audit.
+    transport_ok: bool | None = None
     status: int | None = None
     bytes: int | None = None
     elapsed_ms: float | None = None
@@ -679,6 +685,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=False,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="timeout",
@@ -703,6 +710,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=False,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="transport",
@@ -722,6 +730,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=False,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="ssrf",
@@ -742,6 +751,7 @@ def execute_request(
                     method=request.method,
                     decision="denied",
                     reason=trail.denied_reason,
+                    transport_ok=False,
                     elapsed_ms=elapsed,
                     hops=tuple(trail.attempted),
                     limit=trail.denied_limit,
@@ -752,6 +762,7 @@ def execute_request(
             method=request.method,
             decision="allowed",
             reason="fetch failed (see response doc)",
+            transport_ok=False,
             elapsed_ms=elapsed,
             hops=tuple(trail.followed),
         )
@@ -772,6 +783,7 @@ def execute_request(
         method=request.method,
         decision="allowed",
         reason="fetched",
+        transport_ok=True,
         status=status,
         bytes=len(body),
         elapsed_ms=elapsed,

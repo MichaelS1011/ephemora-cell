@@ -1,0 +1,56 @@
+{
+  "artifacts": [
+    {
+      "bytes": 272412,
+      "name": "ephemora_cell-1.2.0-py3-none-any.whl",
+      "sha256": "666eb0d18d6cdc0549ea7a2d16712da6d2d8b93744a4ed29b873e0b9c94f71e6"
+    },
+    {
+      "bytes": 573888,
+      "name": "ephemora_cell-1.2.0.tar.gz",
+      "sha256": "b4e07bc26c8a68a08731dfacaa3e9401394a11c68d5a3b48ee2353baa9313771"
+    }
+  ],
+  "identity": "commit 0b5dda4757a8 / artifacts 666eb0d18d6c+b4e07bc26c8a",
+  "native_runtime": {
+    "importable": true,
+    "native_libraries": [
+      {
+        "artifact": "darwin-aarch64/_libwasmtime.dylib",
+        "bytes": 25460800,
+        "sha256": "2cc7e37719916a84fb6c6b5e6cb6746817204e80d5a64b2c2ccff5db065b7c13"
+      }
+    ],
+    "python_version": "3.12.13",
+    "wasmtime_version": "49.0.0",
+    "wheel_platform": "macosx-11.0-arm64"
+  },
+  "publish_blockers": [],
+  "publishable": true,
+  "reference_container": {
+    "image_ref": null,
+    "note": "no image given (IMAGE env or --image)"
+  },
+  "schema": "ephemora-cell/release-identity/1",
+  "source": {
+    "branch": "HEAD",
+    "commit": "0b5dda4757a8f64c57906ef3b4f80b6df367181e",
+    "newest_tag": "v1.1.0",
+    "tree": "ac0d5354f77acf33ccf4a60f4f6da561e9af9ca8",
+    "worktree_dirty": false,
+    "worktree_dirty_files": []
+  },
+  "version": {
+    "in_sync": true,
+    "labelled_build": false,
+    "pep440_label": "",
+    "sources": {
+      "ephemora_cell/__init__.py": "1.2.0",
+      "ephemora_cell_mcp/_version.py": "1.2.0",
+      "pyproject.toml": "1.2.0",
+      "server.json(packages[0])": "1.2.0",
+      "server.json(top)": "1.2.0"
+    },
+    "version": "1.2.0"
+  }
+}

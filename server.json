@@ -3,7 +3,7 @@
   "name": "io.github.MichaelS1011/ephemora-cell-mcp",
   "title": "Ephemora-cell MCP — ephemeral, stateless execution boundary",
   "description": "Ephemeral, stateless, capability-bound WASM execution with signed evidence, for untrusted code.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "repository": {
     "url": "https://github.com/MichaelS1011/ephemora-cell",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "ephemora-cell",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "transport": {
         "type": "stdio"
       }

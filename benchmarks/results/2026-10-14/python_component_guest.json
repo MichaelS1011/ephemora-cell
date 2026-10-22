@@ -1,0 +1,60 @@
+{
+  "generated": "2026-10-14",
+  "subject": "Language-guest workstream, step 4: — modern Python WASI-0.2 component guest built reproducibly and executed through the isolated Cell sandbox",
+  "host": "macOS (Apple silicon), shared dev host, load ~40 during measurement",
+  "toolchain": {
+    "componentize-py": "0.25.1",
+    "install": "explicit dev `pip install componentize-py==0.25.1` into an isolated build venv; nothing is fetched or run at Cell execution time",
+    "cpython_embedded_in_guest": "componentize-py bundles its own CPython-WASI runtime + WASI adapters"
+  },
+  "recipe": "scripts/build_python_guest.py --out guest.wasm --smoke",
+  "world": "command world exporting `run: func()` (the only component entry point the Cell component runner executes; reactor worlds are refused)",
+  "runs": [
+    {
+      "build": "manual",
+      "size_bytes": 18341651,
+      "sha256": "eb8562dbf144d60acec61df9028c533fe3b15b08372cef9a3d4ab095e820be6a",
+      "path": "wasi_02 ComponentSandbox via WASISandbox.run(abi=component, use_subprocess=True, expected_sha256=pinned)",
+      "status": "SUCCESS",
+      "stdout": "hello from ephemora-cell python command guest\n",
+      "stderr": "",
+      "fuel_consumed": 11917476,
+      "elapsed_ms": 16772,
+      "posture": "unknown (isolation enforced) — ran in the disposable worker",
+      "lingering_workers_after_run": 0
+    },
+    {
+      "build": "recipe --smoke run 1",
+      "sha256": "a3c3ceb9a1eb993e1579fe2c94bfbd973696699dd6cfef82af90f65b62fdf020",
+      "status": "SUCCESS",
+      "stdout": "hello from ephemora-cell python command guest\n",
+      "qualified": true
+    }
+  ],
+  "byte_reproducibility": {
+    "verdict": "NOT bit-deterministic",
+    "evidence": "consecutive componentize-py builds (even with SOURCE_DATE_EPOCH=0) yield differing sha256 and size",
+    "digests_observed": [
+      "eb8562dbf144d60acec61df9028c533fe3b15b08372cef9a3d4ab095e820be6a",
+      "dbb4b51bef7439c14aee90f2f35a9d969621240bd42fcf3720146f8275e7d8d8",
+      "5657956fae15793bb4abbc6b78bd616b6d2fcdc8e95d63ae40bcb0bb04370c3d",
+      "a3c3ceb9a1eb993e1579fe2c94bfbd973696699dd6cfef82af90f65b62fdf020"
+    ],
+    "consequence": "a shipped versioned language package must pin the digest of one build-once artifact and distribute those exact bytes; true reproducible-rebuild needs an upstream componentize-py determinism fix"
+  },
+  "security_note": "a benign sync componentize-py Python component validated and ran clean in the isolated worker under the current GHSA-32h6 HOLD posture (no native abort). This is one positive data point, NOT a reachability proof that closes GHSA-32h6; the memory-safety advisory stays open / release-blocking. component_guard.py still fail-closes on this guest (grammar incomplete) and remains unwired — see 2026-10-14 GHSA remediation notes."
+  ,
+  "still_gated": [
+    "JavaScript guest: no cheaply-provisionable toolchain on this host (javy not on npm/brew, jco absent, cargo build heavy under load) — the JavaScript half of the language-guest workstream stays NOT TESTED",
+    "publishing versioned ephemora-cell[python] / [javascript] distributions (PyPI upload requires separate authorization; entry-point packaging built but not published)",
+    "license / SBOM clearance for redistributing the embedded CPython / JS-engine dependency tree inside the BUSL package",
+    "end-to-end qualification against the actually-published package on a fresh install (requires the publish step)"
+  ],
+  "superseded_2026-10-15": {
+    "note": "point-in-time snapshot kept verbatim for provenance; the two outcome claims below were overtaken by later release work and no longer describe the 1.2.0 artifacts",
+    "corrections": [
+    "security_note said 'component_guard.py ... remains unwired' — since commit 2de40fd (the first release blocker) component_guard IS wired into the wasi_02 Component() loader as the single fail-closed chokepoint, and its accept-grammar was completed so a benign WASI-p2 command component (this Python guest class) parses clean rather than fail-closing; the 1.2.0 wheel contains it (see 2026-10-15/fresh_install_qualification.json).",
+    "still_gated said 'JavaScript guest ... the JavaScript half of the language-guest workstream stays NOT TESTED' — since commit 4a4ac51 (the JavaScript-guest blocker) a reproducible Javy 9.1.0 recipe (scripts/build_js_guest.py) + opt-in qualify gate (EPHEMORA_JS_GUEST_QUALIFY=1, tests/test_js_guest.py) exist, and the JS guest was built and run isolated against the exact installed 1.2.0 wheel (see 2026-10-15/js_component_guest.json). Publishing the [python]/[javascript] packages and license/SBOM clearance remain open."
+    ]
+  }
+}

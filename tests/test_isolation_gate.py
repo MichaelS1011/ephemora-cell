@@ -1,10 +1,15 @@
-"""ADR-015 — untrusted-Component process-isolation mandate.
+"""ADR-015 — untrusted/unknown process-isolation mandate (1.2.0 decision).
 
-The measured threat (V1, ``benchmarks/results/2026-09-29/datetime_overflow_
+The original measured threat (V1, ``benchmarks/results/2026-09-29/datetime_overflow_
 ghsa_j2g9.json``): a crafted ``fd_filestat_set_times(u64::MAX)`` component panics
 the wasmtime host line with SIGABRT — returncode -6, HOST DIES in-process, but
 the identical guest run in the disposable worker reports ``parent_survived``.
 Process isolation is exactly that boundary.
+
+The 1.2.0 isolation mandate (ADR-015) WIDENS the rule: an untrusted or
+unknown run MUST be isolated for BOTH ABIs -- a foreign/unclassified guest never
+lands on the weaker in-process path merely because it happens to be preview1.
+Only an explicit host ``trusted`` posture keeps the in-process fast path.
 
 These tests observe REAL behaviour (which process ran the guest, whether the
 guest ran at all), not config flags:
@@ -12,8 +17,8 @@ guest ran at all), not config flags:
   Option A (central gate, WASISandbox.run choke point)
     * unknown / untrusted component  -> forced into the worker (execution_mode
       "subprocess"), even when the caller asked for in-process.
-    * trusted component              -> host-authorised in-process stays.
-    * preview1 (any trust)           -> not the mandate class, unchanged.
+    * unknown / untrusted preview1   -> ALSO forced into the worker (1.2.0).
+    * trusted (any ABI)              -> host-authorised in-process stays.
     * abi="auto" resolving component -> no bypass through auto-dispatch.
     * isolation unavailable          -> refused BEFORE the guest runs (no file
       written), never downgraded to in-process.
@@ -21,11 +26,10 @@ guest ran at all), not config flags:
     * invalid trust value            -> ValueError (a typo must not widen it).
 
   Option B (MCP host-controlled trust posture, engine.execute)
-    * a component tool outside trusted_tools runs isolated;
-    * a component tool the host explicitly trusts runs in-process;
-    * a component tool that ALSO has a sidecar-egress surface is REFUSED
+    * a tool outside trusted_tools runs isolated (preview1 or component);
+    * a tool the host explicitly trusts runs in-process;
+    * an isolated tool that ALSO has a sidecar-egress surface is REFUSED
       up front (no silent capability loss, no in-process downgrade);
-    * preview1 + egress is untouched (regression guard).
     * a guest cannot self-elevate: ToolSpec carries no trust channel.
 
   Evidence integrity (ADR-014 unchanged)
@@ -109,13 +113,47 @@ class TestCentralGate:
         assert result.execution_mode == "in_process"
 
     def test_preview1_is_not_the_mandate_class(self):
-        # V1: the preview1 path is measured unaffected by the GHSA class, so a
-        # bare preview1 run stays in-process even at the strict unknown default.
+        # superseded by the 1.2.0 mandate: preview1 untrusted is now isolated too.
+        pytest.skip("superseded by test_untrusted_preview1_is_forced_into_the_worker")
+
+    def test_untrusted_preview1_is_forced_into_the_worker(self):
+        # The 1.2.0 isolation mandate: preview1 is no longer exempt.
+        # A foreign/unclassified preview1 run is forced to the worker even when
+        # the caller asked for in-process -- the ABI does not buy a weaker path.
         with tempfile.TemporaryDirectory() as td:
             wasm = _preview1_wasm(Path(td))
             sandbox = WASISandbox(config=WASIConfig(**_SMALL))
             try:
-                result = sandbox.run(wasm, abi="preview1", trust=TRUST_UNTRUSTED)
+                result = sandbox.run(
+                    wasm, abi="preview1", trust=TRUST_UNTRUSTED, use_subprocess=False
+                )
+            finally:
+                sandbox.cleanup()
+            assert result.execution_mode == "subprocess"
+            assert result.abi == "preview1"
+            # The mandate is about WHERE it ran, not the guest's exit: a bare
+            # no-op core fixture under the worker is proof enough the preview1
+            # run was NOT demoted to in-process.
+
+    def test_unknown_default_preview1_is_forced_into_the_worker(self):
+        # The default posture is unknown (fail-closed); a bare preview1 run with
+        # no explicit trust is isolated exactly like an untrusted one.
+        with tempfile.TemporaryDirectory() as td:
+            wasm = _preview1_wasm(Path(td))
+            sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+            try:
+                result = sandbox.run(wasm, abi="preview1", use_subprocess=False)
+            finally:
+                sandbox.cleanup()
+            assert result.execution_mode == "subprocess"
+
+    def test_trusted_preview1_keeps_the_in_process_path(self):
+        # Only explicit host authorisation keeps the in-process fast path.
+        with tempfile.TemporaryDirectory() as td:
+            wasm = _preview1_wasm(Path(td))
+            sandbox = WASISandbox(config=WASIConfig(**_SMALL))
+            try:
+                result = sandbox.run(wasm, abi="preview1", trust=TRUST_TRUSTED)
             finally:
                 sandbox.cleanup()
             assert result.execution_mode == "in_process"
@@ -246,9 +284,19 @@ class TestMcpTrustPosture:
         assert outcome.result.execution_mode == "in_process"
 
     def test_preview1_tool_is_untouched(self):
+        # superseded by the 1.2.0 mandate: an unlisted preview1 tool is isolated.
         with tempfile.TemporaryDirectory() as td:
             wasm = _preview1_wasm(Path(td))
             eng = self._engine()
+            outcome = eng.execute(self._spec(wasm, name="p1"), {})
+            # Unknown posture -> protected worker for BOTH ABIs (1.2.0).
+            assert outcome.result.execution_mode == "subprocess"
+
+    def test_host_trusted_preview1_tool_stays_in_process(self):
+        # Only the explicit host trust list keeps a preview1 tool in-process.
+        with tempfile.TemporaryDirectory() as td:
+            wasm = _preview1_wasm(Path(td))
+            eng = self._engine(trusted_tools=["p1"])
             outcome = eng.execute(self._spec(wasm, name="p1"), {})
             assert outcome.result.execution_mode == "in_process"
 

@@ -1,11 +1,23 @@
 name: Linux Benchmark
 
-# Non-blocking evidence job: the Linux-native Docker cold-start number.
-# The README/performance tables are macOS-first (Docker Desktop runs in a
-# VM there — the caveat is stated inline); this job measures the same
-# comparison on ubuntu-latest, where Docker runs natively. Evidence lands
-# as a run artifact plus a step summary — main stays bot-commit-free
-# (same policy as the metrics branch).
+# Scope (2026-10-16) — this workflow is NOT QUALIFIED for the 1.2.x runtime.
+#
+# It measures the Linux-NATIVE Docker cold-start number and the gVisor boundary.
+# Both require Linux by construction: gVisor/runsc is a Linux kernel feature, and
+# Docker runs natively only on Linux — on macOS it runs inside a VM, which is
+# exactly the caveat the macOS-first README/performance tables state. The
+# qualified 1.2.x runtime is wasmtime 49.0.4.post1+git.2c2970205f, wheel tag
+# macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 247c1529…a30b) — macOS
+# arm64 ONLY; there is no qualified Linux runtime wheel. The jobs used to install
+# `-r requirements.txt` (now wasmtime>=49.0.4,<50, unsatisfiable on Linux) and
+# swallow the failure with `continue-on-error: true` — a green run that proved
+# nothing. Moving this to macOS is NOT the fix: it would change the measurement
+# itself (VM instead of native Docker) and gVisor cannot run there at all.
+#
+# Both jobs now fail closed with an explicit ::error:: and no continue-on-error.
+# Re-enable only once a qualified Linux runtime wheel exists — then install
+# "wasmtime==49.0.4.post1+git.2c2970205f" from the release set or a verified
+# build artifact, exactly as scripts/ci_runtime_bootstrap.py does for macOS.
 
 on:
   workflow_dispatch:
@@ -19,112 +31,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-    continue-on-error: true
 
+    # Deliberately no continue-on-error: a masked leg would report the run green
+    # while the measurement never happened.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
+      - name: Runtime scope guard (fail closed — no 49.0.0 fallback)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e . --no-deps
-
-      - name: Record tool versions
-        run: |
-          docker version --format 'docker server: {{.ServerVersion}}' | tee bench_env.txt
-          python -c "import wasmtime, ephemora_cell; print('wasmtime:', wasmtime.__version__ if hasattr(wasmtime,'__version__') else 'n/a'); print('ephemora-cell:', ephemora_cell.__version__)" | tee -a bench_env.txt
-          uname -m | tee -a bench_env.txt
-
-      - name: Run competitive benchmark (Docker native, Linux)
-        run: |
-          BENCH_LABEL=ubuntu-x86_64 python benchmarks/competitive_benchmark.py \
-            --runs 100 --docker-runs 50
-
-      - name: Collect evidence
-        run: |
-          latest=$(ls -t benchmarks/results/*/competitive_benchmark.json | head -1)
-          echo "Evidence file: $latest" >> bench_env.txt
-          echo "## Linux-native Docker cold start (ubuntu runner)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```json' >> "$GITHUB_STEP_SUMMARY"
-          cat "$latest" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat bench_env.txt >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload evidence artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: competitive-benchmark-linux
-          path: |
-            benchmarks/results/*/competitive_benchmark.json
-            bench_env.txt
-          if-no-files-found: error
+          echo "::error::no qualified 1.2.x runtime for Linux — this leg is NOT QUALIFIED; it measures the Linux-native Docker cold start, which cannot be produced on the qualified macOS arm64 platform, and the unpatched wasmtime 49.0.0 it would otherwise pin is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
+          exit 1
 
   gvisor-boundary:
     runs-on: ubuntu-latest
     permissions:
       actions: write
-    continue-on-error: true
 
+    # Deliberately no continue-on-error (see the job above).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
+      - name: Runtime scope guard (fail closed — no 49.0.0 fallback)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e . --no-deps
-
-      - name: Add pinned gVisor apt repo
-        env:
-          GVISOR_RELEASE: "20260914"
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
-          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases ${GVISOR_RELEASE} main" | sudo tee /etc/apt/sources.list.d/gvisor.list > /dev/null
-          sudo apt-get update
-          apt-cache policy runsc
-
-      - name: Install pinned runsc and register as Docker runtime
-        env:
-          GVISOR_RELEASE: "20260914"
-        run: |
-          sudo apt-get install -y runsc=${GVISOR_RELEASE}.0
-          test -x /usr/bin/runsc
-          runsc --version
-          sudo runsc install
-          cat /etc/docker/daemon.json
-          sudo systemctl restart docker
-          for i in $(seq 1 10); do docker info >/dev/null 2>&1 && break; sleep 2; done
-          docker info | grep -A2 -i runsc
-
-      - name: Smoke test
-        run: docker run --rm --runtime=runsc python:3.12-slim python3 -c "print('gvisor-ok')"
-
-      - name: Run gVisor boundary probe (twice for determinism)
-        run: |
-          python benchmarks/gvisor_docker_probe.py
-          python benchmarks/gvisor_docker_probe.py
-
-      - name: Upload evidence artifact
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: gvisor-boundary-evidence
-          path: |
-            benchmarks/results/*/08_gvisor_*.json
-          if-no-files-found: error
+          echo "::error::no qualified 1.2.x runtime for Linux — this gVisor boundary probe needs Cell installed on Linux, and no qualified 49.0.4 runtime wheel exists for Linux (macosx_11_0_arm64 only); the unpatched wasmtime 49.0.0 is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
+          exit 1

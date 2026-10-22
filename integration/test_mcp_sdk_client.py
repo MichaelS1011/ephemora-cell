@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,28 +31,72 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 from ephemora_cell_mcp import __version__  # noqa: E402
 
-# Resolve the installed entry point portably: CI installs into the active
-# env's bin (on PATH); a local dev checkout has it under .venv/bin. Skip
-# cleanly only when neither exists — never green-by-skip when it is runnable.
+# Resolve the installed entry point portably — and resolve it in the
+# environment that is RUNNING this test, not in whichever venv happens to sit in
+# the checkout. The earlier order (PATH, then REPO/.venv) silently launched the
+# server of a different interpreter when the test ran from another venv, so the
+# "official SDK interop" claim could be measured against an engine the release
+# does not qualify. Order now: this env's console script, this env's module
+# entry point, the active PATH, and only last a dev .venv (which is reported, not
+# trusted silently).
+_here = Path(sys.executable).parent
 _candidates = [
+    _here / "ephemora-cell-mcp",
     shutil.which("ephemora-cell-mcp"),
     REPO / ".venv" / "bin" / "ephemora-cell-mcp",
 ]
 SERVER = next(
-    (Path(c) for c in _candidates if c and Path(c).exists() and os.access(c, os.X_OK)),
-    _candidates[-1],
+    (
+        Path(c)
+        for c in _candidates
+        if c and Path(str(c)).exists() and os.access(str(c), os.X_OK)
+    ),
+    None,
 )
+# Same-interpreter fallback: `python -m ephemora_cell_mcp` runs the server of the
+# env under test even when no console script was installed.
+SERVER_ARGS: list[str] = []
+if SERVER is None:
+    SERVER = Path(sys.executable)
+    SERVER_ARGS = ["-m", "ephemora_cell_mcp"]
+
+
+def _server_engine() -> str:
+    """Which Wasmtime the server that is about to be launched actually carries.
+
+    Read off the interpreter the server really runs on (the console script's
+    shebang, or this interpreter for the module fallback) — the interop claim is
+    only worth what the engine under it is qualified for.
+    """
+    if SERVER_ARGS:
+        interpreter = str(SERVER)
+    else:
+        with open(SERVER, "rb") as handle:
+            first = handle.readline()
+        interpreter = (
+            first[2:].split()[0].decode() if first.startswith(b"#!") else str(SERVER)
+        )
+    probe = subprocess.run(
+        [
+            interpreter,
+            "-c",
+            "import importlib.metadata as m; print(m.version('wasmtime'))",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return probe.stdout.strip() or "unknown"
 
 
 @pytest.mark.skipif(
-    not (SERVER.exists() and os.access(SERVER, os.X_OK)),
-    reason="ephemora-cell-mcp entry point not found",
+    not os.access(SERVER, os.X_OK),
+    reason="no ephemora-cell-mcp entry point in this environment",
 )
 def test_official_sdk_interop() -> None:
     import asyncio
 
     async def run() -> tuple[str, list[str], str, dict]:
-        params = StdioServerParameters(command=str(SERVER), args=[])
+        params = StdioServerParameters(command=str(SERVER), args=list(SERVER_ARGS))
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 init = await session.initialize()
@@ -66,6 +111,16 @@ def test_official_sdk_interop() -> None:
                 )
 
     name, names, text, exec_meta = asyncio.run(run())
+    # An interop claim is worth the engine under it: if the server this test
+    # launched runs an engine outside the qualified line, its calls are refused
+    # by the runtime gate and the exchange below would prove nothing about
+    # interop. Name the engine that was measured instead of failing silently.
+    engine = _server_engine()
+    assert "refused: unqualified runtime" not in text, (
+        f"the server was launched on wasmtime {engine!r}, which the runtime "
+        "gate refuses — run this test in the environment carrying the "
+        "qualified line"
+    )
     assert name == f"ephemora-cell-mcp {__version__}"
     assert names == ["clock", "echo", "get-policy"]
     assert '"greeting": "sdk"' in text
@@ -74,8 +129,8 @@ def test_official_sdk_interop() -> None:
 
 
 @pytest.mark.skipif(
-    not (SERVER.exists() and os.access(SERVER, os.X_OK)),
-    reason="ephemora-cell-mcp entry point not found",
+    not os.access(SERVER, os.X_OK),
+    reason="no ephemora-cell-mcp entry point in this environment",
 )
 def test_official_sdk_stateless_2026_07_28() -> None:
     """The official SDK (2.1.1) speaks the stateless 2026-07-28 era to us.
@@ -89,7 +144,7 @@ def test_official_sdk_stateless_2026_07_28() -> None:
     import asyncio
 
     async def run() -> tuple[list[str], list[str], str, dict, dict]:
-        params = StdioServerParameters(command=str(SERVER), args=[])
+        params = StdioServerParameters(command=str(SERVER), args=list(SERVER_ARGS))
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 # Modern era: probe + adopt. No initialize() anywhere.

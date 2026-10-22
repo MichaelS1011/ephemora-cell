@@ -1,0 +1,13 @@
+BLOCKED  runs_as_nonroot                    uid=10001 gid=10001
+BLOCKED  capabilities_dropped               CapEff=0000000000000000
+BLOCKED  no_setuid_to_root                  setuid(0) refused: errno 1 (Operation not permitted)
+BLOCKED  rootfs_read_only                   rootfs write refused: errno 30 (Read-only file system)
+ALLOWED  tmpfs_writable_positive_control    writable=True
+BLOCKED  host_secret_etc_shadow             /etc/shadow refused: errno 13
+BLOCKED  host_secret_root                   /root refused: errno 13
+BLOCKED  egress_8.8.8.8                     ('8.8.8.8', 443) refused: errno 101 (Network is unreachable)
+BLOCKED  egress_1.1.1.1                     ('1.1.1.1', 53) refused: errno 101 (Network is unreachable)
+BLOCKED  egress_dns                         resolution refused: (-3, 'Temporary failure in name resolution')
+ALLOWED  memory_cgroup_present              memory.max=n/a
+BLOCKED  pids_limit                         cap='unreadable:2' ; fork blocked at 127 children: errno 11
+blocked= 10 allowed= 2

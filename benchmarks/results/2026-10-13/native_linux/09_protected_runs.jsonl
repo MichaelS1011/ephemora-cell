@@ -1,0 +1,68 @@
+{
+  "label": "hello_component",
+  "guest": "hello02.wasm",
+  "timeout_seconds": 30.0,
+  "max_fuel": 5000000,
+  "parent_pid": null,
+  "status": "ExecutionStatus.SUCCESS",
+  "execution_mode": "subprocess",
+  "abi": "component",
+  "exit_code": 0,
+  "stdout_head": "'hello from wasip2 component\\nenv_ephemora_test=\\n'",
+  "stderr_head": "''",
+  "error_head": "''",
+  "wall_ms": 298.9,
+  "parent_survived": true
+}
+rc=0
+{
+  "label": "fs_component",
+  "guest": "fs02.wasm",
+  "timeout_seconds": 30.0,
+  "max_fuel": 5000000,
+  "parent_pid": null,
+  "status": "ExecutionStatus.ERROR",
+  "execution_mode": "subprocess",
+  "abi": "component",
+  "exit_code": 1,
+  "stdout_head": "'hello from wasip2 component\\nenv_ephemora_test=\\n'",
+  "stderr_head": "'error while executing at wasm backtrace:\\n    0:   0xb3af - <unknown>!<wasm function 200>\\n    1:   0x526d - <unknown>!<wasm function 101>\\n    2:   0x1d4b - <unknown>!<wasm function 45>\\n    3:   0x1dc7 - <unknown>!<wasm function 47>\\n    4:   0x1ae1 - <unknown>!<wasm function 40>\\n    5:   0x1b06 - <unknown>!<wasm function 41>\\n    6:   0x5d61 - <unknown>!<wasm function 110>\\n    7:   0x55b0 - <unknown>'",
+  "error_head": "''",
+  "wall_ms": 313.9,
+  "parent_survived": true
+}
+rc=0
+{
+  "label": "epoch_timeout",
+  "guest": "loop_run.wasm",
+  "timeout_seconds": 3.0,
+  "max_fuel": 50000000,
+  "parent_pid": null,
+  "status": "ExecutionStatus.FUEL_EXHAUSTED",
+  "execution_mode": "subprocess",
+  "abi": "component",
+  "exit_code": 0,
+  "stdout_head": "''",
+  "stderr_head": "'Fuel exhausted: error while executing at wasm backtrace:\\n    0:     0x2f - m!<wasm function 0>\\n\\nCaused by:\\n    wasm trap: all fuel consumed by WebAssembly\\n'",
+  "error_head": "''",
+  "wall_ms": 242.5,
+  "parent_survived": true
+}
+rc=0
+{
+  "label": "worker_crash_asynclift",
+  "guest": "shape_async_run.wasm",
+  "timeout_seconds": 30.0,
+  "max_fuel": 5000000,
+  "parent_pid": null,
+  "status": "ExecutionStatus.ERROR",
+  "execution_mode": "subprocess",
+  "abi": "component",
+  "exit_code": 1,
+  "stdout_head": "''",
+  "stderr_head": "\"worker crashed: thread '<unnamed>' (7) panicked at crates/wasmtime/src/runtime/component/func.rs:345:13:\\ninternal error: entered unreachable code: async-lifted exports should have failed validation when `component-model-async` feature disabled\\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\"",
+  "error_head": "''",
+  "wall_ms": 228.2,
+  "parent_survived": true
+}
+rc=0

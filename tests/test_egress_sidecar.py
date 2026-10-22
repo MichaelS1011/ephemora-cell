@@ -32,6 +32,7 @@ from ephemora_cell.egress_sidecar import (
     run_sidecar_cycle,
     validate_request,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell_mcp.engine import (
     CellOutcome,
     CellToolEngine,
@@ -153,6 +154,7 @@ class TestAllowlist:
         )
         entry = validate_request(policy, req)
         assert entry.decision == "allowed"
+        assert entry.transport_ok is None, "no transport was attempted yet"
         other = parse_request_document(
             json.dumps({"url": "http://127.0.0.1:8080/other/"})
         )
@@ -193,7 +195,11 @@ class TestEndToEnd:
                 config = WASIConfig(max_fuel=2_000_000, timeout_seconds=10)
                 sandbox = WASISandbox(config=config)
                 try:
-                    result = sandbox.run(str(wasm))
+                    # In-process subject: the test reads the sidecar request
+                    # artifact out of the parent-owned ``result.sandbox_dir``;
+                    # under the mandate the default posture would run the guest
+                    # in a worker whose dir the parent never surfaces.
+                    result = sandbox.run(str(wasm), trust=TRUST_TRUSTED)
                     assert result.status == ExecutionStatus.SUCCESS, result.stderr
                     assert result.sandbox_dir is not None
                     request_path = Path(result.sandbox_dir) / "sidecar.request.json"
@@ -215,6 +221,7 @@ class TestEndToEnd:
             json.dumps({"url": "https://evil.example/exfil", "method": "GET"}),
         )
         assert audit.decision == "denied"
+        assert audit.transport_ok is None, "a policy denial never opens a socket"
         assert doc["ok"] is False
         assert "denied by egress policy" in doc["error"]
 
@@ -459,6 +466,7 @@ class TestEngineEgressTrace:
             )
             (audit,) = eng._mediate_egress(str(d), "t")
             assert audit["decision"] == "allowed"
+            assert audit["transport_ok"] is True
             assert audit["response"]["ok"] is True
             # the response artifact the between-runs pattern promises
             assert (d / "sidecar.response.json").is_file()
@@ -476,6 +484,7 @@ class TestEngineEgressTrace:
             )
             (audit,) = eng._mediate_egress(str(d), "t")
             assert audit["decision"] == "denied"
+            assert audit["transport_ok"] is None
             assert "egress policy" in audit["reason"]
             assert audit["response"]["ok"] is False
         finally:
@@ -514,7 +523,13 @@ class TestEngineEgressTrace:
             eng = CellToolEngine(
                 egress_policy=EgressPolicy(
                     allowed_endpoints=(f"http://127.0.0.1:{port}/v1",)
-                )
+                ),
+                # The subject is the mediation ORDER inside execute(), which
+                # lives on the in-process egress path. Under the 1.2.0 mandate
+                # an unknown tool + egress is refused up front (egress is not
+                # supported across the isolation boundary), so this trace uses
+                # the host-authorised trusted posture to reach the mediator.
+                trusted_tools=("t",),
             )
             outcome = eng.execute(_spec(), {})
             assert isinstance(outcome, CellOutcome)
@@ -2003,6 +2018,12 @@ class _RawResponder(socketserver.BaseRequestHandler):
         kind = spec["kind"]
         if kind == "garbage_status":
             self.request.sendall(b"this is not an status line\r\n\r\n")
+        elif kind == "tls_plain":
+            # An HTTPS client reaches this plain peer and must fail the TLS
+            # handshake; no HTTP response is ever delivered.
+            self.request.sendall(
+                b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"
+            )
         elif kind == "too_many_headers":
             self.request.sendall(
                 b"HTTP/1.1 200 OK\r\n" + b"X-A: 1\r\n" * 150 + b"\r\n{}"
@@ -2069,7 +2090,7 @@ class TestTransportWalls:
     per hop, while pinning a host thread.
     """
 
-    def test_junk_status_line_is_an_audited_refusal(self):
+    def test_transport_failures_are_audited_and_never_delivered(self):
         server, port = _raw_server(_RawResponder, {"kind": "garbage_status"})
         try:
             outcome = mediate(
@@ -2078,6 +2099,28 @@ class TestTransportWalls:
             )
             assert outcome.audit.decision == "denied", outcome.audit
             assert outcome.audit.limit == "transport", outcome.audit
+            assert outcome.audit.transport_ok is False, outcome.audit
+        finally:
+            server.shutdown()
+
+        # An allowlisted HTTPS request whose TLS handshake fails proves a policy
+        # decision, not a transfer. `allowed` must be paired with
+        # transport_ok=False and a failing response document.
+        server, port = _raw_server(_RawResponder, {"kind": "tls_plain"})
+        policy = EgressPolicy(
+            allowed_endpoints=(f"https://127.0.0.1:{port}/v1",),
+            timeout_seconds=2.0,
+        )
+        try:
+            outcome = mediate(
+                policy,
+                json.dumps({"url": f"https://127.0.0.1:{port}/v1/x", "method": "GET"}),
+            )
+            assert outcome.audit.decision == "allowed", outcome.audit
+            assert outcome.audit.transport_ok is False, outcome.audit
+            assert outcome.audit.status is None, outcome.audit
+            assert outcome.audit.bytes is None, outcome.audit
+            assert outcome.response_doc["ok"] is False, outcome.response_doc
         finally:
             server.shutdown()
 
@@ -2136,6 +2179,7 @@ class TestTransportWalls:
                 ),
             )
             assert outcome.audit.decision == "allowed", outcome.audit
+            assert outcome.audit.transport_ok is True, outcome.audit
             served = {p for p in server.seen}  # type: ignore[attr-defined]
             recorded = {"chain/" + hop.rsplit("/", 1)[-1] for hop in outcome.audit.hops}
             assert recorded == {"chain/2", "chain/3"}, recorded

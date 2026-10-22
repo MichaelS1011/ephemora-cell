@@ -12,6 +12,7 @@ tools directory.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -153,6 +154,20 @@ def main(argv: list[str] | None = None) -> int:
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
     )
     args = parser.parse_args(argv)
+
+    # Fail closed on a tools directory that does not exist. Without this guard a
+    # typo in --tools-dir starts a fully working server that advertises only
+    # get-policy: the operator sees a live MCP endpoint, and every real tool call
+    # silently answers "unknown tool". An existing directory holding no .wasm
+    # files stays legal (provisioning order can differ); a missing one is a
+    # misconfiguration, not a state to serve from.
+    if args.tools_dir is not None and not os.path.isdir(args.tools_dir):
+        print(
+            f"error: --tools-dir is not a directory: {args.tools_dir} "
+            "(refusing to start a server that would expose no tools)",
+            file=sys.stderr,
+        )
+        return 2
 
     verifier = None
     if args.require_signed_tools:

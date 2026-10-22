@@ -33,6 +33,7 @@ from ephemora_cell import (
     WASISandbox,
     run_isolated,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 
 # WASI 0.2 component fixture (same file as tests/test_component.py uses).
 HELLO02 = os.path.join(os.path.dirname(__file__), "fixtures", "hello02.wasm")
@@ -201,9 +202,14 @@ class TestGrantTimeRevalidation:
         sandbox = WASISandbox(config=config)
         self._stateful_swap(sandbox, str(data), monkeypatch)
         try:
+            # Grant-time revalidation is parent-side in-process logic: declare
+            # the sanctioned in-process path so the monkeypatched _canonicalize
+            # actually runs (the mandate would otherwise route this to a worker
+            # in another process, where the parent-side swap never applies).
             result = sandbox.run(
                 str(_write_module(home_dir)),
                 use_engine_pool=False,
+                trust=TRUST_TRUSTED,
             )
         finally:
             sandbox.cleanup()
@@ -219,7 +225,11 @@ class TestGrantTimeRevalidation:
         self._stateful_swap(sandbox, str(data), monkeypatch)
         try:
             with pytest.warns(RuntimeWarning, match="TOCTOU"):
-                sandbox.run(str(_write_module(home_dir)), use_engine_pool=False)
+                sandbox.run(
+                    str(_write_module(home_dir)),
+                    use_engine_pool=False,
+                    trust=TRUST_TRUSTED,
+                )
         finally:
             sandbox.cleanup()
 

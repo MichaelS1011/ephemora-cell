@@ -40,6 +40,7 @@ from ephemora_cell import (
 )
 from ephemora_cell.execution_report import (
     effective_sync_blockade,
+    exit_status_fidelity,
     sync_blockade_attested,
 )
 
@@ -111,6 +112,16 @@ class TestPreview1Enforcement:
         # Behaviour: the guest died AT the sync call — the wall actually held.
         assert result.status is ExecutionStatus.ERROR
         assert "blocked by sandbox" in result.stderr
+        # The refusal is a host decision. It is not a status the guest left,
+        # and the receipt must not upgrade its placeholder exit code to an
+        # "exact" guest exit.
+        assert result.guest_exit_observed is False
+        assert (
+            exit_status_fidelity(
+                abi=result.abi, guest_exit_observed=result.guest_exit_observed
+            )
+            == "none"
+        )
         # Attestation: the signed record confirms the effective blockade.
         baseline = _attest(result, config)
         assert baseline["abi"] == "preview1"

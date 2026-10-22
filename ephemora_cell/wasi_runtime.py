@@ -23,6 +23,7 @@ import traceback
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from ephemora_cell._engine_config import build_engine_config
 from ephemora_cell._sandbox_common import (
@@ -60,6 +61,9 @@ from ephemora_cell._sandbox_common import (
     make_output_sink as _make_output_sink,
 )
 from ephemora_cell._sandbox_common import (
+    open_private as _open_private,
+)
+from ephemora_cell._sandbox_common import (
     read_capped_output as _read_capped_output,
 )
 from ephemora_cell._sandbox_common import (
@@ -85,6 +89,10 @@ from ephemora_cell.execution_report import (
     VALID_TRUST,
     isolation_required_for,
     sync_blockade_holds,
+)
+from ephemora_cell.runtime_qualification import (
+    runtime_qualification,
+    unqualified_runtime_allowed,
 )
 from ephemora_cell.state import StateStore
 from ephemora_cell.tenant import Charge, CumulativeBudget, TenantId, TenantStore
@@ -196,6 +204,35 @@ def module_size_cap_error(path: Path, max_wasm_bytes: int) -> str | None:
 #: refused. (arXiv 2509.11242, USENIX Security '25.)
 SYNC_CALL_TRAPS = ("fd_sync", "fd_datasync", "fd_psync")
 
+# Re-entrancy guard for the ADR-015 isolation gate. The disposable worker
+# process (``ephemora_cell.process_worker``) IS the mandated isolation
+# boundary; inside it the guest must run in-process. Without this guard the
+# worker's own ``WASISandbox.run`` (default posture ``unknown``) would re-enter
+# the gate, be forced into *another* worker, and recurse — the unbounded
+# process fan-out behind the 759-worker incident. The flag is thread-local so
+# suppressing the spawn is scoped to exactly the worker's own run call and
+# never leaks into a sibling in-process run on another thread. It does NOT
+# elevate trust: the workload stays ``unknown``/``untrusted``; only the
+# recursive sub-worker spawn is suppressed.
+_isolation_tls = threading.local()
+
+
+def _in_isolation_boundary() -> bool:
+    """Whether the current thread is running inside the mandated worker."""
+    return bool(getattr(_isolation_tls, "established", False))
+
+
+def set_isolation_boundary(established: bool) -> bool:
+    """Mark this thread as inside/outside the worker; returns the prior value.
+
+    Used by ``process_worker`` around its single guest ``run`` so the isolation
+    gate runs the guest in-process instead of spawning a sub-worker. Restore
+    the returned prior value in a ``finally`` so the suppression cannot leak.
+    """
+    prev = getattr(_isolation_tls, "established", False)
+    _isolation_tls.established = established
+    return prev
+
 
 def _limit_output(text: str, max_bytes: int = _MAX_OUTPUT_BYTES) -> str:
     """Truncate output to a UTF-8 byte budget.
@@ -208,6 +245,142 @@ def _limit_output(text: str, max_bytes: int = _MAX_OUTPUT_BYTES) -> str:
     if len(raw) > max_bytes:
         return raw[:max_bytes].decode("utf-8", errors="ignore") + "\n[... truncated]"
     return text
+
+
+def _dir_bytes(dirs: tuple[str, ...]) -> int:
+    """Best-effort sum of regular-file sizes under each directory.
+
+    The same measurement the preview1 byte watcher makes over its sandbox dir
+    (``os.walk`` plus ``os.path.getsize``, unreadable entries skipped).
+    """
+    total = 0
+    for dir_path in dirs:
+        for root, _subdirs, files in os.walk(dir_path):
+            for name in files:
+                try:
+                    total += os.path.getsize(os.path.join(root, name))
+                except OSError:
+                    pass
+    return total
+
+
+def _drop_nested_dirs(dirs: tuple[str, ...]) -> tuple[str, ...]:
+    """Deduplicate granted dirs and drop entries nested inside another.
+
+    A grant list may carry a directory and a subdirectory of it. Walking both
+    would count every byte under the child twice and breach the wall at half
+    its declared value; the parent already covers the child, so the nested
+    entry is dropped.
+    """
+    unique = [d for index, d in enumerate(dirs) if d not in dirs[:index]]
+    kept: list[str] = []
+    for dir_path in unique:
+        nested = False
+        for other in unique:
+            if other == dir_path:
+                continue
+            try:
+                if Path(dir_path).is_relative_to(Path(other)):
+                    nested = True
+                    break
+            except (OSError, ValueError):  # pragma: no cover - odd paths
+                continue
+        if not nested:
+            kept.append(dir_path)
+    return tuple(kept)
+
+
+class _GuestWriteBudget:
+    """ADR-002 byte wall over the directories a component guest can write to.
+
+    Preview1 inlines this mechanic over its private, initially EMPTY sandbox
+    dir (``WASISandbox._execute``, ``_bytes_watch``): a polling thread sums that
+    directory and, on breach, calls ``engine.increment_epoch()`` so a
+    ``deadline=1`` store traps immediately; the run is then reported as an ERROR
+    whose text is ``"I/O budget exceeded: guest wrote N bytes ..."`` with
+    ``io_budget_exceeded=True``.
+
+    A WASI 0.2 component has no sandbox dir at all (``wasi_02`` grants none —
+    ADR-002 scopes the knob to ``/sandbox``), so the directories it can really
+    write to ARE the ones this run preopened. Those are what this watcher
+    measures. Two consequences are deliberate and are named in SECURITY.md:
+
+    * the comparison is against a BASELINE taken before the guest starts, so
+      ``bytes_written`` measures guest writes and not the pre-existing content
+      of a caller-owned directory (the preview1 sandbox dir starts empty, which
+      is why the inline watcher may compare absolute sizes);
+    * ``sample()`` is re-read after the guest returned. A poller cannot observe
+      a write that starts and finishes inside one interval — the same sampling
+      bound the preview1 path has — so the end-of-run sample is what keeps a
+      sub-interval overrun from being reported as a silent success. It DETECTS
+      (the bytes of such a run are already on disk); the poller is what
+      actually interrupts a sustained overrun.
+    """
+
+    INTERVAL = 0.1
+    # A component grant is CALLER-OWNED, not a private empty dir: one
+    # walk costs whatever that tree costs, and in the worker path the
+    # rusage watchdog charges that host work to the guest (io_cpu_seconds
+    # is host work the guest spent no fuel on). A small grant keeps the
+    # preview1 cadence; a large grant is polled in proportion to a
+    # MEASURED walk, so the watcher stays under ~a quarter of one core
+    # instead of re-walking a big tree ten times a second.
+    INTERVAL_WALK_FACTOR = 4.0
+
+    def __init__(
+        self,
+        engine: Any,
+        dirs: tuple[str, ...],
+        limit: int,
+        stop_event: threading.Event,
+    ) -> None:
+        self._engine = engine
+        self._dirs = _drop_nested_dirs(tuple(dirs))
+        self.limit = limit
+        self._stop = stop_event
+        self.bytes_written = 0
+        self.exceeded = False
+        self._thread: threading.Thread | None = None
+        walk_start = time.monotonic()
+        self._baseline = _dir_bytes(self._dirs)
+        self._interval = max(
+            self.INTERVAL,
+            (time.monotonic() - walk_start) * self.INTERVAL_WALK_FACTOR,
+        )
+
+    def sample(self) -> int:
+        """Bytes written since the baseline (0 when the guest deleted files)."""
+        self.bytes_written = max(0, _dir_bytes(self._dirs) - self._baseline)
+        return self.bytes_written
+
+    def start(self) -> None:
+        """Start the polling thread. No writable dir means nothing to watch."""
+        if not self._dirs:
+            return
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def finish(self, timeout: float = 10.0) -> int:
+        """Stop the poller, join it, and return the authoritative total.
+
+        The poller and the caller both write ``bytes_written``. Both
+        compute the same deterministic sum, but a poller assignment that
+        lands AFTER the end-of-run reading would publish a stale count next
+        to a fresh verdict. Joining first removes the interleaving; the
+        measured value that follows is the end-of-run truth.
+        """
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
+        return self.sample()
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            if self.sample() > self.limit:
+                self.exceeded = True
+                self._engine.increment_epoch()
+                return
+            self._stop.wait(self._interval)
 
 
 class ExecutionStatus(Enum):
@@ -266,13 +439,21 @@ class WASIConfig:
             Fuel measures guest compute, not host work; this knob closes
             that gap. In-process runs are documented-trusted (S4
             precedent: rusage there would measure the host process).
-        io_budget_bytes: Aggregate byte wall for guest writes into the
-            sandbox dir (default: 64 MiB, None = unlimited). Enforced in
-            BOTH paths by a watcher scanning the sandbox dir while the
-            guest runs; breach interrupts the guest via epoch. The
-            sandbox dir is the guest's scratch space — preopen trees are
-            covered by io_cpu_seconds (their write() cost is CPU); a
-            du-delta over preopens is the documented v2 option (ADR-002).
+        io_budget_bytes: Aggregate byte wall for guest writes (default:
+            64 MiB, None = unlimited). Enforced on BOTH paths, each against
+            the scope it really has: the preview1 path watches its private
+            sandbox dir, which is why the sandbox dir is the guest's scratch
+            space; a WASI 0.2 component has no such mount, so there the wall
+            covers the directories the run actually preopened (its only
+            writable scope), measured as a delta against a baseline taken
+            before the guest starts. A breach interrupts the guest via epoch
+            and is reported as ERROR with ``io_budget_exceeded=True``. Both
+            paths ALSO re-measure once the guest has stopped, because a poller
+            cannot see a write that begins and finishes inside one interval —
+            that sample detects such an overrun (its bytes are already on disk)
+            instead of reporting a silent success. Preopen trees stay covered by
+            io_cpu_seconds; on the component path the byte wall is a second wall
+            over the same directories, not a replacement (ADR-002).
         max_wasm_bytes: Size cap for the module a run may load, in bytes
             (default: DEFAULT_MAX_WASM_BYTES = 32 MiB, 0 = no cap). Checked
             on every execution path before compilation, and in the
@@ -355,9 +536,12 @@ class ExecutionResult:
     # S2: directories ACTUALLY preopened for this run (post-filter, per
     # ABI) — the attestation input for ExecutionReport.security_baseline.
     effective_preopens: tuple[str, ...] = ()
-    # ADR-002: I/O-budget observability. io_bytes_written = bytes the
-    # guest wrote into the sandbox dir (watcher sample); io_budget_exceeded
-    # = True when a run was interrupted for breaching io_budget_bytes.
+    # ADR-002: I/O-budget observability. io_bytes_written = bytes the guest
+    # wrote into the scope of THIS path (preview1: the sandbox dir; component:
+    # the directories the run preopened, as a delta against their pre-run
+    # baseline) — a watcher sample in general, the end-of-run sample on a
+    # breach. io_budget_exceeded = True when the run breached
+    # io_budget_bytes (interrupted via epoch, or caught by that sample).
     io_bytes_written: int | None = None
     io_budget_exceeded: bool = False
     # ADR-004: footprint of the StateStore at run end (None = no state).
@@ -374,6 +558,13 @@ class ExecutionResult:
     # "subprocess" in _result_from_report). The report layer attests it into the
     # signed security_baseline so a verifier reads the guarantee, not an inference.
     execution_mode: str = "in_process"
+    # Whether a GUEST exit status actually reached this result. True only where
+    # the code was observed leaving the guest (a proc_exit / wasi:cli/exit trap,
+    # or a completed run); False everywhere nothing executed — a refusal at the
+    # choke point, a module the loader rejected, a fuel stop, a timeout. The CLI
+    # reports `exit_status_fidelity` from this, so a run that never started can
+    # not attest an exit-code channel it never used.
+    guest_exit_observed: bool = False
     # ADR-014: which ABI ACTUALLY ran the guest — "preview1" or
     # "component". The two share the sandbox build but NOT the sync blockade:
     # only preview1 traps fd_sync/fd_datasync/fd_psync when allow_fsync is
@@ -432,6 +623,11 @@ class WASISandbox:
         self._config = config or WASIConfig()
         self._sandbox_dir: str | None = None
         self._host_dir: str | None = None
+        # Capture directories a delegated component run could not remove. They
+        # belong to the inner primitive, so the loop over _sandbox_dir/_host_dir
+        # below cannot see them; without this the component route would be the
+        # one path whose residue is reported as nothing.
+        self._delegated_residue: list[str] = []
         self._validate_allow_dirs(self._config.allow_dirs)
         self._check_dangerous_dirs(self._config.allow_dirs)
         if self._config.max_gc_heap_mb is not None and self._config.max_gc_heap_mb <= 0:
@@ -532,14 +728,15 @@ class WASISandbox:
             trust: HOST-declared trust posture of the guest (ADR-015): one of
                 ``"trusted"`` / ``"untrusted"`` / ``"unknown"`` (default).
                 Never inferred from the bytes and never settable by the guest.
-                ``unknown`` is NOT ``trusted`` (fail-closed). When the run
-                resolves to the WASI 0.2 component ABI under any posture but
-                ``trusted``, process isolation is mandatory: the guest is routed
-                through the disposable worker, and if that isolation is not
-                available the run is refused BEFORE it starts — never silently
-                downgraded to in-process. ``trusted`` keeps the in-process fast
-                path for workloads the host explicitly authorised. An invalid
-                value raises ``ValueError`` (a typo must not widen the guarantee).
+                ``unknown`` is NOT ``trusted`` (fail-closed). Under the 1.2.0
+                mandate a run under any posture but ``trusted`` requires process
+                isolation for BOTH ABIs: the guest is routed through the
+                disposable worker whether it resolves to preview1 or component,
+                and if that isolation is not available the run is refused BEFORE
+                it starts — never silently downgraded to in-process. ``trusted``
+                keeps the in-process fast path for workloads the host explicitly
+                authorised. An invalid value raises ``ValueError`` (a typo must
+                not widen the guarantee).
             protected_component: Opt into the Protected WASI Component profile
                 (explicitly activated, default ``False``). When True the run is
                 admitted ONLY if every protected-profile invariant holds, and
@@ -570,6 +767,20 @@ class WASISandbox:
             admission is an ERROR whose stderr names the exhausted cap; nothing
             is started, no subprocess is spawned and no module is compiled.
         """
+        # Runtime qualification is a precondition of running a guest, not a label
+        # in the documentation: an engine outside the controlled line is NOT the
+        # audited runtime this release was secured against, and a caller that
+        # reaches the library directly (an agent, an adapter) must get the same
+        # refusal the CLI reports. The documented escape hatch is the operator
+        # saying so out loud; it never applies silently, and nothing is spawned,
+        # compiled or billed before this decision.
+        qualified, why = runtime_qualification()
+        if not qualified and not unqualified_runtime_allowed():
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=1,
+                stderr=f"refused: unqualified runtime — {why}",
+            )
         # Protected WASI Component profile: when explicitly
         # activated, EVERY profile invariant is decided here BEFORE anything
         # spawns, compiles, or bills — a refusal is free and starts no guest.
@@ -605,12 +816,14 @@ class WASISandbox:
             refusal = self._sync_blockade_refusal(wasm_path, abi)
             if refusal is not None:
                 return refusal
-        # ADR-015 isolation mandate: an untrusted/unknown run that resolves to
-        # the component ABI MUST execute in the isolated worker. Decided here at
-        # the single choke point BEFORE dispatch, so no entry point (abi=auto,
-        # MCP, run_wasm, direct) can bypass it, and the flag can only be raised
-        # to subprocess — never lowered — so a forced run can never fall back to
-        # in-process on a worker error (the worker's own fail-closed ERROR holds).
+        # ADR-015 isolation mandate (binding for 1.2.0):
+        # an untrusted/unknown run MUST execute in the isolated worker for BOTH
+        # ABIs -- preview1 no longer keeps a weaker in-process default. Decided
+        # here at the single choke point BEFORE dispatch, so no entry point
+        # (abi=auto, MCP, run_wasm, CLI, direct) can bypass it, and the flag can
+        # only be raised to subprocess -- never lowered -- so a forced run can
+        # never fall back to in-process on a worker error (the worker's own
+        # fail-closed ERROR holds).
         use_subprocess, refusal = self._isolation_gate(
             wasm_path, abi, trust, use_subprocess
         )
@@ -623,6 +836,27 @@ class WASISandbox:
                 # and the ERROR status plus the refusal reason carry the verdict.
                 refusal.abi = None
             return refusal
+        # ADR-004 state grant is an in-process-only capability: a subprocess
+        # worker has no handle on the host-side store, so the guest's
+        # ephemora_state.* imports would resolve nothing. Under the 1.2.0
+        # isolation mandate an untrusted/unknown run is forced to the worker,
+        # which would silently drop the state capability. Refuse instead of
+        # degrading either guarantee (no silent capability loss).
+        if state_store is not None and use_subprocess:
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                stderr=(
+                    "refused: a state_store grant (ADR-004) needs the in-process "
+                    "path, but process isolation is mandated for this "
+                    f"'{trust}' posture (1.2.0 mandate) or was explicitly "
+                    "requested as a subprocess run. Host-side state cannot be "
+                    "shared into the disposable worker; running it there would "
+                    "silently drop the state capability. Mark the workload "
+                    "'trusted' to share state in-process, or run it without a "
+                    "state_store."
+                ),
+                abi=self._resolve_executed_abi(wasm_path, abi),
+            )
         if tenant is None:
             if tenant_budget is not None or tenant_store is not None:
                 raise ValueError(
@@ -1088,17 +1322,18 @@ class WASISandbox:
     def _isolation_gate(
         self, wasm_path: str, abi: str, trust: str, use_subprocess: bool
     ) -> tuple[bool, ExecutionResult | None]:
-        """ADR-015 central enforcement gate (Option A).
+        """ADR-015 central enforcement gate (the 1.2.0 decision).
 
         Returns ``(effective_use_subprocess, refusal)``. A refusal is a
         controlled ERROR returned BEFORE any spawn/compile so the guest never
-        starts in-process. ``trusted`` (explicit host authorisation) and any run
-        that does not resolve to the component ABI are passed through unchanged
-        — the mandate is the measured fatal class, not a blanket subprocess
-        flip. An untrusted/unknown component is forced to ``use_subprocess=True``
-        whenever isolation is available, and refused (never downgraded) when it
-        is not. The verdict reads the SAME ``isolation_required_for`` the record
-        attests through ``execution_mode``, so claim and enforcement cannot drift.
+        starts in-process. Only ``trusted`` (explicit host authorisation) is
+        passed through unchanged. ``untrusted`` and ``unknown`` are forced to
+        the worker for BOTH ABIs (preview1 and component): an unclassified or
+        foreign run is never silently trusted and never demoted to the weaker
+        in-process path because of the ABI it happens to use. When process
+        isolation is unavailable such a run is refused (never downgraded). The
+        verdict reads the SAME ``isolation_required_for`` the record attests
+        through ``execution_mode``, so claim and enforcement cannot drift.
         """
         if trust not in VALID_TRUST:
             raise ValueError(
@@ -1108,9 +1343,16 @@ class WASISandbox:
         if trust == "trusted":
             # Host explicitly authorised the in-process fast path.
             return use_subprocess, None
+        if _in_isolation_boundary():
+            # We are already the mandated disposable worker: run the guest
+            # in-process here rather than recursively spawning a sub-worker
+            # (the 759-incident fan-out). Trust is unchanged -- only the
+            # re-spawn is suppressed.
+            return False, None
         resolved = self._resolve_executed_abi(wasm_path, abi)
         if not isolation_required_for(trust, resolved):
-            # preview1 keeps its documented baseline; nothing to enforce here.
+            # Unreachable for the current mandate (only trusted escapes above);
+            # kept so the predicate stays the single source of truth.
             return use_subprocess, None
         if self._isolation_available():
             # Force the worker. Never lowered again — no in-process fallback.
@@ -1120,11 +1362,12 @@ class WASISandbox:
             ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 stderr=(
-                    f"refused: '{trust}' component requires process isolation, "
-                    "but the isolated worker is unavailable in this environment. "
-                    "Running it in-process would silently drop the guarantee the "
-                    "posture demands — no in-process fallback is attempted. "
-                    "Install/enable the subprocess worker or run a preview1 module."
+                    f"refused: '{trust}' run requires process isolation "
+                    f"({resolved} ABI), but the isolated worker is unavailable "
+                    "in this environment. Running it in-process would silently "
+                    "drop the guarantee the posture demands — no in-process "
+                    "fallback is attempted. Install/enable the subprocess worker "
+                    "or mark the workload explicitly trusted."
                 ),
                 abi=resolved,
             ),
@@ -1161,12 +1404,32 @@ class WASISandbox:
             from .wasi_02 import ComponentSandbox, is_component_binary
 
             if abi == "component" or is_component_binary(wasm_path):
-                return ComponentSandbox(self._config).run(
-                    wasm_path,
-                    args=args,
-                    stdin_data=stdin_data,
-                    expected_sha256=expected_sha256,
-                )
+                # The primitive owns a capture directory that outlives its run
+                # until its cleanup() is called — that is the documented
+                # lifecycle every internal caller follows (the worker, the CLI,
+                # the language adapters, the MCP engine). This delegation built
+                # the object, ran it and dropped it, so the directory belonged to
+                # an object the facade's own cleanup() can never reach: an
+                # operator who ran a component and called cleanup() was left with
+                # the guest's stdin and stdout on disk. Measured before the pair
+                # was added (tests/test_execution_invariants.py).
+                inner = ComponentSandbox(self._config)
+                try:
+                    return inner.run(
+                        wasm_path,
+                        args=args,
+                        stdin_data=stdin_data,
+                        expected_sha256=expected_sha256,
+                    )
+                finally:
+                    # The inner object's capture directory is not reachable by
+                    # self.cleanup() — this facade never set _host_dir for it. So
+                    # any residue its removal could not clear has to be carried
+                    # here, or a component route would report "cleaned" while a
+                    # guest's stdin and stdout survive on the host.
+                    residue = inner.cleanup()
+                    if residue:
+                        self._delegated_residue.extend(residue)
 
         wasm_path_resolved = Path(wasm_path).resolve()
         if not wasm_path_resolved.exists():
@@ -1211,6 +1474,61 @@ class WASISandbox:
         effective_preopens: tuple[str, ...] = ()
 
         start_time = time.monotonic()
+
+        # ADR-002 byte wall on the preview1 path — scope: the private sandbox
+        # dir. The sum, the poller handle and the END-OF-RUN SAMPLE are defined
+        # HERE, before the first failure-prone step, because every exit route of
+        # this method must be able to run the same end-of-run measurement. That
+        # includes the outer ``except Exception`` handler, and a guest's
+        # ``proc_exit`` lands exactly there: ``wasmtime.ExitTrap`` derives from
+        # ``WasmtimeError``, NOT from ``Trap`` (measured 2026-10-16).
+        io_budget_limit = self._config.io_budget_bytes
+        io_bytes_written = 0
+        bytes_watch_thread: threading.Thread | None = None
+
+        def _sandbox_dir_size() -> int:
+            total = 0
+            for root, _, files in os.walk(sandbox_dir):
+                for name in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, name))
+                    except OSError:
+                        pass
+            return total
+
+        def _end_of_run_breach() -> ExecutionResult | None:
+            """ADR-002 end-of-run sample — same form as the component path.
+
+            The poller cannot see a write that begins and finishes inside one
+            interval, so the sandbox dir is summed once the guest has stopped.
+            Joining the poller first (its stop event is set on every exit route
+            of this method) keeps a late poller assignment from landing next to
+            a fresh verdict: what is read here is the end-of-run truth. This
+            DETECTS — the bytes of such a run are already on disk; the poller is
+            what interrupts a sustained overrun. Returns the breach result, or
+            ``None`` when the run is within budget (or no budget is set).
+            """
+            nonlocal io_bytes_written
+            if io_budget_limit is None:
+                return None
+            if bytes_watch_thread is not None:
+                bytes_watch_thread.join(10.0)
+            io_bytes_written = _sandbox_dir_size()
+            if io_bytes_written <= io_budget_limit:
+                return None
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                stderr=(
+                    f"I/O budget exceeded: guest wrote {io_bytes_written} bytes "
+                    f"to the sandbox dir (io_budget_bytes={io_budget_limit})"
+                ),
+                stdout=_read_capped_output(stdout_path) if stdout_path else "",
+                sandbox_dir=sandbox_dir,
+                elapsed_ms=(time.monotonic() - start_time) * 1000,
+                io_bytes_written=io_bytes_written,
+                io_budget_exceeded=True,
+                effective_preopens=effective_preopens,
+            )
 
         try:
             # Per-run engine for epoch isolation, or a pooled engine under a
@@ -1319,7 +1637,7 @@ class WASISandbox:
                         sandbox_dir=sandbox_dir,
                     )
                 stdin_path = os.path.join(host_dir, "stdin.txt")
-                with open(stdin_path, "w") as f:
+                with _open_private(stdin_path, "w") as f:
                     f.write(stdin_data)
                 wasi_cfg.stdin_file = stdin_path
 
@@ -1422,17 +1740,6 @@ class WASISandbox:
             # epoch — for pooled engines one extra increment can pull a
             # sibling store's deadline one tick (50 ms) earlier, accepted.
             io_budget_exceeded = False
-            io_bytes_written = 0
-
-            def _sandbox_dir_size() -> int:
-                total = 0
-                for root, _, files in os.walk(sandbox_dir):
-                    for name in files:
-                        try:
-                            total += os.path.getsize(os.path.join(root, name))
-                        except OSError:
-                            pass
-                return total
 
             def _bytes_watch() -> None:
                 # Precise byte wall for the guest scratch dir (ADR-002).
@@ -1448,14 +1755,23 @@ class WASISandbox:
 
             if interrupt_event is not None:
                 _start_interrupt_watch(engine, interrupt_event, timeout_event)
-            if self._config.io_budget_bytes is not None:
-                threading.Thread(target=_bytes_watch, daemon=True).start()
+            if io_budget_limit is not None:
+                # The handle is kept: the end-of-run sample joins it so a poller
+                # assignment cannot land after the end-of-run reading.
+                bytes_watch_thread = threading.Thread(target=_bytes_watch, daemon=True)
+                bytes_watch_thread.start()
 
             try:
                 start_func(store)
                 exit_code = 0
             except Trap as trap:
                 timeout_event.set()
+                # ADR-002 end-of-run sample BEFORE the trap is classified: an
+                # over-budget run is a breach whatever ended it — the same
+                # precedence the component path uses.
+                breach = _end_of_run_breach()
+                if breach is not None:
+                    return breach
                 trap_msg = str(trap)
 
                 if "epoch" in trap_msg.lower() or "interrupt" in trap_msg.lower():
@@ -1531,6 +1847,7 @@ class WASISandbox:
                     return ExecutionResult(
                         status=ExecutionStatus.SUCCESS,
                         exit_code=0,
+                        guest_exit_observed=True,
                         stdout=stdout_raw,
                         stderr=stderr_raw,
                         elapsed_ms=(time.monotonic() - start_time) * 1000,
@@ -1555,6 +1872,10 @@ class WASISandbox:
                 return ExecutionResult(
                     status=ExecutionStatus.ERROR,
                     exit_code=exit_code,
+                    # Only an explicit "exit status N" is the guest speaking.
+                    # A sync/refusal trap has no guest exit; its placeholder 1
+                    # must never be promoted to an exact exit-status claim.
+                    guest_exit_observed=exit_match is not None,
                     stdout=stdout,
                     stderr=stderr_combined,
                     sandbox_dir=sandbox_dir,
@@ -1563,6 +1884,10 @@ class WASISandbox:
                 )
             finally:
                 timeout_event.set()
+
+            breach = _end_of_run_breach()
+            if breach is not None:
+                return breach
 
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
@@ -1584,6 +1909,7 @@ class WASISandbox:
             return ExecutionResult(
                 status=ExecutionStatus.SUCCESS,
                 exit_code=exit_code,
+                guest_exit_observed=True,
                 stdout=stdout,
                 stderr=stderr,
                 elapsed_ms=elapsed_ms,
@@ -1597,6 +1923,17 @@ class WASISandbox:
             )
 
         except Exception as e:
+            # ADR-002 end-of-run sample on the route a real guest exit takes.
+            # ``proc_exit`` raises ``wasmtime.ExitTrap`` (a ``WasmtimeError``,
+            # not a ``Trap``), so a guest that writes over budget and then exits
+            # lands HERE. Without this sample the run came back SUCCESS with
+            # ``io_bytes_written=None`` while its bytes sat in the sandbox dir
+            # (preview1 hard-exit case, measured 2026-10-16: 12.5 MiB on disk
+            #  at budget 1024).
+            breach = _end_of_run_breach()
+            if breach is not None:
+                return breach
+
             elapsed_ms = (time.monotonic() - start_time) * 1000
             exit_code = 1
             exit_match = re.search(r"exit status (\d+)", str(e))
@@ -1636,6 +1973,7 @@ class WASISandbox:
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     exit_code=0,
+                    guest_exit_observed=True,
                     stdout=stdout,
                     stderr=_limit_output(str(e) + stderr_from_file),
                     elapsed_ms=elapsed_ms,
@@ -1650,6 +1988,9 @@ class WASISandbox:
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 exit_code=exit_code,
+                # an "exit status N" trap is the guest speaking; anything else
+                # reaching this handler (a rejected load, a host fault) is not
+                guest_exit_observed=exit_match is not None,
                 stdout=stdout,
                 # N-1 kept, with the exposure fixed: the host traceback stays
                 # diagnosable, but in its OWN field. `stderr` is what the MCP
@@ -1856,7 +2197,11 @@ class WASISandbox:
                 if os.path.exists(dir_path):
                     leftovers.append(str(dir_path))
             setattr(self, attr, None)
-        return leftovers
+        # residue a delegated component run already reported cannot be retried
+        # here (the primitive dropped its own handle); it must still be returned.
+        leftovers.extend(self._delegated_residue)
+        self._delegated_residue = []
+        return sorted(set(leftovers))
 
     @property
     def sandbox_dir(self) -> str | None:
@@ -1879,6 +2224,7 @@ class WASISandbox:
             io_budget_exceeded=bool(report.get("io_budget_exceeded", False)),
             execution_mode="subprocess",
             abi=report.get("abi"),
+            guest_exit_observed=bool(report.get("guest_exit_observed", False)),
         )
 
 

@@ -1,0 +1,17 @@
+baf531aa433adfea1c80d5bce9881af9e3b8aa002f854c102a19799ae848ada1
+-- vor Abbruch: docker top --
+-- vor Abbruch: Host-Sicht der Prozesse --
+kill_rc=1
+-- nach Abbruch --
+exists=cell-abort status=Exited (0) 3 seconds ago
+running=false exitcode=0 oom=false
+-- Logs nach Abbruch (kein erfolgreiches Ergebnis zu erwarten) --
+  "stdout_head": "''",
+  "stderr_head": "'I/O budget exceeded: worker used 2.04s absolute process CPU (io_cpu_seconds=2.0; 1.89s of it attributable to this run \u2014 the wall counts the whole worker process, startup included): Timeout after 600.0s: error while executing at wasm backtrace:\\n    0:     0x2f - m!<wasm function 0>\\n\\nCaused by:\\n    wasm trap: interrupt\\n'",
+  "error_head": "''",
+  "wall_ms": 2112.0,
+  "parent_survived": true
+}
+rm_rc=0
+-- Logs nach rm --
+Error response from daemon: No such container: cell-abort

@@ -6,8 +6,15 @@ runs need a per-run engine with deadline=1 (epoch-interruption contract).
 The README's "0.12ms warm pooled" therefore holds only for trusted runs
 with io_budget_bytes=None; the DEFAULT one-liner is a per-run-engine path.
 
-This measures both, wall-clock around WASISandbox.run() (engine build
-included), n=1000 after 50 warmup runs, hello.wasm guest. Output JSON
+Since 1.2.0 there is a second split (ADR-015): only ``trust="trusted"``
+(an explicit host authorisation) keeps the in-process fast path; a run under
+any other posture (``unknown`` is the default) is routed through the
+disposable worker process. The first two scenarios pin ``trust="trusted"``
+so they keep measuring the in-process engine question; the third scenario
+measures the actual default posture — the worker's process lifecycle cost.
+
+This measures all three, wall-clock around WASISandbox.run() (engine build
+included), n timed runs after 50 warmup runs, hello.wasm guest. Output JSON
 carries the measured:true convention (source: measurement).
 """
 
@@ -30,28 +37,39 @@ WARMUP = 50
 WASM = Path(__file__).resolve().parents[1] / "examples" / "hello.wasm"
 
 SCENARIOS = {
-    "pooled_warm (io_budget_bytes=None)": WASIConfig(io_budget_bytes=None),
-    "default (io_budget_bytes=64MiB, per-run engine)": WASIConfig(),
+    "pooled_warm (trust=trusted, io_budget_bytes=None)": (
+        WASIConfig(io_budget_bytes=None),
+        "trusted",
+    ),
+    "default (trust=trusted, io_budget_bytes=64MiB, per-run engine)": (
+        WASIConfig(),
+        "trusted",
+    ),
+    "default_posture (trust=unknown -> disposable worker, ADR-015)": (
+        WASIConfig(),
+        "unknown",
+    ),
 }
 
 
-def measure(name: str, config: WASIConfig, n: int = 1000) -> dict:
+def measure(name: str, config: WASIConfig, trust: str, n: int = 1000) -> dict:
     sandbox = WASISandbox(config=config)
     try:
         for _ in range(WARMUP):
-            result = sandbox.run(str(WASM))
+            result = sandbox.run(str(WASM), trust=trust)
             assert result.status.name == "SUCCESS", result.stderr[:200]
         walls = []
         elapsed = []
         for _ in range(n):
             t0 = time.perf_counter()
-            result = sandbox.run(str(WASM))
+            result = sandbox.run(str(WASM), trust=trust)
             walls.append((time.perf_counter() - t0) * 1000)
             elapsed.append(result.elapsed_ms)
         walls.sort()
         elapsed.sort()
         return {
             "n": n,
+            "trust": trust,
             "wall_ms_median": round(statistics.median(walls), 4),
             "wall_ms_p95": round(walls[int(0.95 * len(walls))], 4),
             "wall_ms_min": round(walls[0], 4),
@@ -82,8 +100,8 @@ def main() -> None:
         "warmup": WARMUP,
         "scenarios": {},
     }
-    for name, config in SCENARIOS.items():
-        out["scenarios"][name] = measure(name, config, n)
+    for name, (config, trust) in SCENARIOS.items():
+        out["scenarios"][name] = measure(name, config, trust, n)
         print(f"{name}:")
         for key, value in out["scenarios"][name].items():
             print(f"  {key}: {value}")

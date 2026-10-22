@@ -1,0 +1,70 @@
+{
+  "artifact_sets": {
+    "epoch_pinned_builds": {
+      "built_from": "a second fresh checkout of the source commit, SOURCE_DATE_EPOCH fixed",
+      "wheel_sha256": "55773e2a91968dec1b819eb554e03e32a2dffc3186fe9a9e86316e358f942f1f",
+      "sdist_note": "the two sdists are not byte-identical (tar embeds file mtimes)",
+      "wheel_identical_across_runs": true
+    },
+    "fresh_checkout_build": {
+      "built_from": "a fresh checkout of the source commit (tracked content only)",
+      "sdist_sha256": "64c26e2534fc5ee5f80ea132bcd3c7edec1f650b454f69c9b9e457241fb21daf",
+      "wheel_sha256": "bef21945a75eb4bd5ae72576e6a783b3f321ae51edc946dc40a1fe148699763f"
+    },
+    "local_verification_build": {
+      "built_from": "the verification working tree at this commit (wheel+sdist recorded in the release-identity manifest)",
+      "sdist_sha256": "a4db3216089b4e28e1bf6df793ba4cec37b96fb1f1a03f3989899115ca6286fb",
+      "wheel_sha256": "06012bb5d316dd889716ec7cea1eb2d401f99f3813ac616f7a7cea996c3b4b4f"
+    },
+    "pypi_published_1_1_0": {
+      "sdist_sha256": "f4ec76bb53617dd53c1f2037fb93cf6d41b46ff240bd4ca4083b6821066a4820",
+      "wheel_sha256": "94cf392f8c984414dfe912d7f98b2aaf262758e49508ab9650748492ec989d58"
+    }
+  },
+  "container": {
+    "base_image_digest": "sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d",
+    "image_id": "sha256:a6ab079d19b8cca2e167871ae401388ca6b30d7d4268bb317dca10f344e7e599",
+    "image_ref": "ephemora-cell-ref:1.1.0",
+    "native_linux_artifact": {
+      "bytes": 27854992,
+      "path": "wasmtime/linux-aarch64/_libwasmtime.so (inside image, python3.12 site-packages)",
+      "sha256": "9c8fb2de6dc11bba478e010f2b35849651ad047ebd80ec0cf695816b2e66f322"
+    }
+  },
+  "date": "2026-10-13",
+  "findings": {
+    "gitignore_defect": {
+      "fix": "explicit negation '!deploy/linux-reference/fixtures/*.wasm' added to .gitignore",
+      "issue": "the global '*.wasm' ignore rule silently excluded the shipped reference fixtures, so a fresh clone of the public reference package would have been incomplete",
+      "verified": "both fixture files now appear in the would-add set (git status --untracked-files=all)"
+    },
+    "version_string_collision": {
+      "distinct_wheel_digests_for_the_same_version_string": 4,
+      "note": "the published PyPI 1.1.0, the local verification build, the fresh-checkout build and the epoch-pinned build are four different wheels under the identical name '1.1.0'; the identity manifest names them apart by digest",
+      "same_version_string": "1.1.0"
+    }
+  },
+  "fresh_install_reproduction": {
+    "console_scripts_present": ["ephemora-cell", "ephemora-cell-mcp"],
+    "ephemora_cell_version": "1.1.0",
+    "install_source": "a fresh-checkout wheel of this commit, installed into a clean virtualenv",
+    "python_version": "3.14.0",
+    "wasmtime_version": "49.0.0"
+  },
+  "identity_manifest": "benchmarks/results/2026-10-13/release_identity.json",
+  "public_content_guard": {
+    "command": "python scripts/check_public_content.py --include-untracked",
+    "files_not_yet_tracked": 42,
+    "files_scanned": 424,
+    "result": "clean"
+  },
+  "rc_labelling_probe": {
+    "manifest_rule": "release_identity.py marks any PEP 440 labelled build publishable=false by design; the label is what separates it from the released artifact of the same line",
+    "pep440_label": "rc1",
+    "planned_release_candidate": "1.2.0rc1",
+    "version_split_confirms_label": true
+  },
+  "schema": "ephemora-cell/release-identity-verification/1",
+  "source_commit": "73032742d097e019a36d320f111c5b651f4e4e5c",
+  "source_tree": "27ae64285dacc142920dc9954aabadedcf8e72c0"
+}

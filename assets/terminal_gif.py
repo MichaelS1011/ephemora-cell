@@ -3,6 +3,10 @@
 macOS-style terminal window, GitHub-dark palette, soft-scrolling transcript,
 ffmpeg palette render. Deterministic: same scenes + same inputs produce
 byte-identical frames. Importers define only their SCENES and OUT.
+
+Out lines wider than the frame soft-wrap at word boundaries, the way a real
+terminal wraps instead of running under the border. Lines that fit render
+byte-identically to before; only the wrap decision is added.
 """
 import subprocess
 import tempfile
@@ -33,6 +37,28 @@ LH = FONT_SIZE + 12
 PAUSE_CMD = 8
 PAUSE_OUT = 5
 
+# Widest out line that fits between the out indent and the window edge.
+WRAP_AVAIL = W - MARGIN - 8 - (MARGIN + 34)
+
+
+def _wrap_out(text):
+    """Split one out line at word boundaries when it exceeds the frame.
+    Deterministic (fixed font metrics); a line that fits is returned as-is."""
+    if FONT.getlength(text) <= WRAP_AVAIL:
+        return [text]
+    segments, current = [], ""
+    for word in text.split(" "):
+        candidate = f"{current} {word}" if current else word
+        if FONT.getlength(candidate) <= WRAP_AVAIL:
+            current = candidate
+        else:
+            if current:
+                segments.append(current)
+            current = word
+    if current:
+        segments.append(current)
+    return segments
+
 
 def frame(history, current_cmd, typed, out_lines, out_reveal, type_speed):
     img = Image.new("RGB", (W, H), BG)
@@ -50,12 +76,14 @@ def frame(history, current_cmd, typed, out_lines, out_reveal, type_speed):
     lines = []
     for cmd, outs in history:
         lines.append(("prompt", cmd))
-        lines += [("out", t, c) for t, c in outs]
+        for t, c in outs:
+            lines += [("out", seg, c) for seg in _wrap_out(t)]
         lines.append(("gap", ""))
     if current_cmd is not None:
         cursor = "▌" if (typed // type_speed) % 2 else ""
         lines.append(("prompt", current_cmd[:typed] + cursor))
-        lines += [("out", t, c) for t, c in out_lines[:out_reveal]]
+        for t, c in out_lines[:out_reveal]:
+            lines += [("out", seg, c) for seg in _wrap_out(t)]
     avail = H - (MARGIN + 64) - 14
     height = sum(LH if it[0] != "gap" else 8 for it in lines)
     while height > avail and lines:

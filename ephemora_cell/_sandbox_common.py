@@ -38,6 +38,8 @@ from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from typing import IO
+
     from wasmtime import WasiConfig as WasmtimeWasiConfig
 
 # --- Output Budget (max 10 KB of UTF-8 bytes per execution) ---
@@ -54,6 +56,11 @@ _MAX_OUTPUT_BYTES = 10_000
 STDIN_MAX_BYTES = 9_216
 # WASI errno returned to the guest once the output budget is exhausted.
 _WASI_ERRNO_NOSPC = 51
+# A refused whole chunk leaves the budget under-filled (the sink does not split
+# guest buffers). Keep one sentinel so the reader can still say that data was
+# lost, while subsequent refusals cannot append another marker.
+_OUTPUT_TRUNCATION_MARKER = b"\n[... truncated]"
+_OUTPUT_TRUNCATED = -1
 
 # macOS temp roots: /tmp and /var/folders are symlinks into /private, so the
 # canonical allowlist would reject the very directories tempfile.mkdtemp()
@@ -354,6 +361,47 @@ def read_capped_output(path: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def open_private(file_path: str, mode: str = "wb") -> IO[Any]:
+    """Open a host-side capture file with owner-only permission bits.
+
+    The built-in ``open()`` applies the process umask, so a capture file created
+    that way lands at ``0644`` — group and world read bits on a file that holds
+    the caller's own stdin and the guest's output. The run's directory is created
+    by ``mkdtemp`` (``0700``), which hides the path, but the directory is not the
+    subject of the claim: a host may place a run inside a base directory other
+    processes already share, and the file itself should never be readable beyond
+    its owner.
+
+    The mode is therefore set on the descriptor, not only at creation. Measured
+    during the pre-push review: with ``O_CREAT`` alone, a path that ALREADY
+    existed with ``0644`` kept ``0644`` — the creation mode is ignored for an
+    existing file, and a capture path can be reopened (the stdout/stderr sink
+    opens in append mode). ``fchmod`` closes that, so the guarantee holds for
+    every open, not only for a freshly created file.
+
+    Args:
+        file_path: Path to create or open.
+        mode: ``"wb"`` for the byte sinks, ``"w"`` for the text stdin capture.
+
+    Returns:
+        A file object, exactly as ``open()`` would have returned.
+    """
+    flags = os.O_WRONLY | os.O_CREAT
+    if "x" in mode:
+        flags |= os.O_EXCL
+    elif "a" in mode:
+        flags |= os.O_APPEND
+    else:
+        flags |= os.O_TRUNC
+    fd = os.open(file_path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, mode)
+
+
 def make_output_sink(
     file_path: str, budget: list[int]
 ) -> Callable[[bytes], int | None]:
@@ -369,11 +417,21 @@ def make_output_sink(
     """
 
     def _sink(data: bytes) -> int | None:
+        if budget[0] == _OUTPUT_TRUNCATED:
+            return -_WASI_ERRNO_NOSPC
         if len(data) > budget[0]:
+            budget[0] = _OUTPUT_TRUNCATED
+            try:
+                with open_private(file_path, "ab") as f:
+                    f.write(_OUTPUT_TRUNCATION_MARKER)
+            except OSError:
+                # The refusal still stands even if the marker cannot be stored;
+                # budget sentinel prevents pretending another chunk fit.
+                pass
             return -_WASI_ERRNO_NOSPC
         budget[0] -= len(data)
         try:
-            with open(file_path, "ab") as f:
+            with open_private(file_path, "ab") as f:
                 f.write(data)
         except OSError:
             return -_WASI_ERRNO_NOSPC

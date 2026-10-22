@@ -1,0 +1,26 @@
+-- memory 512m: 1GB allozieren --
+mem_rc=137
+still_running=true oomkilled_history_container=true
+(dmesg nicht lesbar ohne root: kernel-OOM-Zitat ausbleibend)
+-- pids 128: Fork-Bombe --
+EAGAIN bei 126 Kindern errno=11
+fork_rc=0
+-- cpus 1.0: 4 Spinner concurrently --
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+BlockingIOError: [Errno 11] Resource temporarily unavailable
+cpu_rc=1
+cpu.stat_host:
+usage_usec 704493
+user_usec 144745
+system_usec 559748
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 13
+memory.events_host:
+low 0
+high 0
+max 37
+oom 1
+oom_kill 1
+oom_group_kill 0

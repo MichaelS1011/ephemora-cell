@@ -1,0 +1,26 @@
+[
+    {
+        "Type": "bind",
+        "Source": "<build-tree>/linux-reference/escape_probe.py",
+        "Destination": "/probe/escape_probe.py",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+    },
+    {
+        "Type": "bind",
+        "Source": "<build-tree>/abortlab",
+        "Destination": "/abortlab",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+    },
+    {
+        "Type": "bind",
+        "Source": "<build-tree>/linux-reference/fixtures",
+        "Destination": "/input",
+        "Mode": "ro",
+        "RW": false,
+        "Propagation": "rprivate"
+    }
+]

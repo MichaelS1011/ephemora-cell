@@ -109,6 +109,14 @@ its license is compatible, note it in the PR, and add it to
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — the BUSL-1.1 license covers
 the Licensed Work, not third-party material.
 
+**Contribution consent is being hardened.** The enforceability of
+conduct-based acceptance of the grant above varies by jurisdiction, so until
+the explicit consent step is in place, external contributions are accepted
+only after a written confirmation of these terms on the pull request (the
+maintainer will ask before merging). Commit sign-off (`git commit -s`) is
+planned as a per-commit confirmation — it **supplements, and does not
+replace**, the relicensing grant above.
+
 ## Release Checklist
 
 1. Bump the version in ALL FOUR sources together (they must never drift):

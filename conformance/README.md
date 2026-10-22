@@ -22,23 +22,58 @@ the same sandbox is argued separately — see
 suite** ([WebAssembly/testsuite](https://github.com/WebAssembly/testsuite),
 pinned commit, `wast2json` + harness) against the exact engine
 configuration Cell ships. Files execute in isolated subprocesses, so a
-native upstream abort on one module cannot kill the suite. Every deviation
-is a documented class — memory64/multi-memory modules sit outside the
-shipped config by design, v128 cannot pass through the wasmtime-py 47
-binding (valkind 4), relaxed-simd modules abort natively upstream,
-text-format asserts are skipped (wabt parser domain) — and the remainder
-is listed verbatim in the evidence JSON rather than swept into a pass
-count.
+native upstream abort on one module cannot kill the suite. Per-file results
+are cached, and a cached entry is reused only when it carries the identity of
+the runtime version, engine configuration and pinned suite it was measured
+under — an entry without that stamp is re-measured, because unknown
+provenance is not evidence.
 
 ```bash
 .venv/bin/python conformance/run_core_spec.py   # requires wast2json (wabt)
 ```
 
-Latest run (2026-09-19, pinned `b464a4cd100d`, 257 files / ~36k commands,
-macOS arm64, wasmtime 47.0.1): **31,931 pass** — 3,282 classified
-deviations/limitations, 684 text-format skips, 46 documented binding-level
-NaN-bit remainder; zero unexpected sandbox-policy failures. Evidence:
-`conformance/results/core_spec_2026-09-19.json` (`date: 2026-09-19`).
+Latest run (2026-10-22, pinned `b464a4cd100d`, 257 files, 35,942 harness
+outcomes from the 157 files that completed,
+macOS arm64, wasmtime `49.0.4.post1+git.2c2970205f`):
+**31,896 pass / 3,281 classified deviations-and-limitations / 684 text-format
+skips / 81 failures the harness does not classify**, so the harness exits `1`.
+This job is evidence, not a release gate, and the 81 are itemised in the
+evidence JSON rather than swept into a pass count. Their composition, measured
+case by case:
+
+- **29 on modules the shipped posture refuses by design.** 14 are parse-time
+  refusals: 9 name the exceptions proposal directly, 5 name the constant-expression
+  and table-initializer forms that only exist inside the proposals Cell enforces
+  off (GHSA-m63x-6p34-q65x). The other 15 are later assertions of the same files
+  that depend on those modules having registered (7 `KeyError` on a name no module
+  exported, 7 “no module to resolve”, 1 `register` on an unknown module).
+- **29 exact-bit float comparisons.** In 24 the engine's NaN payload is not
+  recoverable through the Python binding (the value arrives as a plain float), in
+  5 wasmtime propagates a different payload than the reference interpreter's bit
+  pattern. Neither is a Cell behaviour claim; both are harness/binding limits on
+  reading the result.
+- **12 where a module imports an item the harness's spectest environment does
+  not provide** (`test.func*`, `test.global*`, `spectest.print`).
+- **8 table and bulk-operation cases** (7 traps where the spec expects a value,
+  1 differing trap text) and **3 `local_init` validation cases**, all long-standing
+  and unchanged by the current runtime.
+
+The **3,281 classified** figure deserves one caveat: 100 of the 257 files are
+counted as deviations because the process running them died in the upstream
+engine, and an aborted file has **no per-command measurement at all**. Their
+sources contain about 31,330 command-shaped forms (against 69,853 across all
+257 `.wast` sources by the same pattern count), so neither the pass count nor
+the deviation count is a full-suite measurement. The
+harness labels every abort as an upstream native abort without inspecting the
+cause (`aborted_files` in the evidence JSON records the count), so those 100 are
+an upstream outcome report, not a conformance measurement.
+
+None of them is a sandbox-policy outcome: this harness drives the engine
+directly, and the policy layer is measured by the WASI suite below and by the
+security harnesses. The earlier published figure — 31,931 pass / 46 fail — was
+measured under wasmtime 47.0.1 and before the proposal lockdown entered this
+harness's engine configuration; the corrected numbers above are what the
+shipped configuration measures today.
 
 ## WASI suite
 
@@ -54,14 +89,26 @@ runtime adapter, the by-design deviation list and the runner-instability note.
 The orchestrator:
 
 1. checks out the suite at the **pinned commit** into
-   `.conformance_cache/wasi-testsuite` (gitignored — never vendored),
+   `.conformance_cache/wasi-testsuite` (gitignored — never vendored) and
+   **verifies the checkout is on that commit** before measuring — a cache left on
+   another revision aborts the run instead of labelling its results with the pin,
 2. invokes the suite's own `run-tests` with `adapters/ephemora_cell.py`
    and `expectations.toml`,
-3. writes the raw JSON plus a `summary-*.json` digest into `results/`.
+3. writes the raw JSON plus a `summary-*.json` digest into `results/`, counting
+   each test by its own recorded outcome and reporting the runner's per-suite
+   header alongside whenever the two disagree.
 
-Latest run (2026-09-14, pinned `609c44613995`, macOS arm64, wasmtime 47.0.1,
-ephemora-cell 1.0.1): **72 pass, 1 xfail (documented), 0 fail**; 55 preview-3
-tests skipped (Cell declares preview 1 only).
+Latest run (2026-10-22, pinned `609c44613995`, observed revision identical to the
+pin, macOS arm64, wasmtime `49.0.4.post1+git.2c2970205f`, ephemora-cell 1.2.0):
+**71 pass, 1 documented by-design expected-failure, 0 fail** across the 72 tests
+the preview-1 suites execute; 55 preview-3 tests skipped (Cell declares preview 1
+only). The run needed no engine-abort retry at all (`engine_abort_retries: []`).
+An earlier version of this document said **72 pass / 1 xfail** for the same 72
+tests: the upstream runner's per-suite header counts an expected failure inside
+its `passed` column, and this harness copied the header, so the two figures
+described 73 results from 72 executions. The summary now counts the per-test
+outcomes (71 + 1) and keeps the diverging header in the evidence file.
+Evidence: `conformance/results/summary-609c44613995-2026-10-21.json`.
 
 ### Adapter
 

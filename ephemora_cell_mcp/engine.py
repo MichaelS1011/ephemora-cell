@@ -48,10 +48,12 @@ from ephemora_cell.execution_report import (
     ABI_PREVIEW1,
     TRUST_TRUSTED,
     TRUST_UNKNOWN,
+    exit_status_fidelity,
     isolation_required_for,
 )
 from ephemora_cell.grant_ledger import GrantLedger
 from ephemora_cell.profiles import get as get_profile
+from ephemora_cell.runtime_qualification import unqualified_runtime_allowed
 
 from .tool_registry import ToolSpec
 
@@ -111,6 +113,18 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
     This is the enrichment attached to MCP results as ``_meta``:
     fuel_consumed, fuel_budget, elapsed_ms, status and the
     security_baseline (incl. wasmtime_version).
+
+    ``exit_status_fidelity`` travels here too, derived by the one function the CLI
+    and the signed record use: an agent reading ``_meta`` must be able to tell
+    whether ``exit_code`` is the guest's own number, only the fact that the guest
+    left non-zero, or a run that never reached a guest at all. Without it a refused
+    or rejected run would read as a plain ``exit_code: 1``.
+
+    ``unqualified_runtime_allowed`` travels here as well. The escape hatch that
+    lets guest run on an engine outside the qualified line is the operator's most
+    consequential option, and a server whose ``_meta`` showed a round-looking
+    success while the release's qualification did not cover it would let an agent
+    read an uncovered run as a covered one.
     """
     report = ExecutionReport(
         status=result.status.value,
@@ -122,6 +136,9 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
         stderr_bytes=len(result.stderr.encode("utf-8")),
         module_path="",
         sandbox_dir=result.sandbox_dir or "",
+        exit_status_fidelity=exit_status_fidelity(
+            abi=result.abi, guest_exit_observed=result.guest_exit_observed
+        ),
     )
     report.apply_config(
         config,
@@ -131,6 +148,8 @@ def build_report(result: ExecutionResult, config: Any) -> ExecutionReport:
         execution_mode=result.execution_mode,
         abi=result.abi,
     )
+    if unqualified_runtime_allowed():
+        report.unqualified_runtime_allowed = True
     return report
 
 
@@ -314,24 +333,42 @@ class CellToolEngine:
             egress = self._mediate_egress(result.sandbox_dir, spec.name)
         finally:
             sandbox.cleanup()
+        report = build_report(result, config)
+        # A sidecar can only narrow a profile, never widen it — but the caller of
+        # `tools/call` has to be able to SEE that. Measured on the release build: a
+        # host-signed manifest asking for `/etc` installs, runs, and attests
+        # preopens=["/sandbox"]; without this line the only trace of the dropped
+        # request is a host log line an agent never reads. Same rule the CLI
+        # follows for a flag whose value would be discarded: say what did not apply.
+        if spec.allow_dirs:
+            dropped = [d for d in spec.allow_dirs if d not in config.allow_dirs]
+            if dropped:
+                report.add_warning(
+                    f"tool sidecar requested preopens {dropped} that the "
+                    f"'{spec.profile}' profile does not grant; this run got the "
+                    "intersection — see security_baseline.preopens"
+                )
         return CellOutcome(
             result=result,
-            report=build_report(result, config),
+            report=report,
             egress=egress,
         )
 
     def _refuse_if_egress_conflicts_with_isolation(
         self, spec: ToolSpec, trust: str
     ) -> None:
-        """ADR-015 \u00a72: sidecar egress is not supported across the isolation
-        boundary, so a run that MUST be isolated and ALSO has an egress surface
-        is refused BEFORE it starts \u2014 never silently run isolated with the
-        egress capability dropped, and never downgraded to in-process to keep it.
+        """ADR-015 \u00a72 (1.2.0 mandate): sidecar egress is not supported
+        across the isolation boundary, so a run that MUST be isolated and ALSO
+        has an egress surface is refused BEFORE it starts \u2014 never silently run
+        isolated with the egress capability dropped, and never downgraded to
+        in-process to keep it.
 
-        A ``trusted`` component (host-authorised) keeps today's in-process
-        egress path unchanged, and a preview1 run is not the mandate class, so
-        the existing preview1 + egress deployment is untouched. Full egress
-        parity under isolation is separate follow-up work, documented as such.
+        A ``trusted`` run (host-authorised) keeps the in-process egress path
+        unchanged. Under the 1.2.0 decision an ``untrusted``/``unknown`` run is
+        the mandate class for BOTH ABIs, so preview1 + egress is now refused too
+        \u2014 the former preview1 + egress deployment is a documented breaking
+        change (see the 1.2.0 migration guide); full egress parity under
+        isolation is separate follow-up work.
         """
         if trust == TRUST_TRUSTED:
             return

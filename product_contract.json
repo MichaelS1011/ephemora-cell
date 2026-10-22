@@ -1,0 +1,236 @@
+{
+  "_readme": "Machine-readable product contract. Read by tests/test_product_contract.py; explained in docs/product_contract.md. Status values: supported (qualified, acceptance tests exist), experimental (usable but not release-qualified; reason required), unavailable (not deliverable today; reason required), unqualified (outside the support claim). JSON rather than TOML because the project supports Python 3.10, where tomllib does not exist.",
+  "schema": 1,
+  "version": "1.2.0",
+  "platforms": {
+    "qualified": [
+      "darwin-arm64"
+    ],
+    "unqualified": [
+      "linux-x86_64",
+      "linux-aarch64",
+      "windows-x86_64",
+      "windows-arm64",
+      "musl",
+      "android"
+    ],
+    "note": "Only macOS arm64 carries release evidence for 1.2.x. doctor reports any other platform as NOT QUALIFIED (a warning, not a lie). The runtime wheel is macosx_11_0_arm64 only, so elsewhere the runtime floor cannot be satisfied and execution fails closed."
+  },
+  "python": {
+    "qualified": [
+      "3.10",
+      "3.11",
+      "3.12",
+      "3.13"
+    ],
+    "pending": [],
+    "exercised": [
+      "3.14"
+    ],
+    "note": "Each qualified version ran the full suite against the qualified runtime 49.0.4.post1+git.2c2970205f in its own venv, in CI shape (no packaged guest, no built wheel): 3.10.20, 3.11.15, 3.12.13 and 3.13.14 each 1775 passed / 27 skipped, rc=0 (measured 2026-10-22 on the 49.0.4 runtime; the per-run logs are the evidence). Each of those venvs also carries the core wheel, because two legs exec the `ephemora` console script and examples/signed_record_demo.py as a subprocess. The split moves with what a venv carries - installed guest wheels turn three resolver legs from pass to skip (docs/release_assurance.md, states C/D) - so the per-run log is the evidence, not a constant. 3.14 is exercised as an interpreter guest only and carries no host claim. 3.10/3.11 needed a parser repair: CPython only intermixes a nargs='*' positional with optionals from 3.12.5 (gh-61252), so `run target --json a b` dropped the guest argv there - fixed in cli._parse_argv and pinned by tests/test_language_env_args_cli.py on every version."
+  },
+  "capability": [
+    {
+      "id": "cli.run.wasm",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_cli.py::TestJsonMode",
+        "tests/test_execution_invariants.py"
+      ],
+      "note": "ephemora run <module.wasm> under every shipped profile; the JSON report carries status, runtime identity and exit_status_fidelity."
+    },
+    {
+      "id": "cli.run.python",
+      "surface": "CLI",
+      "status": "experimental",
+      "acceptance": [
+        "tests/test_cli_new_commands.py::TestRunLanguageCommand"
+      ],
+      "reason": "The route works and fails closed without a guest, but the one-command install (pip install 'ephemora-cell[python]') resolves only after the guest distribution is published."
+    },
+    {
+      "id": "cli.run.javascript",
+      "surface": "CLI",
+      "status": "experimental",
+      "acceptance": [
+        "tests/test_cli_new_commands.py::TestRunLanguageCommand"
+      ],
+      "reason": "Same shape as the Python route: the execution path is measured, the public one-command installation is gated on publishing the guest distribution."
+    },
+    {
+      "id": "cli.inspect",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_cli.py::TestInspectComponent"
+      ],
+      "note": "Module introspection, component detection, clean refusal of non-modules."
+    },
+    {
+      "id": "cli.benchmark",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_installed_cli_acceptance.py::test_benchmark_measures_cold_and_warm_runs"
+      ],
+      "note": "Cold/warm timing and fuel statistics on the installed entry point."
+    },
+    {
+      "id": "cli.build",
+      "surface": "CLI",
+      "status": "experimental",
+      "acceptance": [
+        "tests/test_builder.py::TestDetection"
+      ],
+      "reason": "Recipe detection and guidance are tested; the compilers themselves (cargo, go, clang, asc, zig) are not provisioned by this package."
+    },
+    {
+      "id": "cli.ledger",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_ledger_chain.py::TestLedgerCLI"
+      ],
+      "note": "Order and linkage verification; the report states that authorship is not checked."
+    },
+    {
+      "id": "cli.doctor",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_cli_new_commands.py::TestDoctorCommand"
+      ],
+      "note": "Offline installation/platform/runtime check; JSON schema and exit consistency."
+    },
+    {
+      "id": "cli.verify",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_cli_new_commands.py::TestVerifyCommand",
+        "tests/test_verify_cli.py"
+      ],
+      "note": "Ledger, DSSE and signed-record verification including negative and malformed cases; without --key the report states what was NOT checked."
+    },
+    {
+      "id": "cli.policy.check",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_cli_new_commands.py::TestPolicyCheckCommand",
+        "tests/test_policy_cli.py"
+      ],
+      "note": "Prints the effective policy before a run; exit 1 when a requested directory would be refused."
+    },
+    {
+      "id": "sdk.embed",
+      "surface": "Python SDK",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_wasm_runtime.py",
+        "tests/test_adapter_result_shape.py"
+      ],
+      "note": "WASISandbox, run_isolated, ExecutionResult and the documented result/error contract."
+    },
+    {
+      "id": "sdk.signing",
+      "surface": "Python SDK",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_records_envelope.py",
+        "tests/test_signed_receipt.py"
+      ],
+      "note": "DSSE and detached JWS primitives with Ed25519; requires the optional tools-signing extra."
+    },
+    {
+      "id": "sdk.ledger_chain",
+      "surface": "Python SDK",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_ledger_chain.py::TestPositions"
+      ],
+      "note": "Ledger, verify_chain, record digests and position binding."
+    },
+    {
+      "id": "mcp.stdio",
+      "surface": "MCP",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_mcp_main.py",
+        "tests/test_mcp_2026_07_28.py"
+      ],
+      "note": "Stdio server, legacy and 2026-07-28 revisions, grants/egress startup refusals."
+    },
+    {
+      "id": "mcp.http_bridge",
+      "surface": "MCP",
+      "status": "experimental",
+      "acceptance": [
+        "tests/test_mcp_http_bridge.py"
+      ],
+      "reason": "Loopback-only bridge with a mandatory bearer token. The bridge is tested, including refusal of missing/blank/weak tokens; a run through n8n's own client is not proven."
+    },
+    {
+      "id": "runtime.qualified_wasmtime",
+      "surface": "Runtime",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_wasm_runtime.py",
+        "tests/test_runtime_identity.py"
+      ],
+      "note": "The patched 49.0.4 line (49.0.4.post1+git.2c2970205f, embedded dylib sha256 247c1529...a30b) is the only accepted runtime; the 49.0.3.post2 build is withdrawn for GHSA-mghf-wjfp-p5xm. On macOS arm64 the execution gate hashes the exact native file the bindings load before any guest code executes and refuses a different file with error_class=environment; elsewhere only the version line is checked because no qualified build exists. Any version outside the line fails closed."
+    },
+    {
+      "id": "guest.python.distribution",
+      "surface": "Distribution",
+      "status": "unavailable",
+      "owner": "maintainer",
+      "reason": "The wheel exists and is clean-room installable from a local index, but it is not published. Publishing needs redistribution clearance (it embeds CPython, PSF-2.0) and the release authorisation."
+    },
+    {
+      "id": "guest.javascript.distribution",
+      "surface": "Distribution",
+      "status": "unavailable",
+      "owner": "maintainer",
+      "reason": "The wheel exists and carries the license texts (QuickJS, MIT), but it is not published; the [javascript] extra resolves only after a publish decision."
+    },
+    {
+      "id": "integration.agent_execution_mcp",
+      "surface": "Agent integration",
+      "status": "supported",
+      "acceptance": [
+        "integration/test_agent_code_execution_mcp.py::test_agent_authored_code_executes_and_the_boundary_refuses"
+      ],
+      "gate": "mcp-sdk-interop",
+      "note": "The agent-to-sandbox path a user actually mounts: the agent authors a module and its sidecar, hands the registry directory to the stdio server, and the OFFICIAL MCP Python SDK client registers and executes it. The same session pins the boundary — a sidecar asking for /etc gets no preopen (allow_dirs_configured stays visible, security_baseline.preopens stays ['/sandbox']) and the guest finds no handle, and a module that never returns is stopped by the fuel budget as an isError result. CI-gated in mcp-sdk-interop, which is why it is 'supported' rather than 'experimental'."
+    },
+    {
+      "id": "integration.langgraph",
+      "surface": "Agent integration",
+      "status": "experimental",
+      "acceptance": [
+        "integration/verify_agent_frameworks.py"
+      ],
+      "reason": "A LangGraph StateGraph and a LangChain tool were executed against the real SDKs and the core wheel (benchmarks/results/2026-10-14/agent_frameworks.json), but the autonomous model-driven loop is reported skipped, not faked, and the adapter is not CI-gated."
+    },
+    {
+      "id": "integration.n8n",
+      "surface": "Agent integration",
+      "status": "unavailable",
+      "reason": "Import and node validity are measured; the agent-driven end-to-end loop through n8n's own client is not proven."
+    },
+    {
+      "id": "action.github",
+      "surface": "GitHub Action",
+      "status": "unavailable",
+      "reason": "The composite action and its demo workflow are defined, but no workflow of this candidate has executed on a GitHub-hosted runner."
+    },
+    {
+      "id": "enterprise",
+      "surface": "Private",
+      "status": "unqualified",
+      "reason": "Ephemora Enterprise is a separate private product. No Enterprise source, capability or configuration is part of this package or this contract."
+    }
+  ]
+}

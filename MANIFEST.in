@@ -13,3 +13,20 @@
 include tests/conftest.py
 include tests/fixtures/*.wasm
 include tests/fixtures/*.wat
+
+# ...and the two inputs two shipped acceptance modules read at COLLECTION time.
+#
+# Measured 2026-10-20 on the unpacked 1.2.0 sdist: ten modules errored before a
+# single test ran. Nine of them are the repository guards, which read `scripts/`
+# at import time and can only ever run in a real checkout (see
+# tests/conftest.py); the tenth was the product contract, which the contract
+# guard loads at module level. An sdist is a build input, not the test target —
+# the wheel is — so the nine stay out of scope and are named in
+# docs/release_assurance.md instead of being papered over. The contract and the
+# examples ARE shipped: without them those two acceptance modules would turn
+# nine collection errors into ten.
+include product_contract.json
+recursive-include examples *.wasm
+# README points at this runnable signed-record demo. Without the source, the
+# sdist advertised a companion example that a recipient could not run.
+include examples/signed_record_demo.py

@@ -10,12 +10,34 @@ on:
 
 permissions: read-all
 
+# Runtime artifact. 1.2.x ships exactly ONE qualified runtime: the controlled
+# wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). PyPI carries no 49.0.4 wheel and no
+# intermediate release is published; the runtime-wheel job builds it from the
+# two pinned upstream inputs with the checked-in recipe, verifies the input
+# hashes, wheel sha256, native sha256 and arm64 Mach-O, and hands the wheel to
+# every dependent job as a workflow artifact. A missing or substituted input is
+# a red leg; there is no 49.0.0 fallback and no local cache.
+#
+# Runner: macos-15 (arm64). GitHub retires the macos-14 image on 2026-11-02
+# (brownouts from 2026-10-05; actions/runner-images#13518). macos-15 is the
+# arm64 image; macos-15-intel is x64 and would fail the bootstrap's arm64 gate.
+
 jobs:
+  runtime-wheel:
+    uses: ./.github/workflows/runtime-wheel.yml
+
   test:
+    needs: runtime-wheel
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # 1.2.x is qualified on macOS arm64 only. The former ubuntu-latest legs are
+        # NOT removed because Linux is uninteresting — they are removed because no
+        # qualified 49.0.4 runtime exists for Linux (the wheel is macOS arm64 only):
+        # such a leg could only run a vulnerable 49.x build or would have to be masked.
+        # Re-add a Linux leg once a Linux runtime has been qualified.
+        os: [macos-15] # arm64 image; matches the wheel tag macosx_11_0_arm64
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
@@ -27,19 +49,56 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
-          # requirements.txt pins the exact tested wasmtime (49.0.0) for CI
-          # and pip-audit; pyproject.toml declares the supported range
-          # (>=43.0.1,<50). --no-deps keeps the pinned version instead of
-          # downgrading.
-          python -m pip install -r requirements.txt
+          # Platform gate BEFORE any install: this leg is only meaningful on the
+          # qualified platform, and macOS arm64 is the only one with a runtime wheel.
+          if [ "$RUNNER_OS" != "macOS" ] || [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runtime leg requires the qualified platform macOS arm64 (macos-15); runner is $RUNNER_OS/$(uname -m) — NOT QUALIFIED"
+            exit 1
+          fi
+          echo "runner macOS $(sw_vers -productVersion) $(uname -m), python $(python -VV)"
+          # Install only the wheel this run built from pinned upstream inputs.
+          # The bootstrap re-checks name, wheel hash, native hash and arch, then
+          # verifies the loaded library. No index, no fallback to 49.0.0.
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           # tools-signing extra: the signing-chain tests run for real, not
           # skipped (they importorskip cryptography for bare environments)
           python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
+
+      # Fail-closed identity assertion: the runtime that is actually installed and
+      # loaded must be the ONE qualified artifact — an EXACT version match, not a
+      # 49.0.4 prefix (a ".dirty"/foreign build sharing the prefix must not pass),
+      # plus the embedded dylib digest pinned in requirements.lock/release notes.
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
 
       - name: Run tests
         run: |
@@ -67,7 +126,11 @@ jobs:
           python -m pip install "mypy==2.4.0"
           # bare `python -m mypy` had no targets/config and checked nothing (silent
           # green no-op). Real targets now: the two shipped packages must stay clean.
-          # verified green locally: `Success: no issues found in 22 source files`.
+          # verified green on the 1.2.0 tree: `Success: no issues found in 41 source
+          # files` (mypy 2.4.0, the pin above; 41 since runtime_qualification.py joined
+          # the shipped set). One latent crash path was closed to get
+          # there: the preview1 I/O-budget error result read its stdout capture without
+          # the None guard the other call sites already used.
           python -m mypy ephemora_cell ephemora_cell_mcp --ignore-missing-imports
 
       # Integration regressions must fail CI, not be silently skipped.
@@ -87,9 +150,15 @@ jobs:
           python benchmarks/benchmark_guard.py
 
   coverage:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
+    needs: runtime-wheel
+    # Runtime-backed leg (the suite executes WASM), hence the qualified platform.
+    runs-on: macos-15
+    # No job-level `permissions:` override. This job checks out, installs, runs the
+    # suite and uploads one artefact — none of which needs a write scope. The
+    # previous `actions: write` override was the only unnecessary grant in the
+    # workflow, and the same upload step succeeds under the workflow default
+    # `read-all` in the WASI-conformance and SBOM jobs (documented below at the
+    # `test-bench` job, with the run id that was read back).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -99,10 +168,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
           python -m pip install "cryptography>=42"
           python -m pip install -e . --no-deps
@@ -120,6 +198,12 @@ jobs:
           name: coverage-report
           path: coverage.xml
 
+  # NOT in the required `release-gate` (see `needs:` there): this leg builds the
+  # guest toolchains on Linux and then needs a runtime to exercise them. Linux has
+  # no qualified 49.0.4 runtime wheel for 1.2.x, so the leg cannot be green without
+  # either masking or falling back to the unpatched 49.0.0 — both excluded. It stays
+  # in the workflow so the gap is visible, and it fails loudly instead of passing
+  # as a half-run. Re-add to `needs:` once a Linux runtime is qualified.
   build-recipes:
     runs-on: ubuntu-latest
     steps:
@@ -157,16 +241,23 @@ jobs:
       - name: Install dependencies (incl. pytest via the dev extra)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e . --no-deps
-          python -m pip install "pytest==8.4.2" "pytest-cov==7.1.0"
+          # Fail-closed, explicit: instead of a pip resolution error that could be
+          # "fixed" by installing PyPI's 49.0.0, this leg states why it is not a
+          # qualified green. Runtime-independent guest builds cannot be separated
+          # from the runtime checks in tests/test_builder.py without weakening them.
+          echo "::error::no qualified 49.0.4 runtime for Linux — this leg is NOT QUALIFIED for 1.2.x and is excluded from the required gate; see the runtime proposal"
+          exit 1
 
       # Real toolchain builds (rust + go) run in CI
       - name: Run builder tests with real toolchains
         run: python -m pytest tests/test_builder.py -v --tb=short
 
   security:
-    runs-on: ubuntu-latest
+    needs: runtime-wheel
+    # Static guards + the SBOM from the installed environment. On the qualified
+    # platform so the SBOM names the real runtime (wasmtime 49.0.4.postN) instead
+    # of an environment where the runtime could not be installed at all.
+    runs-on: macos-15
     # No job-level `permissions:` override: the workflow default is `read-all`.
     # Two other workflows already upload artifacts under `read-all` and their
     # upload steps report success ("WASI Conformance" run 36416665803,
@@ -189,22 +280,77 @@ jobs:
       - name: Public-content guard (tracked tree)
         run: python scripts/check_public_content.py
 
+      # The tree guard sees only the tip; a file committed-then-deleted stays
+      # publicly reachable through history (the committed-then-deleted
+      # internal-doc class).
+      # This leg fails closed if any commit NEW to this push/PR introduces a
+      # forbidden internal path OR internal identifier content. The range is
+      # exactly the set of blobs no public ref has carried yet, so the
+      # contextual internal-id rules (--strict-ids) can be applied here without
+      # re-litigating published history. Pre-existing public-history items are
+      # tracked separately, not silently re-scanned here.
+      - name: Public-content guard (git history — no reintroduced internal paths)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "${BASE:-0}^{commit}" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD^ 2>/dev/null || echo '')"
+          fi
+          if [ -n "$BASE" ]; then
+            python scripts/distribution_guard.py history --ref "${BASE}..HEAD" --content --strict-ids
+          else
+            echo "single-commit history; scanning HEAD"
+            python scripts/distribution_guard.py history --ref HEAD --content --strict-ids
+          fi
+
+      # Security-number consistency: the arXiv 11-strategy table, its summary
+      # and the marketing mirrors must agree (7/3/1), no OSS "18/18 blocked"
+      # claim, and the consolidated attack matrix must stay linked from the
+      # public docs. Catches a headline number drifting from the evidence below it.
+      - name: Security-claims guard (public docs)
+        run: python scripts/check_security_claims.py
+
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies and audit tooling
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Install dependencies and audit tooling (qualified runtime included)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
           python -m pip install "pip-audit==2.10.1" "cyclonedx-bom==7.5.0"
 
-      - name: CVE scan (pip-audit)
+      # Confidentiality gate on the actual DISTRIBUTION surface: an internal file
+      # that never appears in the tree can still be packaged. Build both the
+      # wheel and the sdist and assert no forbidden internal path or content is
+      # inside them. Fail-closed: no artifacts found is a build error.
+      - name: Build + distribution guard (wheel + sdist contents)
         run: |
-          pip-audit -r requirements.txt
+          python -m pip install "build==1.2.2"
+          python -m build --wheel --sdist --outdir dist
+          python scripts/distribution_guard.py artifacts "dist/*"
+
+      # Audits the INSTALLED environment, not a requirements listing: requirements.txt
+      # declares wasmtime>=49.0.4,<50, and PyPI carries no 49.0.4 wheel, so that
+      # specifier is satisfied only by the hash-pinned runtime asset — a listing-based
+      # audit cannot resolve it here, and an unresolvable specifier must not be papered
+      # over by a different engine version. --local reports the packages that actually
+      # ship, i.e. the runtime that is really delivered.
+      - name: CVE scan (pip-audit, installed environment)
+        run: |
+          pip-audit --local --progress-spinner off
 
       # SAST scope: production code only. tests/ is excluded deliberately —
       # it contains documented fake positive-control secrets (e.g.
@@ -214,6 +360,12 @@ jobs:
         run: |
           python -m pip install "bandit==1.9.4"
           bandit -r ephemora_cell/ ephemora_cell_mcp/ -ll
+
+      # Upstream advisories are published before (or without) a PyPI wheel;
+      # the 2026-10 aarch64 br_table escape is the example. Fail closed when a
+      # published advisory matches the pinned runtime version.
+      - name: Watch Wasmtime security advisories
+        run: python scripts/check_wasmtime_advisories.py
 
       # SBOM from the INSTALLED environment (true dependency tree,
       # includes the package itself), not from a requirements listing.
@@ -232,7 +384,9 @@ jobs:
   # claim is continuously re-proven on the pinned wasmtime baseline, not
   # asserted once (README documents the suite; CI keeps it true).
   test-bench:
-    runs-on: ubuntu-latest
+    needs: runtime-wheel
+    # Executes WASM on the live runtime → qualified platform only.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -242,10 +396,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
 
       # Exit 0 = all 8 documented vectors blocked on the live runtime.
@@ -263,7 +426,9 @@ jobs:
   # is the "verified against the official SDK" evidence and runs the test for
   # real (not green-by-skip) because the entry point is installed on PATH.
   mcp-sdk-interop:
-    runs-on: ubuntu-latest
+    needs: runtime-wheel
+    # The server executes WASM in this test → qualified platform only.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -273,17 +438,34 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
       - name: Install deps + this package (entry point on PATH) + MCP SDK
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install "pytest==8.4.2" -e ".[integration]"
 
       - name: Official MCP SDK interop
         # -o addopts= drops the project-wide coverage addopts: this job
         # installs pytest without pytest-cov on purpose (interop, not
         # coverage — the test jobs own that).
-        run: python -m pytest integration/test_mcp_sdk_client.py -v --tb=short -o addopts=""
+        # The second file is the agent-to-sandbox E2E the product contract
+        # names: model-authored WASM registered and executed through the
+        # official client, plus the enforced refusal and the fuel stop on the
+        # same path. If it is removed from this command, the contract guard
+        # fails, because a capability may only be `supported` on evidence that
+        # something actually runs.
+        run: |
+          python -m pytest integration/test_mcp_sdk_client.py -v --tb=short -o addopts=""
+          python -m pytest integration/test_agent_code_execution_mcp.py -v --tb=short -o addopts=""
 
   # The required status check on `main` is this job's name, and it is configured:
   # `required_status_checks.contexts == ["release-gate"]`, `strict: true`,
@@ -298,9 +480,13 @@ jobs:
   # is expected` — a commit whose required checks have not reported cannot become
   # `main` at all. The practical consequence for a solo repository is that work
   # lands through a branch and a pull request, which is the point of the rule.
+  #
+  # `build-recipes` is intentionally NOT in `needs:` (see the job comment above):
+  # no qualified 49.0.4 runtime exists for Linux in 1.2.x, so that leg cannot be
+  # green without masking or downgrading the engine.
   release-gate:
     runs-on: ubuntu-latest
-    needs: [test, coverage, build-recipes, security, test-bench, mcp-sdk-interop]
+    needs: [test, coverage, security, test-bench, mcp-sdk-interop]
     if: always()
     steps:
       - name: All required legs green?

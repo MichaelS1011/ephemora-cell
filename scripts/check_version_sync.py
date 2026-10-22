@@ -16,6 +16,11 @@ Sources checked:
   4. server.json                    -> top-level version AND
                                        packages[].version (MCP Registry)
 
+The version may carry a PEP 440 label (``1.2.0rc1``, ``1.1.0+gate.<sha>``) — the
+identity marker a release-candidate or verification build needs so that its
+artifacts cannot be mistaken for the published ones of the same line. Labels are
+compared on the numeric release part and always echoed as non-publishable.
+
 Exit 0 = every source carries the SAME version, and that version is either the
 newest ``v*`` tag or a HIGHER one (the bump commit exists before its tag — the
 documented release order is bump -> gate -> CI -> tag, so this is the state of a
@@ -112,11 +117,123 @@ def _latest_tag() -> str:
 
 
 def _as_tuple(version: str) -> tuple[int, ...] | None:
-    """Numeric dotted version for ordering, or None if it is not one."""
-    parts = version.split(".")
-    if not parts or not all(part.isdigit() for part in parts):
+    """Numeric release tuple for ordering, or None if it is not a version.
+
+    PEP 440 pre/post/dev suffixes on a TAG are ignored so ordering works
+    across pre-release tags too (``1.2.0rc1`` -> ``(1, 2, 0)``): a bump to
+    the next labelled build of the same release line must take the
+    "release in progress" WARNING path, not the misleading "older version"
+    FAIL (which an unparseable tag produced before 2026-10-16).
+    """
+    match = _PEP440.match(version)
+    if match is None:
         return None
-    return tuple(int(part) for part in parts)
+    release = match.group("release").rstrip(".")
+    return tuple(int(part) for part in release.split("."))
+
+
+_PEP440 = re.compile(
+    r"^(?P<release>\d+(?:\.\d+)*?)"
+    r"(?:[-_.]?(?P<pre>(?:a|b|rc|alpha|beta|c|pre|preview)[-_.]?\d+))?"
+    r"(?:[-_.]?(?P<post>(?:post|rev|r)[-_.]?\d+))?"
+    r"(?:[-_.]?(?P<dev>dev[-_.]?\d*))?"
+    r"(?:\+(?P<local>[a-z0-9]+(?:[-_.][a-z0-9]+)*))?\Z"
+)
+
+
+def _split_version(version: str) -> tuple[tuple[int, ...], str] | None:
+    """PEP 440-aware split into (numeric release, identity label).
+
+    A release-candidate or gate build carries a label that the plain numeric
+    parser rejects (`1.2.0rc1`, `1.2.0+gate.deadbeef`). The label IS the point of
+    such a build: it is what keeps a locally produced artifact from being
+    mistaken for the publicly published one of the same release line. So the
+    guard compares the numeric part to the newest tag and reports the label
+    instead of choking on it. Returns None for a string that is not a PEP 440
+    version at all (e.g. `1.2.0.beta`), which stays a hard failure.
+    """
+    match = _PEP440.match(version)
+    if match is None:
+        return None
+    release = tuple(int(p) for p in match.group("release").rstrip(".").split("."))
+    label = "".join(
+        part
+        for part in (
+            match.group("pre"),
+            "-" if match.group("post") else "",
+            match.group("post"),
+            ".dev" if match.group("dev") else "",
+            match.group("dev"),
+        )
+        if part
+    )
+    local = match.group("local")
+    if local:
+        label = f"{label}+{local}" if label else f"+{local}"
+    return release, label
+
+
+def verdict(version: str, latest_tag: str) -> tuple[str, int]:
+    """(message, exit code) for one version string against the newest tag."""
+    if version == latest_tag:
+        return (
+            f"OK: all sources in sync at {version}, equal to the newest tag",
+            0,
+        )
+
+    parsed, tag_parts = _split_version(version), _as_tuple(latest_tag)
+    if parsed is not None and tag_parts is not None:
+        release, label = parsed
+        if release > tag_parts:
+            # The documented release order is bump -> gate -> CI -> tag, so the
+            # commit that carries the new version is by definition ahead of the
+            # tag that names it. Intra-repo agreement stays hard; only the
+            # tag-equality check is relaxed here, and it closes itself the moment
+            # the tag exists.
+            note = (
+                f" Identity label {label!r}: this build is NOT the final release "
+                "of that line and must not be published as one."
+                if label
+                else ""
+            )
+            return (
+                f"WARNING: release in progress — sources at {version}, newest tag "
+                f"is v{latest_tag}. The sources themselves agree, which is what "
+                f"this commit can be checked for; re-run after tagging v{version} "
+                f"and this becomes a hard equality check.{note}",
+                0,
+            )
+        if release == tag_parts and not label:
+            # A final version on the same numeric line as a pre-release tag is
+            # the release that candidate tag points toward: bump -> gate -> CI
+            # -> tag. A post-release tag of the same line is newer and stays a
+            # hard failure.
+            tag_parts_split = _split_version(latest_tag)
+            tag_label = tag_parts_split[1] if tag_parts_split is not None else ""
+            if tag_label and not tag_label.startswith(("-post", "post")):
+                return (
+                    f"WARNING: release in progress — sources at {version}, newest "
+                    f"tag is v{latest_tag}. The sources themselves agree; re-run "
+                    f"after tagging v{version} and this becomes a hard equality "
+                    "check.",
+                    0,
+                )
+        if release == tag_parts and label:
+            # A labelled build OF the released version (rc/post/dev/local): it is
+            # distinguishable by name, so no artifact can be confused with the
+            # tagged final release — but it is not publishable under that name.
+            return (
+                f"WARNING: sources carry {version} — a labelled build "
+                f"({label}) of the newest tag v{latest_tag}. Not confusable with "
+                "the released artifact, but it must never be uploaded as one.",
+                0,
+            )
+
+    return (
+        f"FAIL: sources carry {version} but the newest reachable tag is "
+        f"v{latest_tag} — main sits on an older version than its own release",
+        1,
+    )
 
 
 def main() -> int:
@@ -146,30 +263,9 @@ def main() -> int:
         return 1
     version = values.pop()
 
-    if version == latest_tag:
-        print(f"OK: all sources in sync at {version}, equal to the newest tag")
-        return 0
-
-    repo_parts, tag_parts = _as_tuple(version), _as_tuple(latest_tag)
-    if repo_parts is not None and tag_parts is not None and repo_parts > tag_parts:
-        # The documented release order is bump -> gate -> CI -> tag, so the
-        # commit that carries the new version is by definition ahead of the
-        # tag that names it. Intra-repo agreement stays hard; only the
-        # tag-equality check is relaxed here, and it closes itself the moment
-        # the tag exists.
-        print(
-            f"WARNING: release in progress — sources at {version}, newest tag is "
-            f"v{latest_tag}. The sources themselves agree, which is what this "
-            "commit can be checked for; re-run after tagging v{version} and this "
-            "becomes a hard equality check.".format(version=version)
-        )
-        return 0
-
-    print(
-        f"FAIL: sources carry {version} but the newest reachable tag is "
-        f"v{latest_tag} — main sits on an older version than its own release"
-    )
-    return 1
+    message, code = verdict(version, latest_tag)
+    print(message)
+    return code
 
 
 if __name__ == "__main__":

@@ -1,0 +1,50 @@
+{
+  "measured": true,
+  "date": "2026-10-12",
+  "python": "3.12.13",
+  "wasmtime_package": "49.0.0",
+  "package": "1.1.0",
+  "platform": "Darwin/arm64",
+  "advisory": "GHSA-hgjw-h833-99q9",
+  "mixing_guest_triggerable": false,
+  "product_invariant": {
+    "foreign_engine_rejected": true,
+    "distinct_fingerprints_distinct_engines": true,
+    "same_fingerprint_same_engine": true,
+    "public_run_returns_data_only": true
+  },
+  "isolated_mix_legs": [
+    {
+      "returncode": 0,
+      "parent_survived": true,
+      "child_outcome": [
+        "CHILD-SURVIVED"
+      ],
+      "aborted": false,
+      "error": []
+    },
+    {
+      "returncode": 0,
+      "parent_survived": true,
+      "child_outcome": [
+        "CHILD-SURVIVED"
+      ],
+      "aborted": false,
+      "error": []
+    },
+    {
+      "returncode": 0,
+      "parent_survived": true,
+      "child_outcome": [
+        "CHILD-SURVIVED"
+      ],
+      "aborted": false,
+      "error": []
+    }
+  ],
+  "verdicts": {
+    "product_cannot_construct_mix": true,
+    "all_isolated_mixes_contained": true
+  },
+  "pass": true
+}

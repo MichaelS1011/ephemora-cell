@@ -1,0 +1,193 @@
+{
+  "wasm": "<local-scratch>/module.wasm",
+  "phases": {
+    "A_low_load_20x": {
+      "statuses": [
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success"
+      ],
+      "errors": 0,
+      "cpu_at_call_first": 0.435,
+      "cpu_at_call_last": 0.79,
+      "sample": {
+        "rc": 0,
+        "cpu_at_call": 0.435,
+        "stderr_capture": "",
+        "status": "success",
+        "stderr": "error while executing at wasm backtrace:\n    0:     0xa1 - <unknown>!<wasm function 2>\n\nCaused by:\n    Exited with i32 exit status 0\n",
+        "io_cpu_used_seconds": 0.0531
+      }
+    },
+    "B_burned_past_2s_20x": {
+      "cpu_at_call_first": 2.068,
+      "statuses": [
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success"
+      ],
+      "errors": 0,
+      "first_error": null
+    },
+    "C_burned_budget30_20x": {
+      "cpu_at_call_first": 3.023,
+      "statuses": [
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success",
+        "success"
+      ],
+      "errors": 0
+    },
+    "D_pytest_under_load_10x": {
+      "load": {
+        "spinners": 10,
+        "cpu_count": 10
+      },
+      "rows": [
+        {
+          "iter": 0,
+          "rc": 1,
+          "tail": "1 failed in 51.08s",
+          "wall_s": 65.0
+        },
+        {
+          "iter": 1,
+          "rc": 1,
+          "tail": "1 failed in 48.39s",
+          "wall_s": 58.5
+        },
+        {
+          "iter": 2,
+          "rc": 1,
+          "tail": "1 failed in 32.72s",
+          "wall_s": 40.1
+        },
+        {
+          "iter": 3,
+          "rc": 1,
+          "tail": "1 failed in 25.92s",
+          "wall_s": 32.3
+        },
+        {
+          "iter": 4,
+          "rc": 1,
+          "tail": "1 failed in 16.30s",
+          "wall_s": 20.9
+        },
+        {
+          "iter": 5,
+          "rc": 1,
+          "tail": "1 failed in 23.57s",
+          "wall_s": 29.5
+        },
+        {
+          "iter": 6,
+          "rc": 0,
+          "tail": "1 passed in 12.90s",
+          "wall_s": 18.5
+        },
+        {
+          "iter": 7,
+          "rc": 1,
+          "tail": "1 failed in 44.30s",
+          "wall_s": 54.8
+        },
+        {
+          "iter": 8,
+          "rc": 0,
+          "tail": "1 passed in 45.49s",
+          "wall_s": 53.9
+        },
+        {
+          "iter": 9,
+          "rc": 1,
+          "tail": "1 failed in 32.26s",
+          "wall_s": 43.7
+        }
+      ],
+      "failures": 8
+    }
+  },
+  "controls_2": {
+    "E_direct_call_burned_2.2s_smallrun": {
+      "phenomenon": "pw.main direct calls with absolute CPU 2.2s > budget: 20/20 and 10/10 (under 10-spinner load) still success",
+      "reading": "tiny runs win the race against the first 0.1s watchdog tick in a lean process; failure needs harness CPU AND run wall > tick"
+    },
+    "E_loop_module_burned": {
+      "E1_quiet": {
+        "status": "success",
+        "io_cpu_used_seconds": 0.0445,
+        "wall_s": 0.19,
+        "abs_cpu_at_start": 2.2
+      },
+      "E2_loaded": {
+        "status": "success",
+        "wall_s": 0.07
+      },
+      "note": "tick fired during COMPILE, not during guest execution -> interrupt did not surface; refines the race window to the guest-execution interval"
+    },
+    "D_no_coverage_addopts_under_load": {
+      "rc": 0,
+      "reading": "pytest -o addopts= (no coverage tracing) PASSED under load -> coverage inflates harness CPU + run wall, which is what tips the race in the default suite"
+    },
+    "verification_after_test_fix": {
+      "runs_under_same_load": 5,
+      "failures": 0,
+      "detail": "9 passed x5, 34.7-38.6s wall each, 10 spinners active",
+      "fix": "tests/test_process_worker_main.py stubs _start_io_cpu_watchdog in the _main harness helper (test-only; product default untouched)"
+    },
+    "environment": "macOS aarch64 lab host, .venv python 3.12, wasmtime 49.0.0 (2cc7e377...), load defined as 10x 'while True: pass' spinners = cpu_count"
+  },
+  "environment_note": "paths repo-relative; host user scrubbed"
+}
