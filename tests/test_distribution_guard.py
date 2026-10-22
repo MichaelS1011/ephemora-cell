@@ -110,8 +110,7 @@ def test_personal_path_inside_binary_artifact_member_is_caught(tmp_path: Path) -
     )
     findings, _ = guard.scan_artifact(whl, CONFIG, inventory=False)
     assert any(
-        f.rule == "personal-home-path" and f.detail == "lab.reference"
-        for f in findings
+        f.rule == "personal-home-path" and f.detail == "lab.reference" for f in findings
     )
 
 

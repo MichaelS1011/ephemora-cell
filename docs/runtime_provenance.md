@@ -60,13 +60,11 @@ this paragraph is the boundary of the claim.
 The `.post2` in the version is a **packaging revision stamp** of that local
 build. No patch file is part of this repository and none ships in the wheel.
 
-**Publication path (prepared, not executed).** The wheel is intended to be
-published as a release asset under the dedicated tag
-`wasmtime-runtime-49.0.3.post2`, not as PyPI `wasmtime`. Publish it as an
-immutable release so the asset and its tag cannot be replaced after publication;
+**Publication path.** The wheel is published as an immutable release asset under
+the dedicated tag `wasmtime-runtime-49.0.3.post2` (2026-10-22), not as PyPI
+`wasmtime`. The immutable release locks the asset and its tag after publication;
 the CI input is the direct asset URL, and `scripts/ci_runtime_bootstrap.py`
-checks the wheel sha256 and the native digest before pip sees the file. Until
-the asset exists, that URL returns 404 and the CI leg is red by design. The
+checks the wheel sha256 and the native digest before pip sees the file. The
 runtime tag is separate from the product release tag.
 
 ## What an external party can verify

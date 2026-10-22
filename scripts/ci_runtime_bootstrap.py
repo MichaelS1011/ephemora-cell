@@ -12,8 +12,10 @@ and accepts it only if all of these hold:
   the qualified values below, checked *before* pip sees the file;
 * the installed distribution reports the exact version and the loaded native
   library hashes to the qualified value, checked *after* installation;
-* the interpreter is an arm64 macOS build whose platform tag is macOS 11.0 or
-  newer, i.e. the only platform the wheel is tagged for.
+* the interpreter runs natively on Apple Silicon (arm64, or a universal2 build
+  whose ``platform.machine()`` is arm64) on a host of macOS 11.0 or newer, i.e.
+  the only platform the wheel is tagged for. An x64/Rosetta interpreter or an
+  older host is refused.
 
 No index, no fallback, no cache: pip runs with ``--no-index --no-deps`` and the
 download lives in a temporary directory. A missing release asset, a 404, a
@@ -57,7 +59,11 @@ DEFAULT_URL = (
 #: asset hosts. A mirror needs a reviewed change here, not an environment value:
 #: the download URL is part of the supply-chain decision.
 ALLOWED_HOSTS = frozenset(
-    {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
+    {
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    }
 )
 MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
 CHUNK = 1 << 20
@@ -178,6 +184,9 @@ def _verify_wheel(
     return actual, native
 
 
+_ARM64_TAG = re.compile(r"macosx-(\d+)\.(\d+)-(arm64|universal2)")
+
+
 def _platform_gate() -> str:
     machine = platform.machine()
     if machine != "arm64":
@@ -185,14 +194,22 @@ def _platform_gate() -> str:
             f"qualified runtime requires arm64 macOS, this interpreter reports {machine!r}"
         )
     tag = sysconfig.get_platform()
-    match = re.fullmatch(r"macosx-(\d+)\.(\d+)-arm64", tag)
-    if match is None:
+    if _ARM64_TAG.fullmatch(tag) is None:
         raise BootstrapError(
-            f"qualified runtime requires a macOS arm64 platform tag, got {tag!r}"
+            "qualified runtime requires an arm64 or universal2 macOS interpreter, "
+            f"got platform tag {tag!r}"
         )
-    if (int(match.group(1)), int(match.group(2))) < (11, 0):
+    # A universal2 interpreter's tag carries its deployment target (10.13), not
+    # the host it runs on; the wheel's macOS 11.0 floor applies to the host.
+    release = platform.mac_ver()[0]
+    parts = release.split(".")
+    try:
+        version = (int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+    except (ValueError, IndexError) as exc:
+        raise BootstrapError(f"cannot read the macOS version from {release!r}") from exc
+    if version < (11, 0):
         raise BootstrapError(
-            f"runtime wheel is tagged macOS 11.0+, this platform is {tag!r}"
+            f"runtime wheel is tagged macOS 11.0+, this host reports {release!r}"
         )
     return tag
 

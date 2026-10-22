@@ -43,8 +43,8 @@ The runtime ships as a wheel next to the Cell wheel in the release artefact set,
 and as a versioned, hash-pinned HTTPS release asset for CI and direct downloads.
 The wheel sha256 is `cee4bb22…`; the embedded native library is `ab4f1ea6…`.
 Both are checked by `scripts/ci_runtime_bootstrap.py` before and after install.
-The asset is not published yet; a missing asset is a red CI leg, never a
-fallback to 49.0.0.
+The asset is published under the tag `wasmtime-runtime-49.0.3.post2`; a missing
+asset is a red CI leg, never a fallback to 49.0.0.
 
 ## Install from the release artefacts
 
@@ -88,7 +88,8 @@ The script is a repository tool — it is not part of the wheel or sdist. It
 rejects a non-HTTPS URL, a 404, a truncated download, a wheel whose sha256 is not
 `cee4bb22…`, a native library whose sha256 is not `ab4f1ea6…`, an exact-version
 mismatch, a non-`Apache-2.0 WITH LLVM-exception` declaration, and an interpreter
-that is not arm64 macOS with a platform tag of macOS 11.0 or newer. pip runs with
+that does not run natively on arm64 macOS (arm64 or universal2) on a host of
+macOS 11.0 or newer. pip runs with
 `--no-index --no-deps`, so an unvetted PyPI engine cannot enter the environment.
 
 ## First checks

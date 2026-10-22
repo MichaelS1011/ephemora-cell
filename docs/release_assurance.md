@@ -6,10 +6,10 @@ commit produces different counts depending on how it was installed and what the
 host is doing. **A number without its conditions is not a measurement** — that is
 the reason this page exists.
 
-## v1.2.0 — five states, every one re-measured 2026-10-21 on the 1.2.0 tree
+## v1.2.0 — five states, every one re-measured 2026-10-22 on the 1.2.0 tree
 
 Qualified runtime `wasmtime 49.0.3.post2+git.1d21c90f`, `pytest 8.4.2`,
-`pytest-cov 7.1.0`, Python 3.12.13, macOS arm64. **1,774 tests are collected in
+`pytest-cov 7.1.0`, Python 3.12.13, macOS arm64. **1,784 tests are collected in
 every state below** — collection does not depend on the installation, only the
 pass/skip split does. Reproduce row 1 with `python -m pytest tests/` in a fresh
 checkout; reproduce rows 3–5 with the venv's own `pytest` console script (a
@@ -20,11 +20,11 @@ and what its old "from `/tmp`" wording hid).
 
 | Installation state | Result | Why it differs |
 |---|---|---|
-| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1747 passed / 27 skipped** · 88.44 % of 6,598 statements (5,835 executed, 763 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
-| The same checkout after the wheel and sdist were built into `dist/` | **1748 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
-| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1744 / 30** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
-| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1756 / 18** | the bring-your-own-guest round-trips run for real |
-| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` | **1743 / 31** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true` |
+| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1757 passed / 27 skipped** · 88.37 % of 6,598 statements (5,831 executed, 767 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
+| The same checkout after the wheel and sdist were built into `dist/` | **1758 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping |
+| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel | **1754 / 30** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed |
+| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) | **1766 / 18** | the bring-your-own-guest round-trips run for real |
+| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` | **1753 / 31** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true` |
 
 Without the hatch the last venv is red by design (the execution legs are refused),
 and its count is not comparable to the release gate and is not offered as one. All five rows were
@@ -32,9 +32,9 @@ measured for this release rather than derived from one another; the earlier prac
 of carrying a state forward by arithmetic is what this table exists to prevent.
 
 Every row above was re-run after the last code change, in this order: matrix
-(3.10.20, 3.11.15 and 3.13.14 — each **1747/27**, rc=0, logs `matrix2_3.1*.log`;
-3.12.13 canonical **1747/27** in the clean 3.12 venv, while the guest-carrying
-3.12 venv reads 1744/30), then A, B, C, D, E. Each matrix venv has the core
+(3.10.20, 3.11.15 and 3.13.14 — each **1757/27**, rc=0;
+3.12.13 canonical **1757/27** in the clean 3.12 venv, while the guest-carrying
+3.12 venv reads 1754/30), then A, B, C, D, E. Each matrix venv has the core
 wheel installed: two legs exec the `ephemora` console script and
 `examples/signed_record_demo.py` as a subprocess, so a venv that only carries the
 engine fails those two for want of an installed package — a venv shape, not a
@@ -87,7 +87,7 @@ uses `macos-15`. `build-recipes` stays on Ubuntu and stays deliberately red: it
 is not in `release-gate`, and Linux is not qualified for 1.2.x.
 
 **Runtime asset.** `scripts/ci_runtime_bootstrap.py` downloads exactly this
-versioned asset (the release is not published yet; a 404 is a red leg):
+versioned asset (published 2026-10-22; a 404 is a red leg):
 
 ```
 https://github.com/MichaelS1011/ephemora-cell/releases/download/wasmtime-runtime-49.0.3.post2/wasmtime-49.0.3.post2+git.1d21c90f-py3-none-macosx_11_0_arm64.whl
@@ -102,19 +102,24 @@ the file and again after installation:
 | wheel sha256 | `cee4bb220d5f58fe68a67a1e6bbe92ff5c5f9a95671e0eb1e4142cbfbae55356` |
 | embedded `_libwasmtime.dylib` sha256 | `ab4f1ea6e77c30cf4458bed9e4c94ccb103c7b3f2ceb49681c721c985e80fb73` |
 | version / licence | `49.0.3.post2+git.1d21c90f` / `Apache-2.0 WITH LLVM-exception` |
-| interpreter | `platform.machine() == "arm64"`, `sysconfig.get_platform()` is `macosx-<version>-arm64` with version ≥ 11.0 |
+| interpreter | `platform.machine() == "arm64"` and the platform tag is `macosx-<version>-arm64` or `-universal2` (a native arm64 or universal2 build); the host must report macOS 11.0 or newer |
 
 The URL must be HTTPS; the download is size-bounded; pip runs with
 `--no-index --no-deps --force-reinstall`; the temporary wheel is deleted. There
 is no index fallback, no local cache and no downgrade to 49.0.0. `--wheel` is
-only for the local release audit and is subject to the same checks. The
-repository variable `EPHEMORA_RUNTIME_WHEEL_URL` can point at a mirror, but the
-script still rejects any wheel whose sha256 differs.
+only for the local release audit and is subject to the same checks. A mirror
+needs a reviewed change to the script's `DEFAULT_URL` and `ALLOWED_HOSTS`
+constants — no URL is read from the environment — and the script still rejects
+any wheel whose sha256 differs.
 
-**Status, stated rather than assumed.** The asset is **not published**; the
-script's default URL returned HTTP 404 when measured on 2026-10-22, and that is
-the intended red state until publication. The first `macos-15` execution is
-**PENDING GITHUB**; this page does not claim it as measured. The local
+**Status, stated rather than assumed.** The asset is published as an immutable
+release (2026-10-22) under the tag `wasmtime-runtime-49.0.3.post2`; the
+downloaded bytes matched the wheel and native digests above, and the GitHub
+release attestation verified. The first `macos-15` execution stopped in the
+runtime bootstrap before any test ran (a universal2 interpreter reports its
+10.13 deployment target, not the host version); the gate now accepts that
+interpreter shape and the corrected execution is **PENDING GITHUB**. This page
+does not claim a completed `macos-15` run as measured. The local
 qualification host reports `sysconfig.get_platform() == macosx-26.0-arm64` and
 the same wheel/native digests. Linux and DGX runs remain historical, dated
 evidence — not a qualification of this build.

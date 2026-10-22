@@ -48,7 +48,7 @@ be mistaken for the released one.
 
 ### Why there is no production GO
 
-A green suite (1747 passing / 27 skipped, 88 % statement coverage, measured 2026-10-21 in a fresh checkout of this candidate on the qualified 49.0.3 runtime — on a 49.0.0 development venv the same tree reports 1743/31 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
+A green suite (1757 passing / 27 skipped, 88 % statement coverage, measured 2026-10-22 in a fresh checkout of this candidate on the qualified 49.0.3 runtime — on a 49.0.0 development venv the same tree reports 1753/31 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
 probes establish **laboratory correctness of the tested commit** — they are not, and do not
 automatically become, a production-security approval. General production stays NO-GO until,
 at minimum: an independent external evaluation is completed; the newest isolation controls
@@ -71,9 +71,12 @@ authorized Linux qualification lives in `deploy/linux-reference/`.
 
 **CI runner (2026-10-22).** The five required legs run on `macos-15` (arm64).
 GitHub retires the `macos-14` image on 2026-11-02; `macos-15` is the arm64
-image and `macos-15-intel` is x64. The runtime bootstrap refuses a non-arm64
-interpreter and a platform tag older than macOS 11.0, so an x64 runner cannot
-pass. The first `macos-15` run is **PENDING GITHUB** and is not claimed as
+image and `macos-15-intel` is x64. The runtime bootstrap refuses an interpreter
+that does not run natively on arm64 (arm64 or universal2 on Apple Silicon) and a
+host older than macOS 11.0, so an x64 or Rosetta runner cannot pass. The first
+`macos-15` run stopped in the runtime bootstrap before any test ran: the
+runner's universal2 interpreter reports its 10.13 deployment target, not the
+host version. A completed run is still **PENDING GITHUB** and is not claimed as
 measured here; the local qualification host is macOS arm64 (platform tag
 `macosx-26.0-arm64`).
 
