@@ -43,9 +43,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "benchmarks"))
 
-from fuel_boundary import cpu_wasm  # noqa: E402
+from fuel_boundary import cpu_wasm
 
-from ephemora_cell import WASIConfig, WASISandbox, run_isolated  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox, run_isolated
 
 
 def mixed_wasm(n: int) -> bytes:

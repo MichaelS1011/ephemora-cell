@@ -1,0 +1,16 @@
+{
+  "label": "wall_timeout",
+  "guest": "loop_run.wasm",
+  "timeout_seconds": 3.0,
+  "max_fuel": 50000000000,
+  "io_cpu_seconds": 60.0,
+  "status": "ExecutionStatus.TIMEOUT",
+  "execution_mode": "subprocess",
+  "abi": "component",
+  "exit_code": 0,
+  "stdout_head": "''",
+  "stderr_head": "'Timeout after 3.0s: error while executing at wasm backtrace:\\n    0:     0x2f - m!<wasm function 0>\\n\\nCaused by:\\n    wasm trap: interrupt\\n'",
+  "error_head": "''",
+  "wall_ms": 3227.6,
+  "parent_survived": true
+}

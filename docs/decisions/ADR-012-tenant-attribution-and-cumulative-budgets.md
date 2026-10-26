@@ -179,3 +179,53 @@
 - Market basis: astrid's `fuel_ledger.rs` (per-principal, telemetry-scoped)
   and its signed audit chain — see `docs/comparison-mcp-servers.md`,
   retrieved 2026-10-03.
+
+## Amendment — 2026-10-24: host-wide caps, and the MCP path
+
+**Status:** accepted in the v1.2 security closure (v1.2/v1.2).
+
+- **A second, host-wide cap.** `TenantStore.admit(..., host_budget=...)` checks
+  the whole book — every tenant's settled and reserved usage — **before** the
+  per-tenant cap and before any guest starts. A fresh `--tenant` id therefore
+  cannot buy a fresh budget. The host cap is read by replaying each distinct
+  tenant's own chain (so the tamper-evidence check stays per account) and
+  summing the projected usage; a corrupted line in any account still raises.
+  The same exclusive `flock` that makes one admission atomic makes the host cap
+  hold across concurrent OS processes sharing the book (measured: 6 processes,
+  160 attempts against a host cap of 25 → exactly 25 admitted).
+- **The cap is recorded IN THE BOOK** (`host_policy` line, first writer wins;
+  a later process may pass a stricter cap, never a looser one). Once a cap has
+  been declared, a second process using the same book enforces it **even if it
+  omits `--host-max-*`** — the independent review found that a flagless server
+  on a capped book ran uncapped, which is the "additional process" bypass the
+  directive forbids. Reading the policy happens inside the same exclusive
+  admission lock as the decision.
+- **CLI surface:** `ephemora run --tenant ID --tenant-book PATH
+  [--host-max-runs N] [--host-max-fuel N]`. Caps without a book, and on routes
+  that cannot attribute them (`run --language`), are refused instead of dropped;
+  a cap of 0 or less is a clean refusal, not a silent "no cap".
+- **MCP surface:** `python -m ephemora_cell_mcp --tenant-book PATH
+  [--host-max-runs N] [--host-max-fuel N] [--tenant-max-runs N
+  --tenant-max-fuel N]`. Each authenticated subject is the tenant
+  (`mcp:s:<subject>`; an unsafe subject is escaped with a `%`+digest, and
+  unauthenticated legacy runs share the reserved `mcp:unattributed`).
+  Every `tools/call` is admitted at the `WASISandbox.run` choke point before
+  the guest starts, so the MCP path no longer spends a different (unbounded)
+  account than the CLI. Two server processes on one book share one cap
+  (measured: 2 × 10 attempts, host cap 10 → exactly 10 admitted; and a flagless
+  server adopts the recorded cap).
+- **Malformed book lines fail closed:** a line whose tenant label cannot be
+  parsed is refused by the host aggregate instead of being skipped (an edited
+  tenant field could otherwise drop a settled run out of the cap).
+- **Embedding:** an injected `CellToolEngine` owns its book; `Server(...)` with
+  both an engine and book arguments is refused instead of silently dropping the
+  cap.
+- **Scope, stated:** the guarantee covers every process that uses the
+  **same book path**. A principal that can start a process with a different
+  book is already the host and is outside the promise. This is an admission
+  ceiling, not an isolation boundary, and it does not kill a run that has
+  already started — the per-run fuel/memory/wall caps continue to do that.
+- **Evidence:** `tests/test_host_budget.py` (per-tenant, host-wide,
+  cross-process, ledger tamper), `tests/test_mcp_host_budget.py` (stdio flags,
+  two processes on one book, cap-without-book refusal, unsafe book refusal,
+  per-subject accounts), `tests/test_tenant_multiprocess_admission.py`.

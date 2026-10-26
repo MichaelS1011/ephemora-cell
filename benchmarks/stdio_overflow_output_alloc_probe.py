@@ -24,6 +24,7 @@ Exit 1 = bound not observed (escalate: gqmc exposure larger than documented).
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from datetime import date
@@ -32,10 +33,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-import wasmtime  # noqa: E402
+import wasmtime
 
-from ephemora_cell import WASIConfig, WASISandbox  # noqa: E402
-from ephemora_cell._sandbox_common import _MAX_OUTPUT_BYTES  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox
+from ephemora_cell._sandbox_common import _MAX_OUTPUT_BYTES
 
 CHUNK = 16
 ITER_CONTROL = 100  # 1.6 KiB, well under budget
@@ -61,7 +62,10 @@ def wat(iterations: int) -> str:
 
 
 def measure(iterations: int) -> dict:
-    path = tempfile.mktemp(suffix=".wasm")
+    # mkstemp, not the deprecated mktemp: the path is created atomically with
+    # O_EXCL instead of being guessed and then opened (CWE-377).
+    fd, path = tempfile.mkstemp(suffix=".wasm")
+    os.close(fd)
     Path(path).write_bytes(wasmtime.wat2wasm(wat(iterations)))
     cfg = WASIConfig(
         max_memory_mb=64,
@@ -100,7 +104,7 @@ def main() -> int:
         "cap_far_below_request": overflow["stdout_len"]
         < overflow["requested_bytes"] / 10,
         "overflow_run_completed": overflow["status"]
-         in {"success", "ok", "error", "timeout"},
+        in {"success", "ok", "error", "timeout"},
     }
     ok = all(verdicts.values())
 
@@ -120,7 +124,10 @@ def main() -> int:
     ev.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, indent=2))
     print(f"\nEvidence -> {ev}")
-    print("VERDICT:", "PASS (gqmc precondition reachable, host allocation bounded)" if ok else "FAIL")
+    print(
+        "VERDICT:",
+        "PASS (gqmc precondition reachable, host allocation bounded)" if ok else "FAIL",
+    )
     return 0 if ok else 1
 
 

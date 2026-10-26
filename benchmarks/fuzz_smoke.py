@@ -12,6 +12,7 @@ Usage:
     python benchmarks/fuzz_smoke.py --seed 42 --modules 500
     FUZZ_SEED=42 python benchmarks/fuzz_smoke.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import wasmtime
 
-from ephemora_cell import WASISandbox, WASIConfig
+from ephemora_cell import WASIConfig, WASISandbox
 
 DEFAULT_SEED = 20260813
 MAX_INSTRUCTIONS = 50
@@ -67,7 +68,9 @@ def _gen_balanced(rng, budget):
             budget["ops"] += 1
         elif r < 0.60 and depth >= 2:
             parts.append(
-                rng.choice(["i32.add", "i32.sub", "i32.mul", "i32.and", "i32.or", "i32.xor"])
+                rng.choice(
+                    ["i32.add", "i32.sub", "i32.mul", "i32.and", "i32.or", "i32.xor"]
+                )
             )
             depth -= 1
             budget["ops"] += 1
@@ -144,7 +147,8 @@ def run_with_watchdog(wasm_bytes: bytes) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ephemora Cell fuzz smoke test")
     parser.add_argument(
-        "--seed", type=int,
+        "--seed",
+        type=int,
         default=int(os.environ.get("FUZZ_SEED", DEFAULT_SEED)),
         help="Deterministic seed (default: %(default)s, env FUZZ_SEED)",
     )
@@ -178,8 +182,10 @@ def main() -> int:
     print(f"Fuzz smoke: {args.modules} modules, seed={args.seed}")
     print(f"Status distribution: {status_counts or 'none'}")
     if generator_errors:
-        print(f"[WARN] {generator_errors} module(s) failed WAT validation "
-              f"(generator bug, not a sandbox issue)")
+        print(
+            f"[WARN] {generator_errors} module(s) failed WAT validation "
+            f"(generator bug, not a sandbox issue)"
+        )
 
     if failures:
         print(f"FAILURES: {len(failures)}")

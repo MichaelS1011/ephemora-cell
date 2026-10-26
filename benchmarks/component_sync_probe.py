@@ -32,7 +32,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from ephemora_cell import WASIConfig, WASISandbox  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox
 
 PROBE = REPO / "benchmarks" / "component_probes" / "sync_probe.wasm"
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from ephemora_cell.security_profiles import SECURITY_PROFILES as _SECURITY_PROFILES
 from ephemora_cell.wasi_runtime import WASIConfig
 
 # Plugin profile — minimal permissions for plugin execution
@@ -47,7 +48,7 @@ DEFAULT = WASIConfig(
 
 # Analytical profile — data-analysis workloads beyond the 128 MB wall
 # (ADR-003): memory64 memories, 4.5 GiB linear memory, larger compute
-# and host-I/O budgets. Threads stay OFF (threads_roadmap Phase 1);
+# and host-I/O budgets. Threads stay OFF (phase 1 of the planned thread rollout);
 # over-cap growth is refused byte-exactly and in milliseconds (measured,
 # benchmarks/analytical_breakpoint/). Opt-in — default behavior unchanged.
 ANALYTICAL = WASIConfig(
@@ -104,6 +105,14 @@ PROFILES: dict[str, WASIConfig] = {
     "analytical": ANALYTICAL,
     "interpreter": INTERPRETER,
 }
+
+# Use-case security profiles (v1.2 v1.2) are selectable through the same
+# ``--profile`` surface: their budgets are enforced from here, while their
+# declared capabilities (network, MCP tool/action grants) live with the
+# :class:`~ephemora_cell.security_profiles.SecurityProfile`. ``setdefault`` so a
+# name collision can never silently replace a resource preset.
+for _name, _security_profile in _SECURITY_PROFILES.items():
+    PROFILES.setdefault(_name, _security_profile.config)
 
 
 def get(profile: str) -> WASIConfig:

@@ -1,0 +1,152 @@
+{
+ "advisory": "GHSA-32h6-97mm-8q3c / RUSTSEC-2026-0327",
+ "configuration": "ephemora_cell._engine_config.build_engine_config (product config; wasm_stack_switching=False, component-model-async not enabled by the binding)",
+ "date": "2026-10-13",
+ "engine": "49.0.0",
+ "isolation": "each leg in its own child interpreter; a native abort IS the result, not a harness failure",
+ "legs": [
+  {
+   "artifact": "shape_async_run.wasm",
+   "probe": null,
+   "returncode": -6,
+   "signal": 6,
+   "stderr_tail": [
+    "internal error: entered unreachable code: async-lifted exports should have failed validation when `component-model-async` feature disabled",
+    "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+   ],
+   "stdout_tail": ""
+  },
+  {
+   "artifact": "shape_async_lift_only.wasm",
+   "probe": {
+    "artifact": "shape_async_lift_only.wasm",
+    "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    the `async` canonical option requires an async function type (at offset 0x6e)\n"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "shape_async_type_only.wasm",
+   "probe": {
+    "artifact": "shape_async_type_only.wasm",
+    "instantiate": "OK",
+    "lookup": "resolved component func",
+    "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+    "validation": "ACCEPTED"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "shape_async_type_and_lift.wasm",
+   "probe": null,
+   "returncode": -6,
+   "signal": 6,
+   "stderr_tail": [
+    "internal error: entered unreachable code: async-lifted exports should have failed validation when `component-model-async` feature disabled",
+    "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+   ],
+   "stdout_tail": ""
+  },
+  {
+   "artifact": "patch_async_callback.wasm",
+   "probe": {
+    "artifact": "patch_async_callback.wasm",
+    "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    the `async` canonical option requires an async function type (at offset 0x56)\n"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "patch_asynctype_only.wasm",
+   "probe": {
+    "artifact": "patch_asynctype_only.wasm",
+    "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "patch_async_callback_asynctype.wasm",
+   "probe": {
+    "artifact": "patch_async_callback_asynctype.wasm",
+    "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "cb.wasm",
+   "probe": {
+    "artifact": "cb.wasm",
+    "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "cb2.wasm",
+   "probe": {
+    "artifact": "cb2.wasm",
+    "instantiate": "OK",
+    "lookup": "resolved component func",
+    "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+    "validation": "ACCEPTED"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "cb3.wasm",
+   "probe": {
+    "artifact": "cb3.wasm",
+    "instantiate": "OK",
+    "lookup": "resolved component func",
+    "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+    "validation": "ACCEPTED"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "async1.wasm",
+   "probe": {
+    "artifact": "async1.wasm",
+    "instantiate": "REFUSED: WasmtimeError: component imports function `wasi:cli/stdout`, but a matching implementation was not found in the linker\n\nCaused by:\n    function implementation is missing\n",
+    "validation": "ACCEPTED"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  },
+  {
+   "artifact": "async2.wasm",
+   "probe": {
+    "artifact": "async2.wasm",
+    "instantiate": "OK",
+    "lookup": "no export named 'run'/'go'",
+    "validation": "ACCEPTED"
+   },
+   "returncode": 0,
+   "signal": null,
+   "stderr_tail": []
+  }
+ ],
+ "platform": "Darwin/arm64",
+ "probe": "async_component_validation_ghsa_32h6",
+ "python": "3.12.13",
+ "semantics": {
+  "REJECTED at parse": "the malformed async-lift shape never reaches any runtime code",
+  "signal 6 (SIGABRT) + 'async-lifted exports should have failed validation'": "the engine reached an unreachable!() arm at CALL time instead of running the vulnerable callback trampoline",
+  "validation_ACCEPTED": "the component parser accepted the async shape",
+  "wasm trap: interrupt": "fuel/epoch preemption of a synchronous call; no async lifting involved"
+ }
+}

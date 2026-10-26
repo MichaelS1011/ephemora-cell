@@ -32,9 +32,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-import wasmtime  # noqa: E402
+import wasmtime
 
-from ephemora_cell import WASIConfig, WASISandbox  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox
 
 ROUNDS = 400
 MEMORY_PAGES = 32  # 2 MiB of zeroed guest memory

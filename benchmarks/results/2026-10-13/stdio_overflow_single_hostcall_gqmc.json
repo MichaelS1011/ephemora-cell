@@ -1,0 +1,108 @@
+{
+ "advisory": "GHSA-gqmc-89g8-p25r / RUSTSEC-2026-0322 (wasmtime-wasi: excessive host allocation when guests don't have stdio)",
+ "date": "2026-10-13",
+ "engine": "49.0.0",
+ "guests": {
+  "flood2.wasm": "WASIp2 component, ONE fd_write hostcall offering a 100 MiB guest buffer to stdout",
+  "flood3.wasm": "control: allocates and touches the same 100 MiB, writes nothing",
+  "hello02.wasm": "control: 47-byte output"
+ },
+ "lab_only_note": "the sink probe runs with trust='trusted' (in-process) purely to instrument the sink; the product default posture is subprocess and is what the RSS legs measure",
+ "peak_rss_via_wait4": [
+  {
+   "child_peak_rss_bytes": 157712384,
+   "child_peak_rss_mib": 150.4,
+   "child_utime_s": 0.4,
+   "killed_by_signal": null,
+   "label": "control_alloc_100MiB_no_write",
+   "raw_stderr_tail": "",
+   "status": "success",
+   "stderr_len": 0,
+   "stdout_head": "allocated_and_touched=104857665\n",
+   "stdout_len": 32,
+   "wasm": "flood3.wasm",
+   "worker_rc": 0
+  },
+  {
+   "child_peak_rss_bytes": 158466048,
+   "child_peak_rss_mib": 151.1,
+   "child_utime_s": 0.41,
+   "killed_by_signal": null,
+   "label": "single_hostcall_100MiB_write",
+   "raw_stderr_tail": "",
+   "status": "success",
+   "stderr_len": 0,
+   "stdout_head": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "stdout_len": 8218,
+   "wasm": "flood2.wasm",
+   "worker_rc": 0
+  },
+  {
+   "child_peak_rss_bytes": 54755328,
+   "child_peak_rss_mib": 52.2,
+   "child_utime_s": 0.42,
+   "killed_by_signal": null,
+   "label": "control_tiny",
+   "raw_stderr_tail": "",
+   "status": "success",
+   "stderr_len": 0,
+   "stdout_head": "hello from wasip2 component\nenv_ephemora_test=\n",
+   "stdout_len": 47,
+   "wasm": "hello02.wasm",
+   "worker_rc": 0
+  }
+ ],
+ "platform": "Darwin/arm64",
+ "probe": "stdio_overflow_single_hostcall_gqmc",
+ "python": "3.12.13",
+ "sink_instrumentation": {
+  "lab_uncapped": {
+   "child_self_peak_rss_bytes": 159563776,
+   "execution_mode": "in_process",
+   "mode": "lab_uncapped",
+   "report_stdout_len": 10016,
+   "sink_bytes_offered": 104857626,
+   "sink_call_hist_top10": [
+    4096,
+    4096,
+    4096,
+    4096,
+    4096,
+    4096,
+    4096,
+    4096,
+    4096,
+    4096
+   ],
+   "sink_call_max": 4096,
+   "sink_calls": 25601,
+   "status": "ExecutionStatus.SUCCESS",
+   "wasm": "flood2.wasm"
+  },
+  "product_budget": {
+   "child_self_peak_rss_bytes": 160088064,
+   "execution_mode": "in_process",
+   "mode": "product_budget",
+   "report_stdout_len": 8218,
+   "sink_bytes_offered": 12314,
+   "sink_call_hist_top10": [
+    4096,
+    4096,
+    4096,
+    26
+   ],
+   "sink_call_max": 4096,
+   "sink_calls": 4,
+   "status": "ExecutionStatus.SUCCESS",
+   "wasm": "flood2.wasm"
+  }
+ },
+ "unit_note": "macOS: ru_maxrss in Bytes",
+ "verdicts": {
+  "binding_chunks_host_copies_at_4096_bytes": true,
+  "guest_linear_memory_not_guest_address_space": true,
+  "product_output_budget_caps_host_capture_at_10000_bytes": true,
+  "residual_cost_location": "guest-owned pages inside the worker process (bounded by the process wall + cgroup), not host-side copies",
+  "single_hostcall_can_offer_100MiB": true
+ }
+}

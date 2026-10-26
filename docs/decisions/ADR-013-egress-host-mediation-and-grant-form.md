@@ -14,8 +14,8 @@
 ## Context (verified, not assumed)
 
 1. **The guest cannot reach the network, and that is the enforced property.**
-   WASI Preview1 and the Cell's component linker expose no socket API and never
-   link `wasi:http` (`SECURITY.md`, pinned in `tests/test_surface_audit.py`).
+   WASI Preview1 and the Cell's component linker expose no socket creation or
+   connect path and never link `wasi:http` (`SECURITY.md`, pinned in `tests/test_surface_audit.py`).
    A tool that needs an API writes `sidecar.request.json` into its own sandbox
    dir; nothing in the sandbox makes an outbound call.
 2. **The mediator was correct but dead.** G-A (the redirect-revalidation and

@@ -14,7 +14,9 @@ Usage:
     python integration/test_nemoclaw_isolation.py
     python integration/test_nemoclaw_isolation.py --json
 """
+
 from __future__ import annotations
+
 import hashlib
 import json
 import sys
@@ -23,7 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ephemora_cell import WASISandbox, WASIConfig
+from ephemora_cell import WASIConfig, WASISandbox
 
 WORKLOADS = Path(__file__).parent.parent / "benchmarks" / "workloads"
 
@@ -69,14 +71,23 @@ def main():
 
     modules = [
         # Valid NemoClaw module — normal execution
-        ("valid", "data_transform.wasm",
-         WASIConfig(max_fuel=100_000, timeout_seconds=5, max_memory_mb=16)),
+        (
+            "valid",
+            "data_transform.wasm",
+            WASIConfig(max_fuel=100_000, timeout_seconds=5, max_memory_mb=16),
+        ),
         # Tampered — same module, restricted fuel (simulates corrupted execution budget)
-        ("tampered", "plugin_chain.wasm",
-         WASIConfig(max_fuel=20_000, timeout_seconds=5, max_memory_mb=16)),
+        (
+            "tampered",
+            "plugin_chain.wasm",
+            WASIConfig(max_fuel=20_000, timeout_seconds=5, max_memory_mb=16),
+        ),
         # Expired — very short timeout (simulates time-limited module)
-        ("expired", "plugin_chain.wasm",
-         WASIConfig(max_fuel=1_000_000, timeout_seconds=1, max_memory_mb=16)),
+        (
+            "expired",
+            "plugin_chain.wasm",
+            WASIConfig(max_fuel=1_000_000, timeout_seconds=1, max_memory_mb=16),
+        ),
     ]
 
     results = []
@@ -121,7 +132,9 @@ def main():
     else:
         print(f"\n{'=' * 60}")
         print(f"Result: {total - blocked}/{total} passed, {blocked}/{total} blocked")
-        print(f"Mode: Ephemora Cell isolation only (execution isolation, no full pipeline)")
+        print(
+            "Mode: Ephemora Cell isolation only (execution isolation, no full pipeline)"
+        )
         print("=" * 60)
 
 

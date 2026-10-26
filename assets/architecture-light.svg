@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="328" viewBox="0 0 880 328" role="img" aria-label="Architecture: an AI agent or app proposes untrusted code through a tool, plugin or MCP server; the Ephemora-cell capability boundary grants fuel, memory, time and I/O capabilities and denies network, filesystem and process access by default, routing any guest the host has not explicitly marked trusted — modules and components alike — onto an isolated worker; the guest runs inside a Wasmtime WASM sandbox and the run returns a bounded result with a record that can be signed, while no execution state survives into the next run">
+<rect width="880" height="328" fill="#ffffff"/>
+<text x="440" y="30" text-anchor="middle" font-size="14" font-weight="600" fill="#1f2328" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">The path of untrusted code — one execution, four stations</text>
+<text x="440" y="50" text-anchor="middle" font-size="11.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">an agent proposes; the host decides what actually runs</text>
+<rect x="24" y="64" width="176" height="108" rx="12" fill="#f6f8fa" stroke="#8b949e" stroke-width="1"/>
+<text x="112.0" y="90" text-anchor="middle" font-size="13.5" fill="#1f2328" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">AI agent / app</text>
+<text x="112.0" y="118" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">generated code · tool calls</text>
+<text x="112.0" y="136" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">untrusted by default</text>
+<text x="112.0" y="154" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">no ambient authority</text>
+<rect x="248" y="64" width="176" height="108" rx="12" fill="#f6f8fa" stroke="#8b949e" stroke-width="1"/>
+<text x="336.0" y="90" text-anchor="middle" font-size="13.5" fill="#1f2328" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">Tool / plugin / MCP</text>
+<text x="336.0" y="118" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">ephemora-cell-mcp (stdio)</text>
+<text x="336.0" y="136" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">tools are WASM modules</text>
+<text x="336.0" y="154" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">each call → fresh sandbox</text>
+<rect x="472" y="64" width="176" height="108" rx="12" fill="#f6f8fa" stroke="#0969da" stroke-width="1.5"/>
+<text x="560.0" y="90" text-anchor="middle" font-size="13.5" font-weight="600" fill="#0969da" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">EPHEMORA CELL</text>
+<text x="560.0" y="110" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">capability boundary</text>
+<text x="560.0" y="128" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">grants: fuel · memory · time</text>
+<text x="560.0" y="146" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">deny: network · fs · exec</text>
+<text x="560.0" y="164" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">untrusted/unknown → worker</text>
+<rect x="696" y="64" width="160" height="108" rx="12" fill="#f6f8fa" stroke="#8b949e" stroke-width="1"/>
+<text x="776.0" y="90" text-anchor="middle" font-size="13.5" fill="#1f2328" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">WASM sandbox</text>
+<text x="776.0" y="118" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">Wasmtime engine</text>
+<text x="776.0" y="136" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">guest runs bounded</text>
+<text x="776.0" y="154" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">state does not survive</text>
+<line x1="200" y1="118" x2="238" y2="118" stroke="#8b949e" stroke-width="1.5"/><polygon points="238,113 248,118 238,123" fill="#8b949e"/>
+<text x="224.0" y="110" text-anchor="middle" font-size="10" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">calls</text>
+<line x1="424" y1="118" x2="462" y2="118" stroke="#8b949e" stroke-width="1.5"/><polygon points="462,113 472,118 462,123" fill="#8b949e"/>
+<text x="448.0" y="110" text-anchor="middle" font-size="10" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">submits</text>
+<line x1="648" y1="118" x2="686" y2="118" stroke="#8b949e" stroke-width="1.5"/><polygon points="686,113 696,118 686,123" fill="#8b949e"/>
+<text x="672.0" y="110" text-anchor="middle" font-size="10" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">enforces</text>
+<polyline points="88,172 88,204 560,204 560,182" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-dasharray="5 4"/><polygon points="555,182 565,182 560,172" fill="#8b949e"/>
+<text x="324" y="224" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">or embed directly: Python library · CLI — the same boundary</text>
+<polyline points="776,172 776,252 136,252 136,182" fill="none" stroke="#8b949e" stroke-width="1.5"/><polygon points="131,182 141,182 136,172" fill="#8b949e"/>
+<text x="456" y="272" text-anchor="middle" font-size="10.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">result + signable record — evidence persists, execution state does not</text>
+<text x="440" y="306" text-anchor="middle" font-size="11.5" fill="#444d56" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">no ambient access — every capability is granted, enforced and attested</text>
+</svg>

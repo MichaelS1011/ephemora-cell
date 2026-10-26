@@ -1,0 +1,77 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-10-12",
+  "python": "3.12.13",
+  "wasmtime_package": "49.0.0",
+  "package": "1.1.0",
+  "platform": "Darwin/arm64",
+  "advisory": "GHSA-2hw9-mc66-jc2q",
+  "loop_wat_sha256": "8a265d4252c591a96aaa767764bdaac16f7b015fb9ae5f5b4b853737e99c228c",
+  "legs": {
+    "fuel_preempt_in_process": {
+      "returncode": 0,
+      "host_survived": true,
+      "payload": {
+        "status": "ExecutionStatus.FUEL_EXHAUSTED",
+        "exit_code": 0,
+        "fuel": 50000,
+        "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:     0x4a - <unknown>!<wasm function 0>\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n"
+      },
+      "stderr_tail": []
+    },
+    "epoch_preempt_in_process": {
+      "returncode": 0,
+      "host_survived": true,
+      "payload": {
+        "status": "ExecutionStatus.TIMEOUT",
+        "exit_code": 0,
+        "fuel": null,
+        "stderr": "Timeout after 1s: error while executing at wasm backtrace:\n    0:     0x57 - <unknown>!<wasm function 0>\n\nCaused by:\n    wasm trap: interrupt\n"
+      },
+      "stderr_tail": []
+    },
+    "control_correct_in_process": {
+      "returncode": 0,
+      "host_survived": true,
+      "payload": {
+        "status": "ExecutionStatus.SUCCESS",
+        "exit_code": 0,
+        "stderr": "error while executing at wasm backtrace:\n    0:     0xa7 - <unknown>!<wasm function 1>\n\nCaused by:\n    Exited with i32 exit status 0\n"
+      },
+      "stderr_tail": []
+    },
+    "fuel_preempt_subprocess": {
+      "returncode": 0,
+      "host_survived": true,
+      "payload": {
+        "status": "ExecutionStatus.FUEL_EXHAUSTED",
+        "exit_code": 0,
+        "fuel": 50000,
+        "stderr": "Fuel exhausted: error while executing at wasm backtrace:\n    0:     0x4a - <unknown>!<wasm function 0>\n\nCaused by:\n    wasm trap: all fuel consumed by WebAssembly\n"
+      },
+      "stderr_tail": []
+    },
+    "epoch_preempt_subprocess": {
+      "returncode": 0,
+      "host_survived": true,
+      "payload": {
+        "status": "ExecutionStatus.TIMEOUT",
+        "exit_code": 0,
+        "fuel": null,
+        "stderr": "Timeout after 1s: error while executing at wasm backtrace:\n    0:     0x4a - <unknown>!<wasm function 0>\n\nCaused by:\n    wasm trap: interrupt\n"
+      },
+      "stderr_tail": []
+    }
+  },
+  "verdicts": {
+    "fuel_preemption_traps_contained": true,
+    "epoch_preemption_traps_contained": true,
+    "control_uninterrupted_correct": true,
+    "subprocess_parent_survives_fuel": true,
+    "subprocess_parent_survives_epoch": true,
+    "no_uncontained_host_abort": true
+  },
+  "reachability": "AFFECTED \u2014 REACHABLE (bulk-op + fuel/epoch preemption executes on this build); measured outcome: preemption traps cleanly and the host/parent is contained on both the in-process and subprocess paths. The exact preempt-inside-epilogue corrupt-VM-state window is an engine-internal timing race not forceable from a guest \u2014 residual, mitigated by process isolation for untrusted guests.",
+  "pass": true
+}

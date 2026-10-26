@@ -64,8 +64,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from ephemora_cell_mcp.server import Server  # noqa: E402
-from ephemora_cell_mcp.sign_tool import main as sign_tool_main  # noqa: E402
+from ephemora_cell_mcp.server import Server
+from ephemora_cell_mcp.sign_tool import main as sign_tool_main
 
 VULNERABLE_SERVER = "@modelcontextprotocol/server-filesystem@2025.3.28"
 COMPONENT_PROBES = REPO / "benchmarks" / "component_probes"

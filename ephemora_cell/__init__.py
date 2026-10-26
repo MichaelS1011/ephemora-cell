@@ -26,6 +26,14 @@ Usage:
     from ephemora_cell import ComponentSandbox, run_wasm
     result = run_wasm("module.component.wasm", abi="auto")
 
+Language-level entries are lazy (importing this package never pulls a language
+adapter); they resolve the installed guest or fail closed with the install
+command — never a hidden download, never an in-process run:
+
+    from ephemora_cell import run_python, run_javascript
+    result = run_python(script_path="tool.py")   # needs a resolved Python guest
+    result = run_javascript(entrypoint="app.component.wasm")
+
 Failures are reported on the result, not raised: check
 ``ExecutionResult.status`` (success / error / timeout / fuel_exhausted /
 memory_exceeded). There is deliberately no custom exception hierarchy —
@@ -69,6 +77,15 @@ from .tenant import (
     TenantId,
     TenantStore,
     TenantUsage,
+)
+from .vm_supervisor import (
+    SupervisorResult,
+    VMBudget,
+    VMLimits,
+    VMStartRequest,
+    VMState,
+    VMSupervisor,
+    VZProbeBackend,
 )
 from .wasi_02 import ComponentSandbox, is_component_binary
 from .wasi_runtime import (
@@ -167,6 +184,7 @@ def run_isolated(
         effective_preopens=base.effective_preopens,
         io_bytes_written=base.io_bytes_written,
         io_budget_exceeded=base.io_budget_exceeded,
+        output_files_exceeded=base.output_files_exceeded,
         state_bytes=base.state_bytes,
         execution_mode=base.execution_mode,
         abi=base.abi,
@@ -183,6 +201,26 @@ def run_isolated(
 # Backwards-compat alias: raw dict version
 run_isolated_dict = _run_isolated_dict
 
+#: Language-level entries are exposed lazily (PEP 562) so that importing the
+#: core package never imports a language adapter/runtime — see
+#: tests/test_lang_unified.py. Accessing one of these attributes imports
+#: ``ephemora_cell.lang`` on first use only.
+_LAZY_LANG = {
+    "run_python": "run_python",
+    "run_javascript": "run_javascript",
+    "run_language": "run_language",
+    "available_languages": "available_languages",
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_LANG:
+        from . import lang
+
+        return getattr(lang, _LAZY_LANG[name])
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "STDIN_MAX_BYTES",
     "Admission",
@@ -197,11 +235,19 @@ __all__ = [
     "LedgerEntry",
     "ModuleInfo",
     "PreExecutionRecord",
+    "SupervisorResult",
     "TenantId",
     "TenantStore",
     "TenantUsage",
+    "VMBudget",
+    "VMLimits",
+    "VMStartRequest",
+    "VMState",
+    "VMSupervisor",
+    "VZProbeBackend",
     "WASIConfig",
     "WASISandbox",
+    "available_languages",
     "chain_break",
     "config_fingerprint",
     "detached_jws_sign",
@@ -219,9 +265,12 @@ __all__ = [
     "record_digest",
     "run_isolated",
     "run_isolated_dict",
+    "run_javascript",
+    "run_language",
+    "run_python",
     "run_wasm",
     "verify_chain",
     "verify_ledger",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"

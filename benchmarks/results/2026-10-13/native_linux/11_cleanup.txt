@@ -1,0 +1,23 @@
+-- Host-Prozesse (nur unser Pfad) --
+keine Worker-/Driver-Prozesse auf dem Host
+-- Fremdlast auf dem Host (Kontext fuer die Mandantentrennungs-Bewertung) --
+fremde_runc_shims=5 (containerd-shim-runc-v2; Prozess-/Container-IDs redigiert)
+fremde_daemon_befehlszeilen=2 (Projektinterna eines anderen Mandanten — vollstaendig redigiert)
+laufende_fremde_container=5 (Namen redigiert)
+BEFUND: der nativ getestete Host ist NICHT einzelmandant. Kontext fuer die
+Mandantentrennungs-Bewertung; die Messung des Referenzprofils ist davon
+unabhaengig, weil das Profil keine Host-Prozesse, Sockets oder Mounts sieht.
+-- Container Reste --
+keine Test-Container mehr vorhanden
+-- Mount-Reste --
+keine ephemora-bezogenen Mounts
+-- overlay/tmpfs-Reste --
+overlay_mounts=5
+-- temporare Daten im Arbeitsverzeichnis --
+keine Worker-Temporaerdaten zurueckgeblieben
+-- Core-Dumps --
+keine Core-Dumps im pruefbaren Bereich
+-- Kernel-Log nach Crash-Laeufen --
+dmesg ohne root nicht lesbar
+-- tmpfs im Bild: /tmp ist fluechtig (read-only rootfs + tmpfs) --
+tmp_entries= []

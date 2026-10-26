@@ -30,7 +30,12 @@ fixed 2026-09-29).
 
 from __future__ import annotations
 
+try:  # POSIX-only; the bounded FIFO sink is not available on Windows.
+    import fcntl
+except ImportError:  # pragma: no cover - Windows import path
+    fcntl = None  # type: ignore[assignment]
 import os
+import select
 import threading
 import warnings
 from collections.abc import Callable
@@ -38,6 +43,8 @@ from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from typing import IO
+
     from wasmtime import WasiConfig as WasmtimeWasiConfig
 
 # --- Output Budget (max 10 KB of UTF-8 bytes per execution) ---
@@ -54,6 +61,11 @@ _MAX_OUTPUT_BYTES = 10_000
 STDIN_MAX_BYTES = 9_216
 # WASI errno returned to the guest once the output budget is exhausted.
 _WASI_ERRNO_NOSPC = 51
+# A refused whole chunk leaves the budget under-filled (the sink does not split
+# guest buffers). Keep one sentinel so the reader can still say that data was
+# lost, while subsequent refusals cannot append another marker.
+_OUTPUT_TRUNCATION_MARKER = b"\n[... truncated]"
+_OUTPUT_TRUNCATED = -1
 
 # macOS temp roots: /tmp and /var/folders are symlinks into /private, so the
 # canonical allowlist would reject the very directories tempfile.mkdtemp()
@@ -328,6 +340,14 @@ def is_memory_fault_trap(message: str) -> bool:
     )
 
 
+def limit_output_text(text: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
+    """Cap host-authored diagnostic text in UTF-8 bytes and mark the cut."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", errors="replace") + "\n[... truncated]"
+
+
 def read_capped_output(path: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
     """Read a host-owned capture file, bounding it at ``limit`` chars.
 
@@ -354,6 +374,47 @@ def read_capped_output(path: str, limit: int = _MAX_OUTPUT_BYTES) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def open_private(file_path: str, mode: str = "wb") -> IO[Any]:
+    """Open a host-side capture file with owner-only permission bits.
+
+    The built-in ``open()`` applies the process umask, so a capture file created
+    that way lands at ``0644`` — group and world read bits on a file that holds
+    the caller's own stdin and the guest's output. The run's directory is created
+    by ``mkdtemp`` (``0700``), which hides the path, but the directory is not the
+    subject of the claim: a host may place a run inside a base directory other
+    processes already share, and the file itself should never be readable beyond
+    its owner.
+
+    The mode is therefore set on the descriptor, not only at creation. Measured
+    during the pre-push review: with ``O_CREAT`` alone, a path that ALREADY
+    existed with ``0644`` kept ``0644`` — the creation mode is ignored for an
+    existing file, and a capture path can be reopened (the stdout/stderr sink
+    opens in append mode). ``fchmod`` closes that, so the guarantee holds for
+    every open, not only for a freshly created file.
+
+    Args:
+        file_path: Path to create or open.
+        mode: ``"wb"`` for the byte sinks, ``"w"`` for the text stdin capture.
+
+    Returns:
+        A file object, exactly as ``open()`` would have returned.
+    """
+    flags = os.O_WRONLY | os.O_CREAT
+    if "x" in mode:
+        flags |= os.O_EXCL
+    elif "a" in mode:
+        flags |= os.O_APPEND
+    else:
+        flags |= os.O_TRUNC
+    fd = os.open(file_path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, mode)
+
+
 def make_output_sink(
     file_path: str, budget: list[int]
 ) -> Callable[[bytes], int | None]:
@@ -369,11 +430,29 @@ def make_output_sink(
     """
 
     def _sink(data: bytes) -> int | None:
+        if budget[0] == _OUTPUT_TRUNCATED:
+            return -_WASI_ERRNO_NOSPC
         if len(data) > budget[0]:
+            # Fill the remaining budget with the part that still fits, then
+            # mark the truncation. The guest sees ENOSPC for the whole write;
+            # the capture keeps exactly the documented byte limit plus the
+            # marker, so stdout_bytes is a measured number and not a chunk
+            # artefact.
+            accepted = budget[0]
+            try:
+                with open_private(file_path, "ab") as f:
+                    if accepted > 0:
+                        f.write(data[:accepted])
+                    f.write(_OUTPUT_TRUNCATION_MARKER)
+            except OSError:
+                # The refusal still stands even if the marker cannot be stored;
+                # budget sentinel prevents pretending another chunk fit.
+                pass
+            budget[0] = _OUTPUT_TRUNCATED
             return -_WASI_ERRNO_NOSPC
         budget[0] -= len(data)
         try:
-            with open(file_path, "ab") as f:
+            with open_private(file_path, "ab") as f:
                 f.write(data)
         except OSError:
             return -_WASI_ERRNO_NOSPC
@@ -430,6 +509,106 @@ def start_epoch_timer(
     timer = threading.Thread(target=_epoch_timer, daemon=True)
     timer.start()
     return timer
+
+
+# Hard on-disk bound for the native output sink. The RESULT is capped at
+# _MAX_OUTPUT_BYTES with a marker; this bound is enforced by the reader that
+# drains the guest's FIFO, so the capture file can never grow past it.
+OUTPUT_FILE_HARD_LIMIT = _MAX_OUTPUT_BYTES + 64 * 1024
+
+
+def make_output_fifo(path: str) -> None:
+    """Create the private FIFO that carries guest stdout/stderr to the host.
+
+    The FIFO is the write-side bound: Wasmtime writes into it, and the host
+    reader below stops consuming at ``OUTPUT_FILE_HARD_LIMIT`` instead of
+    polling a growing file. A poller cannot win against a guest that writes
+    ~1.5 MB/ms; a reader that refuses further bytes does.
+    """
+    if not hasattr(os, "mkfifo"):
+        raise OSError(
+            "the bounded worker output sink needs a POSIX FIFO; "
+            "this platform is not qualified for isolated runs"
+        )
+    os.mkfifo(path, 0o600)
+
+
+def start_output_cap_reader(
+    fifo_path: str,
+    capture_path: str,
+    limit: int,
+    exceeded: threading.Event,
+    stop: threading.Event,
+    ready: threading.Event,
+    errors: list[BaseException],
+) -> threading.Thread:
+    """Drain one guest-output FIFO into a capture file, hard-capped at ``limit``.
+
+    This is a host thread reading a FIFO, not a Python callback invoked from
+    Wasmtime's tokio worker, so it cannot re-enter the FFI callback that caused
+    the earlier abort. ``exceeded`` is set only when a byte beyond ``limit``
+    actually arrived; an exactly-at-limit stream that then ends is not a breach.
+    """
+
+    def _read() -> None:
+        fd: int | None = None
+        try:
+            if fcntl is None:  # pragma: no cover - Windows import path
+                raise OSError(
+                    "the bounded worker output sink needs POSIX fcntl; "
+                    "this platform is not qualified for isolated runs"
+                )
+            # O_NONBLOCK lets the reader exist before Wasmtime opens the write
+            # end; clear it so the run thread blocks on data instead of spinning.
+            fd = os.open(fifo_path, os.O_RDONLY | os.O_NONBLOCK)
+            ready.set()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags & ~os.O_NONBLOCK)
+            total = 0
+            with open_private(capture_path, "wb") as out:
+                while True:
+                    readable, _, _ = select.select([fd], [], [], 0.01)
+                    if not readable:
+                        if stop.is_set():
+                            break
+                        continue
+                    # Once the limit is reached, read a single byte: it proves
+                    # whether the guest wrote beyond the bound.
+                    chunk = os.read(fd, 1 if total >= limit else 65536)
+                    if not chunk:
+                        break
+                    if total >= limit:
+                        exceeded.set()
+                        break
+                    room = limit - total
+                    take = min(room, len(chunk))
+                    out.write(chunk[:take])
+                    out.flush()
+                    total += take
+                    if take < len(chunk):
+                        # More was offered than the bound allows. Close the
+                        # FIFO: the guest's next write gets EPIPE / a short
+                        # count, and the capture file cannot grow past it.
+                        exceeded.set()
+                        break
+                    if total >= limit:
+                        # Exactly at the bound. Keep waiting for one more byte:
+                        # further data is a breach, EOF (or the run ending) is
+                        # not.
+                        continue
+        except BaseException as exc:
+            errors.append(exc)
+            ready.set()
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=_read, daemon=True, name="ephemora-output-cap")
+    thread.start()
+    return thread
 
 
 def fuel_consumed(

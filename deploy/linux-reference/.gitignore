@@ -1,0 +1,4 @@
+# context/ is a generated build staging area (wheel/sdist + a copy of
+# requirements.lock + a .dockerignore), reproducible via `uv build` and the
+# steps in README.md. Do not commit binary release artifacts.
+context/

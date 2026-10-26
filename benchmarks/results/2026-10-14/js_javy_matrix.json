@@ -1,0 +1,271 @@
+{
+  "scope": "Language program: JavaScript/Javy guest matrix",
+  "cases": [
+    {
+      "case": "hello",
+      "wasm": "hello.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "hello from javy in the cell\n",
+      "stderr_head": "",
+      "fuel_consumed": 435719,
+      "error": null,
+      "expect": "SUCCESS with the javy greeting on stdout",
+      "wall_s": 0.473
+    },
+    {
+      "case": "json_io",
+      "wasm": "json_roundtrip.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"answer\":40,\"echo\":\"baz!\"}\n",
+      "stderr_head": "",
+      "fuel_consumed": 640599,
+      "error": null,
+      "expect": "SUCCESS; stdout {'answer': 40, 'echo': 'baz!'}",
+      "wall_s": 0.481
+    },
+    {
+      "case": "fuel_stop",
+      "wasm": "loop.wasm",
+      "status": "ExecutionStatus.FUEL_EXHAUSTED",
+      "stdout_head": "",
+      "stderr_head": "Fuel exhausted: error while executing at wasm backtrace:\n    0:   0x1746 - <unknown>!<wasm function 9>\n    1:  0x80e68 - <unknown>!<wasm function 141>\n    2:  0xd2e75 - <unknown>!<wasm function 561>\n    3:  0xda948 - <unknown>!<wasm function 643>\n    4:  0xba703 - <unknown>!<wasm function 374>\n    5:  0xa7ccb - <unknown>!<wasm function 278>\n    6:  0xf55fb - <unknown>!<wasm function 1277>\n\nCaused ",
+      "fuel_consumed": 20000000,
+      "error": null,
+      "expect": "refusal-class status (fuel/timeout) at reduced fuel, worker survives",
+      "wall_s": 0.457
+    },
+    {
+      "case": "epoch_stop",
+      "wasm": "loop.wasm",
+      "status": "ExecutionStatus.FUEL_EXHAUSTED",
+      "stdout_head": "",
+      "stderr_head": "Fuel exhausted: error while executing at wasm backtrace:\n    0:   0x1746 - <unknown>!<wasm function 9>\n    1:  0x80e68 - <unknown>!<wasm function 141>\n    2:  0xd2e75 - <unknown>!<wasm function 561>\n    3:  0xda948 - <unknown>!<wasm function 643>\n    4:  0xba703 - <unknown>!<wasm function 374>\n    5:  0xa7ccb - <unknown>!<wasm function 278>\n    6:  0xf55fb - <unknown>!<wasm function 1277>\n\nCaused ",
+      "fuel_consumed": 500000000,
+      "error": null,
+      "expect": "wall-clock TIMEOUT at generous fuel",
+      "wall_s": 0.506
+    },
+    {
+      "case": "no_capability",
+      "wasm": "no_cap.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"fd3_read\":\"threw: Unsupported file descriptor: 3. Only stdin(0) is supported\",\"fd_neg\":\"threw: Unsupported file descriptor: -1. Only stdin(0) is supported\",\"has_process\":false,\"has_require\":false}\n",
+      "stderr_head": "",
+      "fuel_consumed": 605041,
+      "error": null,
+      "expect": "SUCCESS; fd3/fd-1 refused; no process/require globals",
+      "wall_s": 0.464
+    },
+    {
+      "case": "memory_pressure",
+      "wasm": "alloc.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "allocated MB: 64\nallocated MB: 128\nallocated MB: 192\nallocation stopped at 252 MB: out of memory\n",
+      "stderr_head": "",
+      "fuel_consumed": 265001145,
+      "error": null,
+      "expect": "clean error class at the memory cap (256 MB override), no host impact",
+      "wall_s": 0.456
+    },
+    {
+      "case": "big_output",
+      "wasm": "bigout.wasm",
+      "status": "ExecutionStatus.ERROR",
+      "stdout_head": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "stderr_head": "error while executing at wasm backtrace:\n    0:  0xf5e74 - <unknown>!<wasm function 1277>\n\nCaused by:\n    wasm trap: wasm `unreachable` instruction executed\n\nError: I/O error (os error 29)\n    at <anonymous> (function.mjs:4:20)\n\n",
+      "fuel_consumed": null,
+      "error": null,
+      "expect": "output budget behavior recorded",
+      "wall_s": 0.457
+    },
+    {
+      "case": "state_run1",
+      "wasm": "state.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"run_count\":1}\n",
+      "stderr_head": "",
+      "fuel_consumed": 490992,
+      "error": null,
+      "expect": "run_count == 1",
+      "wall_s": 0.441
+    },
+    {
+      "case": "state_run2",
+      "wasm": "state.wasm",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"run_count\":1}\n",
+      "stderr_head": "",
+      "fuel_consumed": 490992,
+      "error": null,
+      "expect": "run_count == 1 again (no carry)",
+      "wall_s": 0.456
+    }
+  ],
+  "validation": [
+    {
+      "module": "hello.wasm",
+      "present": true,
+      "bytes": 1359663,
+      "sha256": "124757d481928a5b232551177e78a8fafab0b03418e7fd89c53424a843acc64b",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "json_roundtrip.wasm",
+      "present": true,
+      "bytes": 1360644,
+      "sha256": "02020cb442a0f142f43931e2ff7934214516c32be81b23e2410fb66f2e827eef",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "loop.wasm",
+      "present": true,
+      "bytes": 1359755,
+      "sha256": "61e948726a7781310db37563b9fe496146b4cc779963ede5f7aee00854441444",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "no_cap.wasm",
+      "present": true,
+      "bytes": 1360470,
+      "sha256": "2466d2027f10581b0afa2074d0c75943ae783e8e68c02df43b2c1aa4f9fdcfb7",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "alloc.wasm",
+      "present": true,
+      "bytes": 1360060,
+      "sha256": "23eef01ded0ea20c3131d058a9673cc15ed6d94108020f58a72c0964f50c9f09",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "bigout.wasm",
+      "present": true,
+      "bytes": 1359844,
+      "sha256": "8efb884b5abc7a8b3865a6ccc7ab63d495f702762a52d58d762cdd12fcfceb24",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    },
+    {
+      "module": "state.wasm",
+      "present": true,
+      "bytes": 1359917,
+      "sha256": "9de2443ddb41ce31a15c0f723f89d7efd923e540eb5bfb7ff40741df1398d24a",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "imports_names": [
+        "clock_time_get",
+        "environ_get",
+        "environ_sizes_get",
+        "fd_close",
+        "fd_fdstat_get",
+        "fd_read",
+        "fd_seek",
+        "fd_write",
+        "proc_exit"
+      ]
+    }
+  ],
+  "environment": "laboratory macOS aarch64; NOT the pilot VM (that line was blocked at the time); isolated branch of this release line",
+  "toolchain": {
+    "javy_cli": "9.1.0, built from signed tag v9.1.0 (commit d9b6139daefe2be95cfd758c2a8e62fdd8de861) via cargo, rustc 1.99.0",
+    "cli_binary_sha256": "a5d4ce308e3b975f35460962dea182b0bc6c15e46941604dfc3258c77eacba5a",
+    "plugin_wasm_sha256": "cbd110a0ee5c7f25723e7b95eb688bd9e831213165a8370c615d409b5a6ad417",
+    "note": "local source build reproducible; official GitHub release binaries carry per-platform sha256 files (v9.1.0, 2026-07-30)"
+  },
+  "followups": {
+    "epoch_wall_independent": {
+      "config": "max_fuel=None, timeout_seconds=2",
+      "status": "TIMEOUT",
+      "stderr_head": "Timeout after 2s: error while executing at wasm backtrace",
+      "note": "fuel was consumed below 2s in the matrix run (FUEL_EXHAUSTED), so the wall clock was re-proven separately with unbounded fuel"
+    },
+    "big_output_error_detail": {
+      "status": "ERROR",
+      "stderr": "wasm trap: unreachable after Error: I/O error (os error 29) at function.mjs \u2014 host write budget closed the stream, guest trapped, worker returned a clean ERROR record",
+      "exit_code": 1
+    }
+  },
+  "adapter": {
+    "module": "ephemora_cell/lang_js.py",
+    "tests": "tests/test_lang_js_adapter.py (5, incl. digest-pinned BYO roundtrip)",
+    "admission": "AdapterPolicyError converges unparsable files, components and foreign imports before any sandbox exists"
+  }
+}

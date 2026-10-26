@@ -9,11 +9,13 @@ Usage:
     python integration/test_model_independence.py
     python integration/test_model_independence.py --json
 """
+
 from __future__ import annotations
+
 import json
+import subprocess
 import sys
 import uuid
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,9 +32,10 @@ def generate_code_with_ollama(model: str) -> str | None:
     """Generate a simple Python snippet via Ollama."""
     try:
         r = subprocess.run(
-            ["ollama", "run", model,
-             "Write a one-line Python that prints hello."],
-            capture_output=True, text=True, timeout=60
+            ["ollama", "run", model, "Write a one-line Python that prints hello."],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return r.stdout if r.returncode == 0 else None
     except Exception:
@@ -56,21 +59,25 @@ def test_model_independence() -> dict:
         code = generate_code_with_ollama(model)
         if code is not None:
             ollama_available = True
-            models_tested.append({
-                "model": model,
-                "code_generated": True,
-                "code_snippet": code.strip()[:200],
-            })
+            models_tested.append(
+                {
+                    "model": model,
+                    "code_generated": True,
+                    "code_snippet": code.strip()[:200],
+                }
+            )
 
     # Execute WASM modules via Ephemora Cell (proves model-agnostic execution)
     execution_results = []
     for wasm in wasm_paths:
         result = executor.execute(wasm)
-        execution_results.append({
-            "wasm": Path(wasm).name,
-            "status": result.status,
-            "elapsed_ms": result.elapsed_ms,
-        })
+        execution_results.append(
+            {
+                "wasm": Path(wasm).name,
+                "status": result.status,
+                "elapsed_ms": result.elapsed_ms,
+            }
+        )
 
     return {
         "test": "model_independence",

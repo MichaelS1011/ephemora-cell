@@ -73,9 +73,12 @@ from ephemora_cell.egress_sidecar import EgressGrant, EgressPolicy
 from ephemora_cell.execution_report import new_execution_evidence
 from ephemora_cell.grant_ledger import GrantLedger
 from ephemora_cell.profiles import get as get_profile
+from ephemora_cell.tenant import CumulativeBudget, TenantStore
 
 from . import protocol
+from .authz import ACTION_CALL, ACTION_READ, Authorizer, Decision
 from .engine import CellOutcome, CellToolEngine, ToolExecutionError, parse_tool_stdout
+from .subject_binding import verify_subject_binding
 from .tool_registry import (
     TOOL_REQUEST_SUFFIX,
     ToolRegistry,
@@ -155,6 +158,14 @@ class Server:
         receipt_signer: Callable[[bytes], bytes] | None = None,
         receipt_key_id: str | None = None,
         receipt_alg: str = "EdDSA",
+        authorizer: Authorizer | None = None,
+        subject: str | None = None,
+        subject_from_upstream: bool = False,
+        subject_secret: str | None = None,
+        audit_sink: Callable[[dict[str, Any]], None] | None = None,
+        tenant_store: TenantStore | None = None,
+        host_budget: CumulativeBudget | None = None,
+        tenant_budget: CumulativeBudget | None = None,
     ) -> None:
         """Create the server.
 
@@ -207,6 +218,15 @@ class Server:
                 authenticated against — key ids, rotation status, windows, never
                 key material. ``None`` means this process did not verify any
                 grant signature, and ``get-policy`` reports exactly that.
+            tenant_store: Shared account book for resource admission. When set,
+                every executed tool call is admitted against the authenticated
+                subject's account and the optional host-wide cap BEFORE the
+                guest starts. ``None`` (default) records no resource usage.
+                Refused when ``engine`` is given — the engine owns its book,
+                and a silently dropped cap would admit every run.
+            host_budget: Host-wide caps checked against the whole book, across
+                every subject and every server process sharing it.
+            tenant_budget: Caps applied to each subject's own account.
         """
         if tools_dir is None:
             tools_dir = _PACKAGE_TOOLS
@@ -217,6 +237,16 @@ class Server:
             Path(tool_requests_dir).resolve() if tool_requests_dir else None
         )
         self.transport = transport if transport is not None else StdioTransport()
+        if engine is not None and (
+            tenant_store is not None
+            or host_budget is not None
+            or tenant_budget is not None
+        ):
+            raise ValueError(
+                "tenant_store/host_budget/tenant_budget are ignored when an "
+                "engine is injected — wire the book into that engine instead "
+                "(a silently dropped cap would admit every run)"
+            )
         self.engine = (
             engine
             if engine is not None
@@ -226,6 +256,9 @@ class Server:
                 egress_grants=egress_grants,
                 grant_ledger=grant_ledger,
                 grants_required=grants_required,
+                tenant_store=tenant_store,
+                host_budget=host_budget,
+                tenant_budget=tenant_budget,
             )
         )
         self.registry = ToolRegistry(
@@ -250,6 +283,100 @@ class Server:
         # this process cannot claim it verified any grant's signature, and
         # get-policy says so instead of implying it.
         self.grant_trust = grant_trust
+        # ADR-016 per-tool authorization. ``authorizer`` given -> default deny:
+        # every tools/call and native read is checked against the host-established
+        # ``subject`` immediately before it runs. ``None`` keeps the pre-1.2
+        # behaviour (one authenticated client may call any registered tool) — an
+        # explicit, operator-visible legacy mode, never a silent grant.
+        self.authorizer = authorizer
+        self.subject = subject
+        # Bridge mode: the subject arrives per request, bound by a keyed MAC
+        # over the private spawn channel (see subject_binding). Off (default):
+        # the process subject set at startup is the only identity, and any
+        # client-supplied `_meta` subject is ignored.
+        self._subject_from_upstream = subject_from_upstream
+        self._subject_secret = subject_secret
+        self.audit_sink = audit_sink
+
+    def _authorize(
+        self,
+        subject: str | None,
+        tool: str,
+        *,
+        action: str = ACTION_CALL,
+        resource: str = "*",
+    ) -> Decision | None:
+        """Authorize ``tool`` for ``subject``, or ``None`` in legacy mode."""
+        if self.authorizer is None:
+            return None
+        decision = self.authorizer.authorize(
+            subject, tool, action=action, resource=resource
+        )
+        if self.audit_sink is not None:
+            self.audit_sink(decision.to_audit().as_dict())
+        return decision
+
+    def _denied(self, decision: Decision) -> dict[str, Any]:
+        """The tool-level refusal result for a rejected call (no side effect ran)."""
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "error": f"not authorized: {decision.reason}",
+                            "denied": True,
+                            "reason": decision.reason,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ],
+            "isError": True,
+        }
+
+    def _resolve_subject(self, params: Any) -> tuple[str | None, str | None]:
+        """The subject this request runs under, or ``(subject, binding_error)``.
+
+        Behind the bridge (``subject_from_upstream``) the subject is read from
+        the request's ``_meta`` and must carry a valid keyed-MAC proof; a
+        missing or unbound subject is a binding error — denied, never a silent
+        fallback to the process subject. In direct stdio mode the client's
+        ``_meta`` is inert and the startup subject is the only identity.
+        """
+        if not self._subject_from_upstream:
+            return self.subject, None
+        meta = params.get("_meta") if isinstance(params, dict) else None
+        return verify_subject_binding(self._subject_secret, meta)
+
+    def _binding_denial(
+        self, subject: str | None, tool: str, reason: str
+    ) -> dict[str, Any]:
+        """Refuse a call whose subject binding failed, with an audit record."""
+        version = self.authorizer.version if self.authorizer is not None else "none"
+        if self.audit_sink is not None:
+            self.audit_sink(
+                {
+                    "subject": subject,
+                    "tool": tool,
+                    "action": ACTION_CALL,
+                    "resource": "*",
+                    "policy_version": version,
+                    "decision": "DENY",
+                    "reason": reason,
+                }
+            )
+        return self._denied(
+            Decision(
+                allowed=False,
+                reason=reason,
+                subject=subject,
+                tool=tool,
+                action=ACTION_CALL,
+                resource="*",
+                policy_version=version,
+            )
+        )
 
     # --- public API -------------------------------------------------
 
@@ -617,14 +744,34 @@ class Server:
             raise _InvalidParams(
                 "tools/call requires params.name to be a non-empty string"
             )
+        subject, binding_error = self._resolve_subject(params)
+        if binding_error is not None:
+            return self._binding_denial(subject, name, binding_error)
         if name in _NATIVE_NAMES:
-            return self._handle_native_call(name, params.get("arguments"))
+            return self._handle_native_call(name, params.get("arguments"), subject)
         spec = self.registry.get(name)
         if spec is None:
+            # v1.2: an unregistered tool is a DENY and must be audited as one,
+            # even though the wire shape stays the pre-1.2 unknown-tool error.
+            if self.authorizer is not None and self.audit_sink is not None:
+                self.audit_sink(
+                    {
+                        "subject": subject,
+                        "tool": name,
+                        "action": ACTION_CALL,
+                        "resource": "*",
+                        "policy_version": self.authorizer.version,
+                        "decision": "DENY",
+                        "reason": "unregistered tool",
+                    }
+                )
             raise _InvalidParams(f"unknown tool: {name}")
+        decision = self._authorize(subject, name)
+        if decision is not None and not decision.allowed:
+            return self._denied(decision)
         arguments = params.get("arguments")
         try:
-            outcome = self.engine.execute(spec, arguments)
+            outcome = self.engine.execute(spec, arguments, subject=subject)
         except ToolExecutionError as e:
             return {
                 "content": [
@@ -637,9 +784,17 @@ class Server:
             }
         return self._build_call_result(outcome, tool=name)
 
-    def _handle_native_call(self, name: str, arguments: Any) -> dict[str, Any]:
+    def _handle_native_call(
+        self, name: str, arguments: Any, subject: str | None
+    ) -> dict[str, Any]:
         """Dispatch a native meta tool (no WASM execution involved)."""
         if name == "get-policy":
+            # v1.2: reading policy is a distinct, resource-scoped action —
+            # a subject may be allowed to execute a tool yet not to read the
+            # server-wide policy.
+            decision = self._authorize(subject, name, action=ACTION_READ)
+            if decision is not None and not decision.allowed:
+                return self._denied(decision)
             return self._handle_get_policy(arguments)
         raise _InvalidParams(f"unknown native tool: {name}")
 

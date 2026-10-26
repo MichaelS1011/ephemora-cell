@@ -21,7 +21,7 @@ measured and recorded in `results/cross-platform-results.json` (20 cores / 121 G
 | `competitive_benchmark.py` | Ephemora Cell vs Docker (cold start) | 1 | 100 | Speedup ratio |
 | `security_comparison.py` | 8 attack vectors (Docker vs Ephemora Cell) | 8 | 1 | Allow/Block |
 | `fuel_boundary.py` | Fuel consumption characterization | 1 | 50 | R², slope |
-| `verify_8_vectors.py` | Reproduce 8-vector security claims | 8 | 1 | Pass/Fail |
+| `verify_8_vectors.py` | Reproduce 8-vector security classifications | 8 | 1 | Classification |
 | `agentic_workflow.py` | 50 tool-calls in agent loop | 50 | 10–30 | Latency, cost, security |
 | `fuzz_smoke.py` | Random WASM module smoke fuzzing | 1 | 100 | Crash/hang report |
 

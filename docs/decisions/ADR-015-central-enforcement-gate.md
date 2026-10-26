@@ -1,7 +1,10 @@
 # ADR-015: Central Enforcement Gate — Untrusted/Unknown WASI 0.2 Components Run Isolated, Never in-Process
 
-- **Status:** Accepted
-- **Date:** 2026-10-11
+- **Status:** Accepted — **amended 2026-10-14 for 1.2.0** (governance
+  decision 2026-10-14, the isolation mandate: it is extended from components-only to **both ABIs**;
+  see “Amendment — 1.2.0” below, which supersedes the Preview1 carve-out in the
+  original text)
+- **Date:** 2026-10-11 (amended 2026-10-14)
 - **Refines:** ADR-014 (effective-enforcement attestation), ADR-012 (tenant attribution)
 - **Decision:** enforced isolation for untrusted/unknown components plus a
   host-owned trust exception (a blanket subprocess flip was rejected)
@@ -209,6 +212,70 @@ operating-system isolation**: an external Linux isolation layer remains an
 operator precondition for the eventual deployment profile, and the component
 sync blockade is still absent (`sync_blockade_enforced=false`) as attested by
 ADR-014.
+
+## Amendment — 1.2.0 (governance decision, the isolation mandate): extended to BOTH ABIs
+
+**What changed.** The original gate (above) mandated isolation for
+`abi == component and trust != trusted` and explicitly carved out Preview1
+(“Preview1 runs are never a mandate class … the large in-process Preview1
+workload is untouched”). The 1.2.0 decision rejects that carve-out: `untrusted`
+**and** `unknown` require the protected worker for **both** ABIs, independent of
+Preview1-vs-Component. The single-source predicate becomes
+`isolation_required_for(trust, abi) = (trust != trusted)`; `unknown` stays
+fail-closed and equals `untrusted`. Only an explicitly host-authorised `trusted`
+run keeps the in-process path.
+
+**Why.** The Preview1 exemption was justified only by GHSA-j2g9 (a
+component-only datetime-overflow abort). The 1.2.0 posture does not rest
+isolation on one advisory’s ABI shape: process isolation is the wall against the
+whole class of host-side effects a runtime resource wall cannot bound (native
+abort, the GHSA-32h6 async-lifted-component host effects (open memory-safety
+risk, see below), future
+Preview1-reachable classes). A per-advisory ABI carve-out would silently
+re-expose the host whenever a new Preview1-reachable class lands.
+
+**Enforcement is unchanged in kind:** decided at the same `WASISandbox.run()`
+choke point before dispatch, raised to `use_subprocess` and **never lowered**;
+if the worker is unavailable the run is **refused** (`ERROR`), never downgraded
+in-process; a worker crash (including a native abort) is a fail-closed `ERROR`
+with no in-process retry (pinned by
+`tests/test_isolation_gate.py::test_forced_run_never_falls_back_to_in_process_on_worker_crash`).
+Python, JavaScript, the direct WASM API, the CLI (`--trust`, default `unknown`)
+and MCP all flow through this one decision.
+
+**Breaking change + migration.** The `run()` default posture is `unknown`, so a
+call that previously ran a Preview1 module in-process now spawns the worker.
+Operators/tests that intend the in-process path must now **declare it**:
+`sandbox.run(path, trust="trusted")`. This is the sanctioned host-authorisation
+exception, never guest/manifest/MCP-derivable (decision 2 forbids silent
+trust-elevation and forbids a performance-driven auto-upgrade). ADR-004
+`state_store` grants remain in-process-only, so a state-backed run must declare
+`trusted` (the gate refuses `state_store` + mandated isolation instead of
+dropping the capability silently).
+
+**Performance re-measurement (isolation mandate, item 10).** The prior “~66 ms per
+forced component run” cost (below) no longer bounds the change: the default
+Preview1 workload now pays the worker-spawn cost too. The broad
+default-posture test-suite re-validation is **DONE** on the macOS dev box: the
+full suite passes 1148 / 7 skipped / 0 failed after the isolation-mandate test adaption
+(the in-process-subject tests declare the sanctioned `trusted` posture, the
+timeout test asserts the security invariant across postures — no blanket
+isolation flip), and the isolation-gate recursion that produced the 759-incident
+worker fan-out is fixed (worker reaping + concurrency cap + payload deadline),
+with **0 lingering `process_worker` processes** after a 24-burst and after the
+full run (see commits 87a9b06, 4a1f0b5, dc04038). Re-measuring the worker-per-run
+tax across the full workload matrix is still **gated on a healthy CI/pilot host**:
+spot measurements taken while unrelated foreign processes held the box at load
+average ~199–224 confirmed the posture split (trusted → `in_process`, unknown →
+`subprocess`) but their wall-clock overhead is **host-contention contaminated and
+NOT AUTHORITATIVE**; a clean matrix re-measure is tracked as **OFFEN**, not asserted.
+
+**Async advisory note.** See [SECURITY.md](../../SECURITY.md) —
+GHSA-32h6-97mm-8q3c (identical to RUSTSEC-2026-0327, a **native stack buffer
+overflow**, not a host panic): the overflow is an **open, unresolved
+memory-safety risk** at the 49.0.0 pin; the worker boundary is containment, not
+closure, and the observed `unreachable!()` abort is a different code path that
+does **not** prove the overflow unreachable. Public 1.2.0 is on HOLD.
 
 ## Consequences
 

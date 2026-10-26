@@ -14,12 +14,22 @@ Detail page for [README.md](../README.md#security-evidence). Policy and reportin
 | I/O-DoS | ⚠️ Path-dependent | Host syscalls bypass fuel metering — guest output capped at 10 KB (ENOSPC); sandbox-dir writes walled by `io_budget_bytes` (both paths); the `io_cpu_seconds` CPU wall is enforced in the **subprocess path only** (default in-process is documented-trusted — see the execution-path matrix in [SECURITY.md](../SECURITY.md)) |
 | Network | ✅ | No guest connection succeeds by default: WASI Preview1 exposes no socket API, and on the WASI 0.2 component path `wasi:sockets` is linked but `connect` is denied at call time (measured — `benchmarks/mcp_cve_replay.py`, component run) |
 
-## 8/8 attack vectors — verification method
+## Attack-vector classification — verification method
 
-5/8 vectors are executed live through the sandbox run path; 3/8 (exec, fork, socket) are verified by WASI import-surface scan — those APIs do not exist in WASI Preview1, so rejection happens at instantiate. Reproduce:
+All eight vectors are executed live through `WASISandbox`, not scanned from a
+vanilla linker. Vectors 1-3 instantiate real modules importing exec/system,
+fork/vfork, and socket creation/connect: WASI Preview1 defines none of those
+imports, so the linker refuses at instantiation with an unknown import —
+classified REJECTED AS UNSUPPORTED, not BLOCKED BY POLICY. Vector 7 is a
+shared-memory + atomics module refused at validation by `wasm_threads=False`;
+the same bytes compile and instantiate on a threads-enabled engine, which
+proves the payload is valid. Vectors 4-6 and 8 are BLOCKED BY POLICY, each
+with a positive control (`allow_fsync=True`, a real file read inside a
+preopen, `allow_env` with one variable). Parse refusals are never counted as
+blocks. Reproduce:
 
 ```bash
-python benchmarks/verify_8_vectors.py       # 8/8 BLOCKED (live wasmtime)
+python benchmarks/verify_8_vectors.py       # 4 BLOCKED BY POLICY + 4 REJECTED AS UNSUPPORTED (live WASISandbox)
 python benchmarks/compile_workloads.py      # rebuild workloads/*.wasm from WAT (reproducible)
 ```
 
@@ -64,23 +74,33 @@ itself, with its definition, its provenance and its reproduce commands.
 > available *inside* that sandbox. It does not mean host escape, and the table
 > is not a ranking of the boundaries. `BLOCKED` means the intent could not be
 > carried out at all from inside the guest.
+>
+> The Cell column uses the harness's exact categories: **BLOCKED BY POLICY**
+> (a guard refused an operation that a positive control shows works when
+> granted) and **REJECTED AS UNSUPPORTED** (the ABI/proposal never exposed the
+> capability). Both mean the intent could not be carried out; only the first
+> is a capability block.
 
 | Attack class | Docker | Docker (hardened¹) | Ephemora-cell | Layer |
 |---|---|---|---|---|
-| Shell (`os.system`) / fork | ALLOWED | ALLOWED | **BLOCKED** — APIs don't exist in WASI | 1 |
-| Network sockets | ALLOWED | ALLOWED — creation needs no capability | **BLOCKED** — APIs don't exist in WASI | 1 |
-| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — `fd_sync`/`fd_datasync`/`fd_psync` refused at the call (`allow_fsync` opts out) | 2 |
-| Host filesystem (`/etc/passwd`) | ALLOWED | ALLOWED — the container's own file | **BLOCKED** — preopen default-deny | 2 |
-| Symlink escape | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED** — dangerous directory filter | 2 |
-| Multi-threading | ALLOWED | ALLOWED | **BLOCKED** — `wasm_threads=False` | 2 |
-| Environment access | ALLOWED | ALLOWED | **BLOCKED** — controlled via `allow_env` | 2 |
+| Shell (`os.system`) / fork | ALLOWED | ALLOWED | **REJECTED AS UNSUPPORTED** — APIs don't exist in WASI | — |
+| Network sockets | ALLOWED | ALLOWED — creation needs no capability | **REJECTED AS UNSUPPORTED** — no socket creation/connect; handle-only calls cannot obtain a socket | — |
+| fsync (`os.fsync`) | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED BY POLICY** — `fd_sync`/`fd_datasync`/`fd_psync` refused at the call (`allow_fsync` opts out) | 2 |
+| Host filesystem (`/etc/passwd`) | ALLOWED | ALLOWED — the container's own file | **BLOCKED BY POLICY** — preopen default-deny | 2 |
+| Symlink escape | ALLOWED | **BLOCKED** — EROFS via `--read-only` | **BLOCKED BY POLICY** — preopen capability boundary refuses the escape link | 2 |
+| Multi-threading | ALLOWED | ALLOWED | **REJECTED AS UNSUPPORTED** — module refused at validation (`wasm_threads=False`); not a capability block | — |
+| Environment access | ALLOWED | ALLOWED | **BLOCKED BY POLICY** — controlled via `allow_env` | 2 |
 
-**Result: 8/8 blocked on Cell** — live-verified, default configuration, WASI
-Preview1 path ([`benchmarks/verify_8_vectors.py`](../benchmarks/verify_8_vectors.py));
-both Docker baselines are measured live per run, never hardcoded. The guest
-receives only the capabilities explicitly made available to it, and the
-measurement rule is the same on every side of the table: the exit code decides
-(see [How the 8/8 is measured](#how-the-88-is-measured--probe-equivalence-detail)).
+**Result: 4 BLOCKED BY POLICY + 4 REJECTED AS UNSUPPORTED, 0 vulnerable /
+unverified / invalid** — live-verified, default configuration, WASI Preview1
+path ([`benchmarks/verify_8_vectors.py`](../benchmarks/verify_8_vectors.py));
+both Docker baselines are measured live per run, never hardcoded. The four
+unsupported intents (shell, fork, network, threading) are structural ABI or
+proposal refusals, not demonstrated capability blocks; they are kept visible
+and out of the blocked count. The guest receives only the capabilities
+explicitly made available to it, and the measurement rule is the same on every
+side of the table: the exit code decides (see
+[How the eight intents are measured](#how-the-eight-intents-are-measured--probe-equivalence-detail)).
 
 A fourth boundary was measured the same way: **gVisor** (`runsc`, pinned
 release, run twice in CI for determinism) lands **8/8 ALLOWED** in the sense
@@ -106,7 +126,8 @@ to the guest.
 `01_hardened_docker_attack_probe-dgx-aarch64.json` ·
 `10_cell_8vector_verify-dgx-aarch64.json`): stock 0/8 blocked, hardened 2/8
 blocked with the same two intents blocked (`fsync`, symlink creation), Cell
-8/8.
+4 BLOCKED BY POLICY + 4 REJECTED AS UNSUPPORTED (the latter four are
+structural refusals, not capability blocks).
 
 **Scope of those artifacts.** They are 2026-09-18 and 2026-09-20 measurements and predate the
 current release; they are the citable per-platform evidence for this row, and no newer per-platform
@@ -193,9 +214,13 @@ is refused too. Rejecting it here is deliberate: it stops a mislabelled or
 substituted module from silently taking a weaker path.
 
 **Why worker isolation is mandatory.** The containment for the measured
-host-abort class is the process boundary. If the worker is unavailable, or the
-worker fails, the run is refused as a fail-closed error — never retried
-in-process. The bound digest is re-checked by the worker against the bytes it
+host-abort class is the process boundary. If the worker is unavailable, the
+run is refused as a fail-closed error — never executed in-process. A worker
+that dies without a report is retried **once in a fresh worker** with its own
+scratch root; timeouts and spawn errors are not retried. If both attempts
+fail, the run is refused with `error_class: worker_crashed` and the attempt
+history, never re-labelled as a guest deny or a clean first run. The bound
+digest is re-checked by the worker against the bytes it
 actually loads, so a module swapped after admission — including through a symlink
 or path repoint — is refused before the guest starts.
 
@@ -236,7 +261,7 @@ Reproduce:
 ```bash
 python assets/demo_attack_probe.py          # stock Docker    ->  0/8 blocked
 python benchmarks/hardened_docker_probe.py  # hardened Docker ->  2/8 blocked
-python benchmarks/verify_8_vectors.py       # Ephemora-cell   ->  8/8 blocked
+python benchmarks/verify_8_vectors.py       # Ephemora-cell   ->  4 blocked by policy + 4 rejected as unsupported
 ```
 
 ## arXiv 2509.11242 — Tested Attack Surface
@@ -257,7 +282,9 @@ We evaluated 11 exploitation strategies from [arXiv 2509.11242](https://arxiv.or
 | Multi-threading | ✅ Blocked | `wasm_threads = False` enforced |
 | Memory exhaustion | ⚠️ Bounded | Linear memory byte-capped (`Store.set_limits`, 128MB default); the WasmGC heap is **not** byte-bounded in wasmtime-py 47 — fuel remains the effective GC bound |
 
-**Summary:** 8 attack techniques fully blocked. 2 bounded by design (Disk-DoS, High-frequency I/O: host I/O bypasses fuel metering, ~1.18 MB theoretical before exhaustion at default fuel — and the 10 KB output budget caps captured output; the I/O budgets add host-work walls on top). 1 permitted within budget (CPU-DoS: the guest must compute).
+**Summary (matching the table row-for-row):** 7 attack techniques blocked at the capability/call layer (fsync, inode exhaustion, `/dev/random`, `/dev/ptmx`, network bandwidth, small-packet flood, multi-threading). 3 bounded by design — **Disk-DoS** and **High-frequency I/O** (host I/O bypasses fuel metering, ~1.18 MB theoretical before exhaustion at default fuel; the 10 KB output budget caps captured output; the I/O budgets add host-work walls on top) and **Memory exhaustion** (linear memory byte-capped, but the WasmGC heap is not byte-bounded in the Python bindings, so fuel is the effective GC bound). 1 permitted within budget (CPU-DoS: the guest must compute; fuel caps the work).
+
+> An earlier revision of this line reported "8 blocked, 2 bounded" — it silently promoted the third bounded row (memory exhaustion) into "blocked", contradicting its own table above. Corrected to the row-for-row count of **7 / 3 / 1**. These eleven strategies are a Preview1 resource/capability assessment; they are not the same set as [the eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results) and are not summed into a single score. See [docs/security_attack_matrix.md](security_attack_matrix.md) for the consolidated matrix (each scenario → class, boundary, commit, runtime, platform).
 
 ## Fuel metering boundary (characterized)
 
@@ -294,7 +321,8 @@ pytest counterparts in `tests/test_fs_escape_matrix.py`,
   2026-10-04 these five vectors are strict asserts, not xfail markers** — a
   re-opening vector turns CI red (re-measured green on linux/amd64 in addition
   to macOS arm64, and re-run green on the 49.0.0 pin, 2026-10-12).
-  The GHSA-vqjp version-boundary is closed by the 49.0.0 pin (fix in 47.0.4);
+  The GHSA-vqjp version-boundary is closed by the 47.0.4 fix and therefore by the
+  current `wasmtime>=49.0.4,<50` floor (measured on the 49.0.0 pin at the time);
   the strict matrix stays wired so a future engine move that re-opens a shape
   fails CI rather than trusting the version number.
 - **Persistence / worm** — a marker written by run N is invisible to
@@ -352,7 +380,7 @@ flowchart TB
     walls -.-> surface
 ```
 
-## How the 8/8 is measured — probe equivalence detail
+## How the eight intents are measured — probe equivalence detail
 
 Measurement environment and the probe-by-probe equivalence between the
 Docker probe body and the Cell WASM guest. The results the method produces are
@@ -401,8 +429,8 @@ row is measured, the raw evidence is committed, and each run is reproducible:
 |---|---|---|---|---|
 | 1 | [MCP CVE replays](../benchmarks/mcp_cve_replay.py) | Real exploit paths of two patched CVEs are denied at the engine level; governed loading fails closed on a tampered payload — also verified on WASI 0.2 components, with a **measured call-time socket denial** | Pinned vulnerable reference server vs Cell, random marker tokens, positive controls on both sides | `python benchmarks/mcp_cve_replay.py` |
 | 2 | [SandboxEscapeBench-18 mapping](../benchmarks/sandbox_escape_18.py) | 18 container/K8s escape scenarios mapped to WASM: **8 execution-tested and denied, 10 not expressible** on the WASI surface | Structural mapping + live attempts, granted-preopen positive control | `python benchmarks/sandbox_escape_18.py` |
-| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 8/8 (results table above: [The eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
-| 4 | [Official WASI conformance](../conformance/README.md) | 72 pass / 1 documented xfail / 0 fail against the pinned upstream suite — re-run weekly in CI (weekly ubuntu runs land 71–72 on varying fs tests; a documented runner quirk, not a Cell defect) | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
+| 3 | 8 attack intents × 3 boundaries | Same intents, same exit-code rule: stock Docker 0/8 blocked · hardened Docker 2/8 · Cell 4 blocked by policy + 4 rejected as unsupported (results table above: [The eight intents × three boundaries](#the-eight-intents--three-boundaries--measured-results)) | Live probes, arm64 image pinned by digest | `python assets/demo_attack_probe.py` · `python benchmarks/hardened_docker_probe.py` · `python benchmarks/verify_8_vectors.py` |
+| 4 | [Official WASI conformance](../conformance/README.md) | 71 pass / 1 documented expected-failure / 0 fail of the 72 tests the pinned upstream preview-1 suites execute (the runner's own header counts the expected failure inside `passed`, which is why this was published as "72 pass" until 2026-10-20) — re-run weekly in CI, where the ubuntu legs have shown a varying single-test engine abort (71–72 executed; a documented runner quirk, not a Cell defect) | Runtime adapter over the official suite, raw JSON committed | see conformance/ |
 | 5 | [2026 probe classes](../benchmarks/probe_classes_2026.py) | The GHSA-vqjp FS-escape shapes and the GHSA-2r75 / CVE-2026-47261 TRUNCATE vector (trailing-slash/hardlink/rename/TRUNCATE), persistence-worm and control-plane probes are **all denied** on the pinned engine, with granted positive controls on every class | Real WASI probes + positive controls, dated JSON with `measured:true` | `python benchmarks/probe_classes_2026.py` |
 | 6 | [Cross-architecture determinism](comparison-mcp-servers.md) | Fuel deterministic per platform (spread 0), platform-bound values | Same tool call on macOS arm64 / DGX GB10 / x86_64 | `python benchmarks/determinism_probe.py` |
 
@@ -419,7 +447,7 @@ exist on the WASI surface; the scenarios with a WASM-expressible equivalent
 (filesystem, sockets) are denied by the live boundary. Prompt-injection and
 agent-behavior security are a different layer — out of scope for an execution
 sandbox by design; the wider agentic escape evaluation is part of the Ephemora
-enterprise edition ([enterprise.md](enterprise.md)).
+enterprise offering ([enterprise.md](enterprise.md)).
 
 ## CVE replay detail (moved out of the README on 2026-10-05)
 

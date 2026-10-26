@@ -1,0 +1,32 @@
+{
+  "abis": [
+    "preview1",
+    "component"
+  ],
+  "evidence_consistency": {
+    "note": "sync_blockade_enforced is derived from (abi,allow_fsync), never trusted from caller",
+    "protected_refusal_attests_no_component": true
+  },
+  "execution_modes": [
+    "in_process",
+    "subprocess"
+  ],
+  "invariants": {
+    "I1_fail_closed": "mandated isolation never runs guest in-process",
+    "I2_capability_confinement": "effective grant subset of requested; dangerous never granted",
+    "I3_isolation_monotonicity": "effective isolation >= required; unknown == untrusted, never safe"
+  },
+  "measured": true,
+  "model_limitation": "A clean model does NOT prove a clean implementation. Corroboration: tests/test_isolation_gate.py.",
+  "model_scope": "ADR-015 isolation gate + capability filter + record attestation. Wasmtime runtime NOT modeled.",
+  "states_enumerated": 96,
+  "title": "Security-decision model \u2014 exhaustive invariant check",
+  "trust_levels": [
+    "trusted",
+    "unknown",
+    "untrusted"
+  ],
+  "verdict": "PASS",
+  "violations": [],
+  "violations_found": 0
+}

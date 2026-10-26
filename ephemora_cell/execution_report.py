@@ -116,19 +116,25 @@ VALID_TRUST = frozenset({TRUST_TRUSTED, TRUST_UNTRUSTED, TRUST_UNKNOWN})
 def isolation_required_for(trust: str, abi: str) -> bool:
     """The one source of truth for the ADR-015 isolation mandate.
 
-    Process isolation is mandatory for the class the measurement proved fatal
-    in-process: a run that resolves to the WASI 0.2 ``component`` ABI under any
-    posture except an explicit ``trusted`` authorisation. ``unknown`` behaves
-    like ``untrusted`` -- an unclassified component is never silently trusted.
-    The preview1 ABI keeps its long-standing documented in-process baseline
-    (measured unaffected by the GHSA-j2g9 class), so the mandate never forces a
-    blanket subprocess flip the enforcement policy rejects.
+    The 1.2.0 isolation mandate: process isolation is mandatory for
+    EVERY posture that is not an explicit host ``trusted`` authorisation, for
+    BOTH ABIs. ``untrusted`` and ``unknown`` are routed through the disposable
+    worker regardless of whether the run resolves to ``preview1`` or
+    ``component`` -- foreign or unclassified code never lands on the weaker
+    in-process path merely because of the WASM ABI it happens to use.
+    ``unknown`` behaves exactly like ``untrusted``: an unclassified guest is
+    never silently trusted. Only an explicit ``trusted`` posture (host
+    authorised) keeps the in-process fast path, and no guest code, manifest or
+    MCP tool parameter can raise its own trust to obtain it.
 
-    Both the runtime gate (``WASISandbox.run``) and the MCP trust posture read
-    this predicate, so enforcement and the record's ``execution_mode`` cannot
-    drift into claiming isolation the other did not perform.
+    ``abi`` is retained in the signature (and read by callers) so the mandate
+    can be consulted per-ABI, but it no longer narrows the class: the verdict
+    depends only on ``trust``. Both the runtime gate (``WASISandbox.run``), the
+    MCP trust posture and the execution record's ``execution_mode`` read this one
+    predicate, so enforcement and evidence cannot drift into claiming isolation
+    the other did not perform.
     """
-    return abi == ABI_COMPONENT and trust != TRUST_TRUSTED
+    return trust != TRUST_TRUSTED
 
 
 #: Clock skew a freshness check tolerates before it calls a receipt from the
@@ -176,6 +182,32 @@ def _default_security_baseline() -> dict[str, Any]:
     }
 
 
+def exit_status_fidelity(*, abi: str | None, guest_exit_observed: bool) -> str:
+    """How much of the GUEST's own exit status reached the host — one answer, used
+    wherever the claim is made (``run --json``, the MCP ``_meta`` record, a signed
+    execution record).
+
+    Three values, and the distinction is not cosmetic:
+
+    * ``exact`` — the guest's number arrived (Preview1 ``proc_exit``);
+    * ``non_zero_only`` — the guest left, but WASI-0.2 ``wasi:cli/exit`` carries
+      only the fact of a non-zero exit (measured: ``exit(3)`` and ``exit(7)`` both
+      arrive as ``1``);
+    * ``none`` — no guest exit status reached the host at all, because nothing
+      left a guest: a load the loader rejected, a fuel/timeout/byte stop, a refused
+      runtime, a guest whose own loader swallows ``SystemExit``.
+
+    Before this helper the value was inferred from the ABI that was *routed*, so a
+    run that never reached a guest attested an exit channel nothing travelled
+    through. It is derived from the observed fact now, and travels inside the
+    signed payload — an audit record that cannot say which of the three it is
+    cannot be read honestly later.
+    """
+    if not guest_exit_observed:
+        return "none"
+    return "non_zero_only" if abi == "component" else "exact"
+
+
 def security_baseline_for(
     config: Any,
     *,
@@ -214,6 +246,12 @@ def security_baseline_for(
             "max_wasm_bytes_unlimited": config.max_wasm_bytes == 0,
             "allow_fsync": bool(config.allow_fsync),
             "preopens": list(config.allow_dirs),
+            # The env SURFACE, never the values: a record that says which
+            # variables the guest could read is the difference between "this run
+            # had no host environment" and "the run did not say". The values are
+            # secrets — `allow_env` pairs are named, never copied, and the
+            # fingerprint keeps them out too (same rule `policy check` follows).
+            "allow_env_names": [name for name, _ in (config.allow_env or ())],
         }
     )
     if tenant is not None:
@@ -236,9 +274,15 @@ class ExecutionReport:
     elapsed_ms: float
     fuel_consumed: int | None = None
     fuel_budget: int | None = None
-    memory_mb: float = 0.0
-    stdout_bytes: int = 0
-    stderr_bytes: int = 0
+    # None = not measured. Nothing in the 1.2.0 execution paths measures
+    # resident memory, so the default must not read as "0 MB used"; only a
+    # caller that has a value (a probe, a future measurement) sets one.
+    memory_mb: float | None = None
+    # None = nothing captured, not "captured zero bytes". Real execution paths
+    # set the measured length; a hand-built report must not serialize 0 as if
+    # it had observed an empty stream.
+    stdout_bytes: int | None = None
+    stderr_bytes: int | None = None
     warnings: list[str] = field(default_factory=list)
     sandbox_dir: str = ""
     module_path: str = ""
@@ -253,6 +297,38 @@ class ExecutionReport:
     # answers for. None (default) keeps `to_dict()` byte-identical to an
     # evidence-free report — only the signing path populates it.
     evidence: dict[str, Any] | None = None
+    # How much of the guest's own exit status reached the host (see
+    # :func:`exit_status_fidelity`). None keeps `to_dict()` byte-identical to an
+    # earlier report; every path that ran a guest sets it, so a SIGNED record
+    # carries the caveat instead of leaving a reader to guess whether `exit_code`
+    # is the guest's number or the host's.
+    exit_status_fidelity: str | None = None
+    # Set ONLY when the documented escape hatch was in effect for this run: the
+    # operator said out loud that guest code may run on an engine outside the
+    # qualified line, and every consumer of this record — CLI document, signed
+    # record, MCP ``_meta`` — has to carry that, not just the CLI. Absent keeps
+    # the bytes of an ordinary run exactly as they were.
+    unqualified_runtime_allowed: bool | None = None
+    # A retried worker is part of the signed execution history, not a detail of
+    # the CLI print path: a verifier must see that a crash happened and how many
+    # attempts produced the attested result. Absent/1 for an ordinary run keeps
+    # the bytes of a report unchanged.
+    output_files_exceeded: bool = False
+    worker_crashed: bool = False
+    worker_attempts: int = 1
+    first_attempt_crashed: bool = False
+    first_attempt_error: str = ""
+    first_attempt_fuel_consumed: int | None = None
+    first_attempt_output_bytes: int | None = None
+    #: True when the first attempt produced no recoverable worker report. The
+    #: byte fields are then None (unknown), never a proven zero; the report-pipe
+    #: and worker-stderr lengths are host measurements, not guest output.
+    first_attempt_output_unknown: bool = False
+    first_attempt_execution_started: bool | None = None
+    first_attempt_report_bytes: int | None = None
+    first_attempt_worker_stderr_bytes: int | None = None
+    first_attempt_wall_ms: int | None = None
+    retry_suppressed_reason: str = ""
 
     @property
     def fuel_utilization(self) -> float | None:
@@ -367,7 +443,9 @@ class ExecutionReport:
                 if self.fuel_utilization is not None
                 else None
             ),
-            "memory_mb": round(self.memory_mb, 2),
+            "memory_mb": (
+                round(self.memory_mb, 2) if self.memory_mb is not None else None
+            ),
             "stdout_bytes": self.stdout_bytes,
             "stderr_bytes": self.stderr_bytes,
             "warnings": self.warnings,
@@ -377,6 +455,42 @@ class ExecutionReport:
             out["back_link"] = dict(self.back_link)
         if self.evidence is not None:
             out["evidence"] = dict(self.evidence)
+        if self.exit_status_fidelity is not None:
+            out["exit_status_fidelity"] = self.exit_status_fidelity
+        if self.unqualified_runtime_allowed is not None:
+            out["unqualified_runtime_allowed"] = self.unqualified_runtime_allowed
+        if self.output_files_exceeded:
+            out["output_files_exceeded"] = True
+        if self.worker_crashed:
+            out["worker_crashed"] = True
+        if self.worker_attempts > 1:
+            out["worker_attempts"] = self.worker_attempts
+        if self.first_attempt_crashed:
+            out["first_attempt_crashed"] = True
+        if self.first_attempt_error:
+            out["first_attempt_error"] = self.first_attempt_error
+        if (
+            self.worker_attempts > 1
+            or self.first_attempt_crashed
+            or self.first_attempt_output_unknown
+        ):
+            out["first_attempt_fuel_consumed"] = self.first_attempt_fuel_consumed
+            out["first_attempt_output_bytes"] = self.first_attempt_output_bytes
+            out["first_attempt_wall_ms"] = self.first_attempt_wall_ms
+            if self.first_attempt_output_unknown:
+                out["first_attempt_output_unknown"] = True
+            if self.first_attempt_execution_started is not None:
+                out["first_attempt_execution_started"] = (
+                    self.first_attempt_execution_started
+                )
+            if self.first_attempt_report_bytes is not None:
+                out["first_attempt_report_bytes"] = self.first_attempt_report_bytes
+            if self.first_attempt_worker_stderr_bytes is not None:
+                out["first_attempt_worker_stderr_bytes"] = (
+                    self.first_attempt_worker_stderr_bytes
+                )
+        if self.retry_suppressed_reason:
+            out["retry_suppressed_reason"] = self.retry_suppressed_reason
         return out
 
     def to_json(self, indent: int = 2) -> str:
@@ -507,10 +621,18 @@ class ExecutionReport:
             f"Time: {self.elapsed_ms:.2f}ms",
             (
                 f"Fuel: {self.fuel_consumed:,}/{self.fuel_budget:,}"
-                if self.fuel_consumed is not None
-                else "Fuel: unlimited"
+                if self.fuel_consumed is not None and self.fuel_budget is not None
+                else (
+                    f"Fuel: {self.fuel_consumed:,} (budget not recorded)"
+                    if self.fuel_consumed is not None
+                    else "Fuel: not measured"
+                )
             ),
-            f"Memory: {self.memory_mb:.1f} MB",
+            (
+                f"Memory: {self.memory_mb:.1f} MB"
+                if self.memory_mb is not None
+                else "Memory: not measured"
+            ),
         ]
         if self.warnings:
             lines.append(f"Warnings ({len(self.warnings)}):")

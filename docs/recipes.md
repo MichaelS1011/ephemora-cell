@@ -22,9 +22,23 @@ allowed roots is rejected.
 
 ## Reading `run --json` output
 
-`--json` prints exactly one JSON document on **stdout** (the
+`--json` prints exactly one JSON document on **stdout** (for a `.wasm` module the
 `ExecutionReport` schema plus `stdin_capped`); guest stdout and stderr are
-routed to **stderr** so the document stays parseable:
+routed to **stderr** so the document stays parseable. A `--language` run answers
+the **same base document**: `status` carries the same short host-observed word
+(`success`, `fuel_exhausted`, `timeout`, …) — never the enum's spelling — and the
+document carries the whole record base (`exit_code`, `elapsed_ms`,
+`fuel_consumed`, `fuel_budget`, `fuel_utilization`, `memory_mb`,
+`stdout_bytes`, `stderr_bytes`, `warnings`, `security_baseline`,
+`exit_status_fidelity`), adds `language`, `script`, the parsed `output`, the raw
+`stdout`/`stderr` and, on the two routes that use the marker, the untrusted
+`guest_reported_error` diagnostic — and it omits exactly one key, `stdin_capped`,
+because a script run takes no stdin. Unmeasured fields are `null`; `memory_mb`
+is `null` on every 1.2.0 path. The host's exit code
+follows the host's observation, not the guest's claim; on the WASI-0.2 component
+Python guest one exception applies and is documented in
+[languages.md](languages.md): the embedded interpreter does not report the
+script's own exit status, so a guest `sys.exit(3)` there reads as `success`.
 
 ```bash
 ephemora-cell run tool.wasm --json 1>report.json 2>guest.log
@@ -387,3 +401,144 @@ Reuse one `WASIConfig`/sandbox across calls in a hot loop to reach the
 pooled path (~5.5M/hour measured). Raw evidence:
 `benchmarks/results/` (`measured:true`), more scenarios in
 [docs/performance.md](performance.md).
+
+## Offline health check (`doctor`)
+
+One command answers whether this machine can run the Cell before a guest does:
+the interpreter, the platform, the package, the linked runtime (with its engine
+digest), the language guests, the entry points and a smoke run. Exit `0` means
+no check failed; exit `1` means at least one did — a warning alone does not fail
+the command. `--json` prints the report on stdout:
+
+```bash
+ephemora-cell doctor
+ephemora-cell doctor --json
+```
+
+A `runtime-floor` FAIL is the dependency contract refusing a runtime outside the
+line the release was qualified against or a native binary that is not the
+qualified build. On the qualified platform a `runtime-identity` FAIL means the
+exact native file the bindings load is not the qualified build; elsewhere it
+stays a warning because no reference build exists. `run` refuses the same
+mismatch before any guest code executes. Neither is fixed here — the check
+reports the environment, it does not change it.
+
+## Check the policy before a run (`policy check`)
+
+Show the effective permissions and isolation for a configuration *before* a
+single instruction executes — budgets, preopens, isolation path, sync blockade
+and a policy fingerprint. It takes the flags that shape policy — `--profile`,
+the budget flags, `--allow-dirs`/`--allow-env`, `--trust`/`--abi`, `--language`
+and `--isolated` — computed by the same primitives the run itself reads, so it
+composes as a gate:
+
+```bash
+ephemora-cell policy check --allow-dirs "$PWD/data" --fuel 500000
+ephemora-cell policy check --allow-dirs "$PWD/data" \
+  && ephemora-cell run tool.wasm --allow-dirs "$PWD/data"
+```
+
+Name the guest when the run is not a compiled module: `run --language python`
+starts a source guest from the `interpreter` profile, so the view of that run
+has to start from the same place:
+
+```bash
+ephemora-cell policy check --language python --json   # interpreter budgets
+```
+
+For a source guest the view reports what the adapter really does, not just the
+budgets, and for both guests the grant set depends on the artifact — measured
+against real interpreter guests, not assumed: a Python run **replaces** the
+`allow_dirs` you passed either way, but the installed WASI-0.2 component guest
+gets one throwaway per-run `/work` directory and no `/sandbox` scratch, while a
+legacy Preview1 interpreter guest additionally mounts its own stdlib and the
+script's **own** directory at `/work` (your files, not a private dir) *plus* the
+run's ephemeral `/sandbox`; a JavaScript *source* run replaces the grants with
+one private `/work`, while a pre-compiled JavaScript *module* run keeps them —
+and only the source branch is reachable from the CLI, since
+`run --language javascript` always stages a script; the module branch is the
+library entry (`lang_js.run_javascript_module`).
+The snapshot names the replaced entries under `dropped_allow_dirs` and marks
+caller directories the adapter would drop as `allowed (pre-adapter)` — the view
+is still answered, because the snapshot's job is to name the grants a run would
+carry, not to act as a gate. That means the two commands are deliberately
+asymmetric on `--allow-dirs` and a shell gate `policy check && run` is **not**
+the intended sequence on a language path: `policy check` answers exit `0` with
+the dropped entries named, while `run --language` refuses the flag outright with
+exit `2`. The gate's exit `1` stays reserved for what a run would actually
+refuse (a blocked root, an escaping symlink); a void approval is reported, not
+failed. `run --language
+python|javascript` refuses the flags its adapters would discard
+(`--allow-dirs`, `--stdin`, the whole `--tenant` family including the caps given
+without `--tenant`, and an `--abi` contradicting the adapter) with exit `2`
+instead of swallowing them, so no configuration that `run` would discard can be
+mistaken for one it honours; `--allow-env` is not in
+that set — the adapters rebuild only `allow_dirs` over the interpreter profile,
+so env pairs do reach the guest. Both adapters force the disposable worker, so an
+explicit `trusted` posture does not open an in-process path for a `.py`/`.js`
+run, and each branch names the ABI it runs under: a JavaScript run is always
+Preview1, so an `--abi` that contradicts it is refused with exit `2` rather than
+answered with a snapshot of a run that cannot happen. For the same reason a
+language view's `fingerprint` carries a
+`fingerprint_note`: it is the digest of the configuration you passed, not the
+digest the adapter's own record will carry.
+
+`--isolated` raises isolation exactly as the run gate does — it can move a
+host-declared `trusted` run into the disposable worker, and it can never lower
+the mandate an untrusted or unknown posture already carries. Flags that carry no
+policy (`--stdin`, the `--tenant` quota flags) are **not** accepted here: a view
+that took a flag it could not honour would describe a run that never happens.
+
+Exit `1` when a requested directory would be refused at run time — a blocked
+root, or a symlink that resolves outside the allowed roots. The `refused` line
+names the entry and the reason, so the run that would die at construction is
+stopped before it starts. `--json` prints the snapshot on stdout.
+
+## Verify execution evidence (`verify`)
+
+Check an evidence artefact — a JSONL ledger, a DSSE envelope, a signed record or
+a pre-exec/receipt chain — without running anything. Linkage is checked with no
+key at all; add `--key` (an Ed25519 public key in a PEM file) and the signatures
+are actually checked:
+
+```bash
+ephemora-cell verify ledger.jsonl
+ephemora-cell verify receipt.json --key pub.pem
+ephemora-cell verify receipt.json --key pub.pem --json
+```
+
+The exit status is the verdict: `0` verified, `1` broken (a failed signature, a
+broken link, an unreadable or malformed file) — and `1` is also what a document
+that is not execution evidence gets, e.g. an ordinary `run --json` report; the
+refusal then names the four kinds `verify` does read, so a wrong file never
+looks like a passed check. `3` means the artefact **is
+signed but no `--key` was supplied** — nothing was checked, so a keyless run on a
+signed artefact never reads as a pass; supply `--key` to close that gap. A signed
+record without `--key` therefore exits `3`, not `0`.
+
+## Run Python or JavaScript source (`run --language`)
+
+`run` takes a `.wasm` module or a `.py`/`.js` source file. `--language auto`
+(the default) detects by extension, or name the language explicitly. Source runs
+through an installed language guest and fails closed when none is present:
+
+```bash
+ephemora-cell run tool.wasm                     # WASM module (default)
+ephemora-cell run script.py --language python
+ephemora-cell run script.js --language javascript
+pip install "ephemora-cell[python]"             # install the Python guest
+pip install "ephemora-cell[javascript]"         # install the JavaScript guest
+```
+
+The budget flags are identical to a WASM run (`--fuel`, `--memory-mb`,
+`--timeout`, `--memory64`, `--max-wasm-bytes`, `--allow-env`). The filesystem
+flags are NOT: a language run takes its grants from the adapter, so
+`--allow-dirs` is refused rather than quietly replaced (see the `policy check`
+recipe above). Python scripts read the caller's arguments from `sys.argv[1:]` on
+both routes, but `sys.argv[0]` is the neutral `wasm-module` tag on the component
+route and `/work/<script>` on the legacy interpreter route (which also gets an
+injected `-B`, so do not pass interpreter flags yourself); use `--` before an
+argument that starts with `-`. JavaScript runs take no positional arguments at
+all — the QuickJS guest reads its input via the library's `input_json`. With no
+guest installed the command refuses and prints the one install command to run —
+nothing is downloaded for you.

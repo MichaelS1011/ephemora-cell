@@ -4,14 +4,30 @@
 the reference implementation follow below and in `ephemora_cell/egress_sidecar.py`, respectively.
 Decision basis: ADR-002 (`docs/decisions/ADR-002-io-budget-egress.md`).
 
-**Status (2026-10-04, ADR-013):** the MCP engine now *executes* this mediator when
-the operator passes `--egress-allow URL_PREFIX` — it mediates the request
+**Status (2026-10-04, ADR-013; configuration boundary measured 2026-10-21):** the
+engine *executes* this mediator for a **trusted** tool — it mediates the request
 artifact after the run and reports the decision under `_meta.egress`. Off by
 default. The `--egress-allow` path enforces the endpoint/method allowlist only;
-a grant's `EgressGrant` expiry/usage/revocation fields are enforced once a
+
+**Which configuration can actually mediate in 1.2.0 — measured, not implied.**
+Under the ADR-015 mandate an untrusted/unknown tool must run in the worker, and
+sidecar egress is not supported across that boundary. The shipped MCP entry point
+offers no flag that marks a tool trusted, so starting it with `--egress-allow`
+turns every tool call that would carry an egress surface into an up-front
+refusal — the call returns `isError: true` with *"egress is not supported across
+the isolation boundary"* and **no request is made** (probe: 0 fetches). That is
+the fail-closed shape: the capability is refused, never silently dropped and
+never downgraded to in-process. Mediation is reachable through the Python engine
+API, where the operator authorises the tool (`CellToolEngine(egress_policy=…,
+trusted_tools=(name,))`); on that path the allowlist, method, response cap,
+redirect rules and the resolve-time SSRF filter are live (probe: allowlisted
+fetch → 200 and `allowed`; off-list target → `denied`, 0 fetches; hostname
+resolving into loopback → `denied` with `limit: "ssrf"`, no socket). A grant's
+`EgressGrant` expiry/usage/revocation fields are enforced once a
 `GrantLedger` is wired to the engine (`ephemora_cell/grant_ledger.py`,
 `egress_sidecar.mediate_with_grant`) — cap inclusive and charged in one critical
-section, revocation effective at the next call. It is reachable from the shipped
+section, revocation effective at the next call. The grant path is reachable from
+the shipped
 CLI (`--egress-trust ROOT --egress-grants-dir DIR --grant-ledger PATH`), which
 loads grants fail-closed AND authenticates them: every file must be a DSSE v1
 envelope over the grant's canonical bytes, signed by a key named in a trust root

@@ -1,0 +1,155 @@
+{
+  "artifact_binding": {
+    "architecture": "arm64",
+    "branch": "<unpublished-pre-release-work-branch>",
+    "cpu_limits": {
+      "io_cpu_seconds": 2.0,
+      "max_fuel": 1000000,
+      "max_threads": 1,
+      "timeout_seconds": 30
+    },
+    "host_redaction": "$HOME",
+    "isolation": {
+      "engine_cold": "use_engine_pool=False",
+      "engine_pool_warm": "use_engine_pool=True",
+      "protected_worker": "use_subprocess=True (ADR-015)"
+    },
+    "memory_limits": {
+      "max_memory_mb": 128
+    },
+    "native_runtime_digest": null,
+    "os": "Darwin 25.5.0",
+    "python": "3.12.13",
+    "security_freeze_ref": "284b577",
+    "source_commit": "b9da5b39ea47b4916c0d5c4074b5d9ee22a41ce7",
+    "wasmtime_py_version": "49.0.0",
+    "workload_digests_sha256": {
+      "coremark.wasm": "5acb1c0e9c73b468072b575859462d10b0b6686107d9996edf53567d2978846c",
+      "hello.wasm": "229bdf4c989d1b52eb72fdf409f7f8c655c294d7452965d4380c001eeac7d98e"
+    }
+  },
+  "fairness_rule": "the in-process warm number is NOT presented as the representative figure for the security architecture",
+  "measured": true,
+  "method": {
+    "concurrency": "independent per-thread WASISandbox instances; guest stays single-thread (max_threads=1)",
+    "percentile": "nearest-rank on sorted samples",
+    "timing": "time.perf_counter around sandbox.run (wall latency)",
+    "warmup_discarded": true
+  },
+  "in_process": {
+    "cold_engine": {
+      "max_ms": 899.172,
+      "mean_ms": 116.898,
+      "min_ms": 26.925,
+      "n": 150,
+      "p50_ms": 94.576,
+      "p95_ms": 250.524,
+      "p99_ms": 342.003
+    },
+    "label": "BASELINE ONLY \u2014 not representative of protected posture",
+    "warm_engine_pool": {
+      "max_ms": 820.502,
+      "mean_ms": 87.919,
+      "min_ms": 22.574,
+      "n": 300,
+      "p50_ms": 69.953,
+      "p95_ms": 195.77,
+      "p99_ms": 288.705
+    }
+  },
+  "protected_worker": {
+    "label": "ADR-015 process isolation (use_subprocess=True), fresh worker per run",
+    "latency": {
+      "max_ms": 2067.74,
+      "mean_ms": 1078.033,
+      "min_ms": 797.87,
+      "n": 60,
+      "p50_ms": 1002.103,
+      "p95_ms": 1635.965,
+      "p99_ms": 1828.035
+    },
+    "worker_start_cost_note": "each run spawns python -m ephemora_cell.process_worker; the delta vs warm in-process is the isolation tax"
+  },
+  "linux_reference_profile": {
+    "deviation_vs_pilot_vm": "unknown until measured on the pilot VM",
+    "reason": "lab host is darwin; a genuine Linux reference profile with OS isolation mechanisms needs the pilot VM (NOT TESTED). Docker cold-start numbers are a different security/start model and are classified as a separate cold-start measurement, not reused as a Linux substitute.",
+    "status": "NOT TESTED"
+  },
+  "pilot_vm": {
+    "prepared_method": "same three modes, same workload digests, run natively on the provisioned Linux pilot VM; compare in-process vs protected worker vs hardened OS-isolation. No substitute value inserted.",
+    "status": "BLOCKED \u2014 PILOT VM NOT PROVISIONED"
+  },
+  "latency_distribution": {
+    "in_process_warm_p50_p95_p99": [
+      69.953,
+      195.77,
+      288.705
+    ],
+    "protected_worker_p50_p95_p99": [
+      1002.103,
+      1635.965,
+      1828.035
+    ]
+  },
+  "throughput": {
+    "in_process_conc1": {
+      "completed": 35,
+      "concurrency": 1,
+      "exec_per_s": 11.62,
+      "wall_s": 3.011
+    },
+    "in_process_conc4": {
+      "completed": 120,
+      "concurrency": 4,
+      "exec_per_s": 34.17,
+      "wall_s": 3.512
+    },
+    "protected_worker_conc1": {
+      "completed": 3,
+      "concurrency": 1,
+      "exec_per_s": 0.61,
+      "wall_s": 4.906
+    }
+  },
+  "memory": {
+    "coremark_in_process_rss_peak": {
+      "children_delta_bytes": 0,
+      "children_peak_bytes": 41009152,
+      "host_self_delta_bytes": 9207808,
+      "host_self_peak_bytes": 55246848,
+      "unit_note": "bytes on darwin; ru_maxrss is a high-water mark"
+    },
+    "enforced_ceiling_max_memory_mb": 128,
+    "guest_internal_peak_note": "wasmtime guest-internal peak is not exposed on ExecutionResult; host RSS + enforced ceiling are reported instead (NOT measured separately).",
+    "in_process_hello_rss_delta": {
+      "children_delta_bytes": 0,
+      "children_peak_bytes": 41009152,
+      "host_self_delta_bytes": 0,
+      "host_self_peak_bytes": 46039040,
+      "unit_note": "bytes on darwin; ru_maxrss is a high-water mark"
+    },
+    "protected_worker_hello_rss_delta": {
+      "children_delta_bytes": 0,
+      "children_peak_bytes": 41009152,
+      "host_self_delta_bytes": 0,
+      "host_self_peak_bytes": 46039040,
+      "unit_note": "bytes on darwin; ru_maxrss is a high-water mark"
+    }
+  },
+  "record_overhead": {
+    "build_apply_config_ms_per_record": 3.6425,
+    "canonicalize_ms_per_record": 0.8028,
+    "sign_ms_per_record": 1.7315,
+    "signing_status": "MEASURED (Ed25519/EdDSA)",
+    "verify_ms_per_record": 2.6958
+  },
+  "external_comparison": {
+    "reason": "no local competitor with an EQUIVALENT model (capability-bound in-process WASM + forced process isolation + signed execution attestation). wasmer/wasm3 (coremark_wasi.py) are engine-context columns, not equal-security competitors. gVisor/hardened-docker are different security boundaries \u2014 comparing them as like-for-like would be an unfair claim.",
+    "status": "NOT TESTED"
+  },
+  "docker_cold_start": {
+    "classification": "Docker/gVisor/hardened-container numbers already in the repo (gvisor_docker_probe.py, hardened_docker_probe.py, BENCHMARK_RESULTS.md) are CONTAINER cold-start vs WASM warm runs. Different start condition AND different security model.",
+    "rule": "no single 'Nx faster' factor may be claimed across those boundaries; only like-for-like (same workload, same start condition, same active security boundary) comparisons are valid \u2014 which the pilot VM will provide, not the current lab host."
+  },
+  "title": "Performance evidence \u2014 three execution modes, separated"
+}

@@ -1,0 +1,89 @@
+{
+  "artifacts": [
+    {
+      "bytes": 249383,
+      "name": "ephemora_cell-1.1.0-py3-none-any.whl",
+      "sha256": "06012bb5d316dd889716ec7cea1eb2d401f99f3813ac616f7a7cea996c3b4b4f"
+    },
+    {
+      "bytes": 529823,
+      "name": "ephemora_cell-1.1.0.tar.gz",
+      "sha256": "a4db3216089b4e28e1bf6df793ba4cec37b96fb1f1a03f3989899115ca6286fb"
+    }
+  ],
+  "identity": "commit 73032742d097 / artifacts 06012bb5d316+a4db3216089b",
+  "native_runtime": {
+    "importable": true,
+    "native_libraries": [
+      {
+        "artifact": "darwin-aarch64/_libwasmtime.dylib",
+        "bytes": 25460800,
+        "sha256": "2cc7e37719916a84fb6c6b5e6cb6746817204e80d5a64b2c2ccff5db065b7c13"
+      }
+    ],
+    "python_version": "3.12.13",
+    "wasmtime_version": "49.0.0",
+    "wheel_platform": "macosx-11.0-arm64"
+  },
+  "publication": {
+    "identical_to_local_build": [],
+    "published": true,
+    "published_digests": [
+      "ephemora_cell-1.1.0-py3-none-any.whl:94cf392f8c984414dfe912d7f98b2aaf262758e49508ab9650748492ec989d58",
+      "ephemora_cell-1.1.0.tar.gz:f4ec76bb53617dd53c1f2037fb93cf6d41b46ff240bd4ca4083b6821066a4820"
+    ],
+    "queried": true
+  },
+  "publish_blockers": [
+    "working tree carries uncommitted changes"
+  ],
+  "publishable": false,
+  "reference_container": {
+    "architecture": "arm64",
+    "base_digest_pinned": true,
+    "base_image_digests": [
+      "sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d"
+    ],
+    "config_entrypoint": [
+      "python",
+      "-m",
+      "ephemora_cell.process_worker"
+    ],
+    "config_user": "cell",
+    "created": "2026-10-13T12:48:44.728075679Z",
+    "image_id": "sha256:a6ab079d19b8cca2e167871ae401388ca6b30d7d4268bb317dca10f344e7e599",
+    "image_ref": "ephemora-cell-ref:1.1.0",
+    "os": "linux",
+    "reachable": true
+  },
+  "schema": "ephemora-cell/release-identity/1",
+  "source": {
+    "branch": "<unpublished-pre-release-work-branch>",
+    "commit": "73032742d097e019a36d320f111c5b651f4e4e5c",
+    "newest_tag": "v1.1.0",
+    "tree": "27ae64285dacc142920dc9954aabadedcf8e72c0",
+    "worktree_dirty": true,
+    "worktree_dirty_files": [
+      ".gitignore",
+      "README.md",
+      "docs/comparison-mcp-servers.md",
+      "scripts/check_public_content.py",
+      "scripts/check_version_sync.py",
+      "scripts/public_content_guard.json",
+      "tests/test_public_content_guard.py"
+    ]
+  },
+  "version": {
+    "in_sync": true,
+    "labelled_build": false,
+    "pep440_label": "",
+    "sources": {
+      "ephemora_cell/__init__.py": "1.1.0",
+      "ephemora_cell_mcp/_version.py": "1.1.0",
+      "pyproject.toml": "1.1.0",
+      "server.json(packages[0])": "1.1.0",
+      "server.json(top)": "1.1.0"
+    },
+    "version": "1.1.0"
+  }
+}

@@ -3,6 +3,16 @@
 Characterization tests (coverage gap: worker body ran only in spawned
 subprocesses, invisible to coverage). _apply_rlimits is stubbed — its
 hard RLIMIT_NOFILE=256 cannot be restored inside the pytest process.
+
+The io_cpu watchdog is stubbed for the same harness reason: it compares
+the process's ABSOLUTE CPU (interpreter and harness startup included,
+see process_worker._start_io_cpu_watchdog), which any long-running pytest
+process has already exceeded — under host load that races the first
+watchdog tick against the run wall time and made
+``test_valid_payload_runs_and_prints_json`` fail intermittently with
+status=error (root cause measured 2026-10-13, 8/10 reproductions under
+defined load). The watchdog mechanism itself stays
+characterized in test_process_executor.py / test_run_io_budgets.py.
 """
 
 from __future__ import annotations
@@ -21,6 +31,10 @@ from ephemora_cell.wasi_runtime import ExecutionResult, ExecutionStatus
 
 def _main(monkeypatch, capsys, argv, stdin_text=""):
     monkeypatch.setattr(pw, "_apply_rlimits", lambda cfg: None)
+    # harness stub, see module docstring — product default stays untouched
+    monkeypatch.setattr(
+        pw, "_start_io_cpu_watchdog", lambda limit, ie, de, seen=None: None
+    )
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
     rc = pw.main(argv)
     return rc, capsys.readouterr()

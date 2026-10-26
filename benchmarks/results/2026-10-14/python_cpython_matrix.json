@@ -1,0 +1,177 @@
+{
+  "scope": "Language program: Python/CPython-WASI guest matrix",
+  "cases": [
+    {
+      "case": "hello",
+      "script": "hello.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "hello from cpython in the cell\n",
+      "stderr_head": "",
+      "fuel_consumed": 350968631,
+      "expect": "SUCCESS with the CPython greeting on stdout",
+      "wall_s": 1.245
+    },
+    {
+      "case": "json_io",
+      "script": "json_roundtrip.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"answer\": 40, \"echo\": \"baz!\"}\n",
+      "stderr_head": "",
+      "fuel_consumed": 458179320,
+      "expect": "SUCCESS; stdout {'answer': 40, 'echo': 'baz!'}",
+      "wall_s": 1.313
+    },
+    {
+      "case": "fuel_stop",
+      "script": "loop.py",
+      "status": "ExecutionStatus.FUEL_EXHAUSTED",
+      "stdout_head": "",
+      "stderr_head": "Fuel exhausted: error while executing at wasm backtrace:\n    0:  0xb4568 - <unknown>!_PyPegen_update_memo\n    1:  0x9b693 - <unknown>!shift_expr_rule\n    2:  0x9b558 - <unknown>!bitwise_and_rule\n    3:  0x9ad40 - <unknown>!bitwise_xor_rule\n    4:  0x98dce - <unknown>!bitwise_or_rule\n    5:  0xa15e4 - <unknown>!comparison_rule\n    6:  0xa14ed - <unknown>!inversion_rule\n    7:  0x9fe9e - <unknown>!conjunction_rule\n    8:  0x99250 - <unknown>!disjunction_rule\n    9:  0x90a7e - <unknown>!expression_",
+      "fuel_consumed": 100000000,
+      "expect": "FUEL_EXHAUSTED at reduced fuel (boot burns ~72 M), worker survives",
+      "wall_s": 1.326
+    },
+    {
+      "case": "epoch_wall",
+      "script": "loop.py",
+      "status": "ExecutionStatus.TIMEOUT",
+      "stdout_head": "",
+      "stderr_head": "Timeout after 3s: error while executing at wasm backtrace:\n    0:  0x46997 - <unknown>!_PyEval_EvalFrameDefault\n    1:  0x454b7 - <unknown>!_PyEval_Vector\n    2:  0x45370 - <unknown>!PyEval_EvalCode\n    3:  0xde6db - <unknown>!run_eval_code_obj\n    4:  0xddf11 - <unknown>!_PyRun_SimpleFileObject\n    5:  0xdd36d - <unknown>!_PyRun_AnyFileObject\n    6: 0x1aa291 - <unknown>!Py_RunMain\n    7: 0x1aad49 - <unknown>!pymain_main\n    8: 0x1aadf8 - <unknown>!Py_BytesMain\n    9:   0x5cc5 - <unknown>!main\n ",
+      "fuel_consumed": null,
+      "expect": "wall-clock TIMEOUT with unbounded fuel",
+      "wall_s": 4.133
+    },
+    {
+      "case": "no_capability",
+      "script": "no_cap.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"env\": {}, \"listdir_root\": \"refused: OSError [Errno 76] Capabilities insufficient: '/'\", \"read_etc_hosts\": \"refused: OSError [Errno 76] Capabilities insufficient: '/etc/hosts'\", \"subprocess_module\": \"ok: importable <module 'subprocess' from '/opt/wasi-python/lib/python3.10/subprocess.py'>\", \"tcp_socket\": \"refused: OSError: [Errno 58] Not supported\"}\n",
+      "stderr_head": "",
+      "fuel_consumed": 794359706,
+      "expect": "SUCCESS; root/etc/socket/subprocess/env all refused by the boundary",
+      "wall_s": 1.391
+    },
+    {
+      "case": "memory_pressure",
+      "script": "alloc.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "allocated MB: 64\nallocated MB: 128\nallocation stopped at 192 MB: MemoryError\n",
+      "stderr_head": "error while executing at wasm backtrace:\n    0: 0x620ab4 - <unknown>!__wasi_proc_exit\n    1: 0x61fd95 - <unknown>!_Exit\n    2: 0x623403 - <unknown>!exit\n    3: 0x1a8c1c - <unknown>!Py_Exit\n    4:  0xdd941 - <unknown>!_PyErr_PrintEx\n    5:  0xddfa4 - <unknown>!_PyRun_SimpleFileObject\n    6:  0xdd36d - <unknown>!_PyRun_AnyFileObject\n    7: 0x1aa291 - <unknown>!Py_RunMain\n    8: 0x1aad49 - <unknown>!pymain_main\n    9: 0x1aadf8 - <unknown>!Py_BytesMain\n   10:   0x5cc5 - <unknown>!main\n   11: 0x62207",
+      "fuel_consumed": 473244674,
+      "expect": "allocation stops at/below the 256 MB cap, host unaffected",
+      "wall_s": 1.383
+    },
+    {
+      "case": "big_output",
+      "script": "bigout.py",
+      "status": "ExecutionStatus.ERROR",
+      "stdout_head": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "stderr_head": "error while executing at wasm backtrace:\n    0: 0x620ab4 - <unknown>!__wasi_proc_exit\n    1: 0x61fd95 - <unknown>!_Exit\n    2: 0x623403 - <unknown>!exit\n    3: 0x1a8c1c - <unknown>!Py_Exit\n    4:  0xdd941 - <unknown>!_PyErr_PrintEx\n    5:  0xddfa4 - <unknown>!_PyRun_SimpleFileObject\n    6:  0xdd36d - <unknown>!_PyRun_AnyFileObject\n    7: 0x1aa291 - <unknown>!Py_RunMain\n    8: 0x1aad49 - <unknown>!pymain_main\n    9: 0x1aadf8 - <unknown>!Py_BytesMain\n   10:   0x5cc5 - <unknown>!main\n   11: 0x62207",
+      "fuel_consumed": null,
+      "expect": "output budget behavior recorded",
+      "wall_s": 1.374
+    },
+    {
+      "case": "state_run1",
+      "script": "state.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"sandbox\": {\"run_count\": 1, \"source\": \"no_file\", \"write\": \"ok\"}, \"work\": {\"run_count\": 1, \"source\": \"no_file\", \"write\": \"ok\"}}\n",
+      "stderr_head": "",
+      "fuel_consumed": 459074205,
+      "expect": "sandbox run_count==1 (no carry); work channel carries by design",
+      "wall_s": 1.79
+    },
+    {
+      "case": "state_run2",
+      "script": "state.py",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"sandbox\": {\"run_count\": 1, \"source\": \"no_file\", \"write\": \"ok\"}, \"work\": {\"run_count\": 2, \"source\": \"read_back\", \"write\": \"ok\"}}\n",
+      "stderr_head": "",
+      "fuel_consumed": 459068639,
+      "expect": "sandbox run_count==1 again; work run_count increments (explicit RW grant)",
+      "wall_s": 1.429
+    }
+  ],
+  "validation": [
+    {
+      "module": "python3.10.wasm",
+      "bytes": 22363477,
+      "sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02",
+      "imports_modules": [
+        "wasi_snapshot_preview1"
+      ],
+      "import_count": 38
+    }
+  ],
+  "followups": {
+    "pycache_writeback": {
+      "tree_before": {
+        "pyc_count": 69,
+        "digest": "fcb72c71cbf2bc13ca6ecd354f3269a7b9a3bfa60bb4ecec055326568951a8c1"
+      },
+      "run_without_B": {
+        "case": "boot_no_dontwrite",
+        "script": "hello.py",
+        "status": "ExecutionStatus.SUCCESS",
+        "stdout_head": "hello from cpython in the cell\n",
+        "stderr_head": "",
+        "fuel_consumed": 357676830,
+        "expect": "no -B: guest may write .pyc into the RW stdlib grant",
+        "wall_s": 1.516
+      },
+      "tree_after_without_B": {
+        "pyc_count": 70,
+        "digest": "97f5257c5cc11747f33cb17ba66d458512f8cf74e6419d011cf97491b242a47d"
+      },
+      "run_with_B": {
+        "case": "boot_dontwrite_B",
+        "script": "hello.py",
+        "status": "ExecutionStatus.SUCCESS",
+        "stdout_head": "hello from cpython in the cell\n",
+        "stderr_head": "",
+        "fuel_consumed": 343855246,
+        "expect": "-B: no new .pyc, tree digest unchanged",
+        "wall_s": 1.596
+      },
+      "tree_after_with_B": {
+        "pyc_count": 70,
+        "digest": "97f5257c5cc11747f33cb17ba66d458512f8cf74e6419d011cf97491b242a47d"
+      },
+      "write_back_observed": true,
+      "B_flag_suppresses": true
+    },
+    "work_channel_host_file": {
+      "path": "local/state_count_work.txt",
+      "contents": "2",
+      "note": "allow_dirs is a direct RW host mount, not a copy \u2014 carry-over via explicit grants is by design"
+    },
+    "process_spawn": {
+      "probe1_subproc_run": {
+        "script": "subproc.py",
+        "status": "SUCCESS",
+        "stdout": "{\"fork\": true, \"run_echo\": \"refused: OSError: [Errno 58] Not supported\"}",
+        "note": "subprocess is importable (stdlib artifact) but subprocess.run is refused at the syscall boundary (ENOSYS 58)"
+      },
+      "probe2_direct_syscalls": {
+        "script": "subproc2.py",
+        "status": "SUCCESS",
+        "stdout": "{\"execve\": true, \"os_fork\": \"refused: OSError [Errno 58] Not supported\", \"os_system\": \"returned -1, no child output observed on stdout\"}",
+        "note": "hasattr(os,'fork')/execve only prove symbol presence; the actual fork returns ENOSYS and os.system(-1) spawned nothing \u2014 refusal is by the WASI Preview1 boundary, not by guest policy"
+      }
+    }
+  },
+  "environment": "laboratory macOS aarch64; NOT the pilot VM (that line was blocked at the time); isolated branch of this release line",
+  "background": "Language program: Python integration, CPython-WASI primary with a componentize-py counter-check, measured against the same 15-item catalog as the JavaScript guest matrix",
+  "toolchain": {
+    "release": "singlestore-labs/python-wasi v3.10-alpha (official prebuilt; no local build needed)",
+    "tarball_sha256": "a302efdc9b279ef1fcf6ca21187727e2d9492f82c80772f98a1e9b6423edf03e",
+    "guest_sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02",
+    "guest_bytes": 22363477,
+    "guest_matches_docs_languages": true
+  },
+  "adapter": {
+    "module": "ephemora_cell/lang_py.py",
+    "tests": "tests/test_lang_py_adapter.py (7: 6 pass in CI shape, 1 BYO-guest roundtrip skip without env; 7/7 pass locally with pinned guest)",
+    "policy": "AdapterPolicyError converges all admission failures before any sandbox exists; -B mandatory; use_subprocess=True hard-wired; no in-process fallback"
+  }
+}

@@ -38,7 +38,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from ephemora_cell import ExecutionStatus, WASISandbox, get_profile  # noqa: E402
+from ephemora_cell import ExecutionStatus, WASISandbox, get_profile
 
 DEFAULT_GUEST = Path.home() / ".cache/ephemora-byo/opt/wasi-python"
 COLD_BASE = Path.home() / ".cache/ephemora-byo-cold"

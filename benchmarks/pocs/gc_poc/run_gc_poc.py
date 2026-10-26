@@ -16,6 +16,7 @@ Scenarios (all against the Ephemora Cell sandbox):
 
 Emits results.json and a human-readable summary.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,9 @@ import statistics
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 from ephemora_cell import (
     ComponentSandbox,
     ExecutionStatus,
@@ -51,8 +54,9 @@ def status_name(r) -> str:
     return str(r.status).split(".")[1].lower()
 
 
-def run_median(path: str, *, config: WASIConfig, args=None, n: int = 5,
-               abi: str = "preview1") -> dict:
+def run_median(
+    path: str, *, config: WASIConfig, args=None, n: int = 5, abi: str = "preview1"
+) -> dict:
     """Run n times, return median timing + first-run result details."""
     times: list[float] = []
     fuels: list[int] = []
@@ -82,32 +86,46 @@ def scenario_a() -> dict:
     """Preview1 WASISandbox scenarios."""
     out = {}
 
-    r = run_median(GC_WORKLOAD, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30))
+    r = run_median(
+        GC_WORKLOAD, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30)
+    )
     out["gc_workload_preview1"] = r
     assert r["status"] == "success", r["stderr"]
     assert "gc-workload done" in r["stdout"]
 
-    r = run_median(ARITH_WORKLOAD, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30))
+    r = run_median(
+        ARITH_WORKLOAD, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30)
+    )
     out["arith_workload_preview1"] = r
     assert r["status"] == "success"
 
-    r = run_median(GC_INFINITE, config=WASIConfig(max_fuel=FUEL_TINY, timeout_seconds=30), n=1)
+    r = run_median(
+        GC_INFINITE, config=WASIConfig(max_fuel=FUEL_TINY, timeout_seconds=30), n=1
+    )
     out["gc_fuel_exhausted_preview1"] = r
     assert r["status"] == "fuel_exhausted", r["stderr"]
 
-    r = run_median(GC_INFINITE, config=WASIConfig(max_fuel=None, timeout_seconds=1), n=1)
+    r = run_median(
+        GC_INFINITE, config=WASIConfig(max_fuel=None, timeout_seconds=1), n=1
+    )
     out["gc_epoch_timeout_preview1"] = r
     assert r["status"] == "timeout", r["stderr"]
 
-    r = run_median(GC_GROW, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30,
-                                              max_memory_mb=2), n=1)
+    r = run_median(
+        GC_GROW,
+        config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30, max_memory_mb=2),
+        n=1,
+    )
     out["gc_memory_limit_preview1"] = r
     assert r["status"] == "error", r["stderr"]  # memory.grow past limit traps
 
     # GC-only churn (no linear memory growth) is NOT limited by Store.set_limits
     # — the GC heap is separate from linear memory. Confirms the knob's scope.
-    r = run_median(GC_WORKLOAD, config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30,
-                                                  max_memory_mb=1), n=3)
+    r = run_median(
+        GC_WORKLOAD,
+        config=WASIConfig(max_fuel=FUEL_FULL, timeout_seconds=30, max_memory_mb=1),
+        n=3,
+    )
     out["gc_heap_not_limited_by_store_limits"] = r
     assert r["status"] == "success"
 
@@ -123,8 +141,10 @@ def scenario_b() -> dict:
     r = s.run(GC_WRAPPER)
     s.cleanup()
     out["gc_wrapper_component"] = {
-        "status": status_name(r), "exit_code": r.exit_code,
-        "stdout": r.stdout, "stderr": (r.stderr or "")[:200],
+        "status": status_name(r),
+        "exit_code": r.exit_code,
+        "stdout": r.stdout,
+        "stderr": (r.stderr or "")[:200],
         "elapsed_ms": round(r.elapsed_ms, 2),
         "fuel_consumed": r.fuel_consumed,
     }
@@ -134,8 +154,10 @@ def scenario_b() -> dict:
     r = s.run(GC_WRAPPER)
     s.cleanup()
     out["gc_wrapper_fuel_component"] = {
-        "status": status_name(r), "stdout": r.stdout,
-        "stderr": (r.stderr or "")[:200], "elapsed_ms": round(r.elapsed_ms, 2),
+        "status": status_name(r),
+        "stdout": r.stdout,
+        "stderr": (r.stderr or "")[:200],
+        "elapsed_ms": round(r.elapsed_ms, 2),
     }
     assert r.status == ExecutionStatus.FUEL_EXHAUSTED, r.stderr
 
@@ -143,8 +165,10 @@ def scenario_b() -> dict:
     r = s.run(GC_WRAPPER_INF)
     s.cleanup()
     out["gc_wrapper_timeout_component"] = {
-        "status": status_name(r), "stdout": r.stdout,
-        "stderr": (r.stderr or "")[:200], "elapsed_ms": round(r.elapsed_ms, 2),
+        "status": status_name(r),
+        "stdout": r.stdout,
+        "stderr": (r.stderr or "")[:200],
+        "elapsed_ms": round(r.elapsed_ms, 2),
     }
     assert r.status == ExecutionStatus.TIMEOUT, r.stderr
 
@@ -152,8 +176,10 @@ def scenario_b() -> dict:
     r = s.run(GC_WRAPPER_INF)
     s.cleanup()
     out["gc_wrapper_inf_fuel_component"] = {
-        "status": status_name(r), "stdout": r.stdout,
-        "stderr": (r.stderr or "")[:200], "elapsed_ms": round(r.elapsed_ms, 2),
+        "status": status_name(r),
+        "stdout": r.stdout,
+        "stderr": (r.stderr or "")[:200],
+        "elapsed_ms": round(r.elapsed_ms, 2),
     }
     assert r.status == ExecutionStatus.FUEL_EXHAUSTED, r.stderr
 
@@ -163,8 +189,10 @@ def scenario_b() -> dict:
     r = s.run(LIFTED)
     s.cleanup()
     out["gc_lifted_component"] = {
-        "status": status_name(r), "exit_code": r.exit_code,
-        "stdout": r.stdout, "stderr": (r.stderr or "")[:200],
+        "status": status_name(r),
+        "exit_code": r.exit_code,
+        "stdout": r.stdout,
+        "stderr": (r.stderr or "")[:200],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     # The lifted GC module's _start calls proc_exit(0); the preview1->0.2
@@ -176,11 +204,14 @@ def scenario_b() -> dict:
     # Exports of the lifted GC component — entry-point naming.
     import wasmtime
     from wasmtime import component as _component
+
     eng = wasmtime.Engine()
     comp = _component.Component.from_file(eng, LIFTED)
     exports = list(comp.type.exports(eng))
     out["lifted_gc_exports"] = [str(n) for n in exports]
-    out["lifted_gc_run_found"] = any(str(n).startswith("wasi:cli/run@") for n in exports)
+    out["lifted_gc_run_found"] = any(
+        str(n).startswith("wasi:cli/run@") for n in exports
+    )
 
     return out
 
@@ -193,6 +224,7 @@ def scenario_c(a: dict) -> dict:
     w2w_gc, w2w_ar = [], []
     for _ in range(20):
         import wasmtime
+
         t0 = time.perf_counter()
         bytes(wasmtime.wat2wasm(open(os.path.join(HERE, "gc_workload.wat")).read()))
         w2w_gc.append((time.perf_counter() - t0) * 1000)
@@ -204,6 +236,7 @@ def scenario_c(a: dict) -> dict:
 
     # wasmtime Module compile time (binary -> compiled), best of 10.
     import wasmtime
+
     eng = wasmtime.Engine()
     mc_gc, mc_ar = [], []
     for _ in range(10):
@@ -233,7 +266,7 @@ def main() -> None:
         "wasmtime_cli": "34.0.0",
         "wasm_gc_flag_set_by_sandbox": None,  # sandbox never sets Config.wasm_gc
         "wasm_gc_default": "enabled (verified: default Config() compiles GC modules;"
-                           " Config(wasm_gc=False) rejects them)",
+        " Config(wasm_gc=False) rejects them)",
     }
 
     print("\n[A] Preview1 WASISandbox scenarios")
@@ -256,8 +289,12 @@ def main() -> None:
     ar_t = a["arith_workload_preview1"]["elapsed_ms_median"]
     gc_f = a["gc_workload_preview1"]["fuel_median"]
     ar_f = a["arith_workload_preview1"]["fuel_median"]
-    print(f"  wat2wasm:        GC {c['wat2wasm_gc_ms']} ms vs arith {c['wat2wasm_arith_ms']} ms")
-    print(f"  Module.compile:  GC {c['module_compile_gc_ms']} ms vs arith {c['module_compile_arith_ms']} ms")
+    print(
+        f"  wat2wasm:        GC {c['wat2wasm_gc_ms']} ms vs arith {c['wat2wasm_arith_ms']} ms"
+    )
+    print(
+        f"  Module.compile:  GC {c['module_compile_gc_ms']} ms vs arith {c['module_compile_arith_ms']} ms"
+    )
     print(f"  run (median):    GC {gc_t} ms vs arith {ar_t} ms   ({gc_t/ar_t:.2f}x)")
     print(f"  fuel (median):   GC {gc_f} vs arith {ar_f}   ({gc_f/ar_f:.2f}x)")
 

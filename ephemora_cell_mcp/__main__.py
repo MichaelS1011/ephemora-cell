@@ -12,7 +12,21 @@ tools directory.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
+
+from .subject_binding import ENV_SUBJECT_FROM_UPSTREAM, ENV_SUBJECT_SECRET
+
+
+def _audit_to_stderr(record: dict) -> None:
+    """One authorization decision per line, on stderr.
+
+    The default sink for an enforcing deployment: a decision that is not written
+    somewhere is not an audit trail. stderr (never stdout) because stdout is the
+    MCP protocol channel — a stray line there would corrupt the session.
+    """
+    print("authz " + json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -148,11 +162,88 @@ def main(argv: list[str] | None = None) -> int:
         help="key id recorded in the receipt attestation (default none)",
     )
     parser.add_argument(
+        "--tool-policy",
+        metavar="PATH",
+        help="ADR-016 per-tool authorization policy (JSON). When given, every "
+        "tools/call is checked against this policy for --subject and refused "
+        "unless a grant covers it (default deny). Without it the server is "
+        "default-deny: no tool call is authorized. Pass --legacy-allow-all to "
+        "restore the pre-1.2 behaviour where the one authenticated client may "
+        "call any registered tool.",
+    )
+    parser.add_argument(
+        "--subject",
+        metavar="NAME",
+        help="the authenticated identity this server enforces for; established "
+        "by the host (bridge/process), never read from a request field. "
+        "Required with --tool-policy.",
+    )
+    parser.add_argument(
+        "--legacy-allow-all",
+        action="store_true",
+        help="explicit opt-in to the pre-1.2 behaviour: no per-tool policy, the "
+        "one authenticated client may call every registered tool. Off by "
+        "default; without --tool-policy the server denies every tool call.",
+    )
+    parser.add_argument(
+        "--tenant-book",
+        metavar="PATH",
+        help="shared append-only account book for MCP executions. Every run is "
+        "admitted and settled against it; subject identities become tenants "
+        "(mcp:s:<subject>). Without it this server records no resource usage, so "
+        "--host-max-* / --tenant-max-* are refused rather than silently inert.",
+    )
+    parser.add_argument(
+        "--host-max-runs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="host-wide run cap across ALL subjects in --tenant-book, checked "
+        "before the guest starts. The cap is recorded IN the book: a second "
+        "server process on the same book enforces it even if it omits this "
+        "flag, and a looser flag is refused",
+    )
+    parser.add_argument(
+        "--host-max-fuel",
+        type=int,
+        default=None,
+        metavar="FUEL",
+        help="host-wide fuel cap (settled plus reserved) across all subjects",
+    )
+    parser.add_argument(
+        "--tenant-max-runs",
+        type=int,
+        default=None,
+        metavar="N",
+        help="per-subject run cap inside --tenant-book",
+    )
+    parser.add_argument(
+        "--tenant-max-fuel",
+        type=int,
+        default=None,
+        metavar="FUEL",
+        help="per-subject fuel cap (settled plus reserved)",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"ephemora-cell-mcp {__import__('ephemora_cell_mcp').__version__}",
     )
     args = parser.parse_args(argv)
+
+    # Fail closed on a tools directory that does not exist. Without this guard a
+    # typo in --tools-dir starts a fully working server that advertises only
+    # get-policy: the operator sees a live MCP endpoint, and every real tool call
+    # silently answers "unknown tool". An existing directory holding no .wasm
+    # files stays legal (provisioning order can differ); a missing one is a
+    # misconfiguration, not a state to serve from.
+    if args.tools_dir is not None and not os.path.isdir(args.tools_dir):
+        print(
+            f"error: --tools-dir is not a directory: {args.tools_dir} "
+            "(refusing to start a server that would expose no tools)",
+            file=sys.stderr,
+        )
+        return 2
 
     verifier = None
     if args.require_signed_tools:
@@ -253,6 +344,131 @@ def main(argv: list[str] | None = None) -> int:
             f"{args.egress_grants_dir} verified against this root",
         }
 
+    authorizer = None
+    audit_sink = None
+    subject_from_upstream = os.environ.get(ENV_SUBJECT_FROM_UPSTREAM) == "1"
+    subject_secret = os.environ.get(ENV_SUBJECT_SECRET)
+    if args.tool_policy and args.legacy_allow_all:
+        print(
+            "error: --tool-policy and --legacy-allow-all are mutually exclusive "
+            "(a policy and 'allow everything' cannot both be in force)",
+            file=sys.stderr,
+        )
+        return 2
+    if args.tool_policy:
+        if not args.subject and not subject_from_upstream:
+            print(
+                "error: --tool-policy needs --subject (the authenticated "
+                "identity to enforce for), or the upstream-subject mode the "
+                "HTTP bridge enables",
+                file=sys.stderr,
+            )
+            return 2
+        from .authz import Authorizer, load_tool_policy
+
+        try:
+            authorizer = Authorizer(load_tool_policy(args.tool_policy))
+        except (OSError, ValueError, RuntimeError) as e:
+            print(f"error: --tool-policy: {e}", file=sys.stderr)
+            return 2
+        # One decision per line, so a deployment has an audit trail without
+        # asking for it. stderr, never stdout: stdout is the protocol channel.
+        audit_sink = _audit_to_stderr
+    elif args.legacy_allow_all:
+        # Explicit opt-in, never the default: one authenticated client may call
+        # every registered tool. A warning, and authorizer=None (legacy path).
+        print(
+            "warning: --legacy-allow-all: per-tool authorization is OFF. The "
+            "one authenticated client may call every registered tool.",
+            file=sys.stderr,
+        )
+    else:
+        # Default-deny (v1.2): no tool policy means no authorized tool call. An
+        # empty policy denies every subject; the operator grants tools with
+        # --tool-policy (or re-enables legacy explicitly with --legacy-allow-all).
+        from .authz import Authorizer, ToolPolicy
+
+        authorizer = Authorizer(
+            ToolPolicy.from_dict({"policy_version": "1.2.0-1", "subjects": []})
+        )
+        audit_sink = _audit_to_stderr
+
+    if subject_from_upstream:
+        if not args.tool_policy:
+            print(
+                "error: upstream-subject mode needs --tool-policy: a "
+                "per-request subject can only be enforced against a policy "
+                "(refusing to start a server that would read subjects with "
+                "nothing to authorize against)",
+                file=sys.stderr,
+            )
+            return 2
+        if not subject_secret:
+            print(
+                "error: upstream-subject mode needs "
+                f"${ENV_SUBJECT_SECRET} (set by the bridge; refusing to trust "
+                "unbound subjects)",
+                file=sys.stderr,
+            )
+            return 2
+
+    accounting_flags = (
+        args.host_max_runs,
+        args.host_max_fuel,
+        args.tenant_max_runs,
+        args.tenant_max_fuel,
+    )
+    for flag, value in (
+        ("--host-max-runs", args.host_max_runs),
+        ("--host-max-fuel", args.host_max_fuel),
+        ("--tenant-max-runs", args.tenant_max_runs),
+        ("--tenant-max-fuel", args.tenant_max_fuel),
+    ):
+        if value is not None and value <= 0:
+            print(
+                f"error: {flag} must be a positive integer (a cap of 0/negative "
+                "would otherwise mean 'no cap')",
+                file=sys.stderr,
+            )
+            return 2
+    tenant_store = None
+    host_budget = None
+    tenant_budget = None
+    if args.tenant_book:
+        from ephemora_cell.tenant import TenantStore
+
+        try:
+            tenant_store = TenantStore(args.tenant_book)
+        except (OSError, ValueError) as e:
+            print(f"error: --tenant-book: {e}", file=sys.stderr)
+            return 2
+    elif any(value is not None for value in accounting_flags):
+        print(
+            "error: --host-max-* / --tenant-max-* need --tenant-book (a cap "
+            "without a shared book would admit every run)",
+            file=sys.stderr,
+        )
+        return 2
+    if any(value is not None for value in accounting_flags):
+        from ephemora_cell.tenant import CumulativeBudget
+
+        if args.host_max_runs is not None or args.host_max_fuel is not None:
+            host_budget = CumulativeBudget(
+                max_runs=args.host_max_runs,
+                max_total_fuel=args.host_max_fuel,
+            )
+        if args.tenant_max_runs is not None or args.tenant_max_fuel is not None:
+            tenant_budget = CumulativeBudget(
+                max_runs=args.tenant_max_runs,
+                max_total_fuel=args.tenant_max_fuel,
+            )
+    if tenant_store is not None:
+        try:
+            host_budget = tenant_store.bind_host_budget(host_budget)
+        except ValueError as e:
+            print(f"error: --host-max: {e}", file=sys.stderr)
+            return 2
+
     receipt_signer = None
     if args.receipt_signing_key:
         from .tool_registry import ed25519_signer_from_pem
@@ -277,6 +493,14 @@ def main(argv: list[str] | None = None) -> int:
         grant_trust=grant_trust_summary,
         receipt_signer=receipt_signer,
         receipt_key_id=args.receipt_key_id,
+        authorizer=authorizer,
+        audit_sink=audit_sink,
+        subject=args.subject,
+        subject_from_upstream=subject_from_upstream,
+        subject_secret=subject_secret,
+        tenant_store=tenant_store,
+        host_budget=host_budget,
+        tenant_budget=tenant_budget,
     ).serve()
     return 0
 

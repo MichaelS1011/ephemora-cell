@@ -16,13 +16,13 @@ guest's elapsed_ms, so sandbox overhead (wall - guest) is explicit. The
 output JSON carries environment metadata (measured:true convention) and
 is written to benchmarks/results/<date>/pov_benchmark.json.
 """
+
 import json
 import os
 import platform
 import statistics
 import sys
 import tempfile
-import textwrap
 import time
 from datetime import date, datetime
 from importlib.metadata import version as _pkg_version
@@ -31,7 +31,7 @@ from pathlib import Path
 import wasmtime
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ephemora_cell import WASISandbox, WASIConfig, run_wasm, ExecutionStatus
+from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 
 # === Payloads ===
 
@@ -116,19 +116,23 @@ def bench_cold_start(wasm_bytes, count=300):
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm_bytes)
     tmp.close()
-    warmup = WASISandbox(config=WASIConfig(
-        max_fuel=100_000,
-        timeout_seconds=5,
-        max_memory_mb=32,
-    ))
-    warmup.run(tmp.name)
-    warmup.cleanup()
-    for _ in range(count):
-        sandbox = WASISandbox(config=WASIConfig(
+    warmup = WASISandbox(
+        config=WASIConfig(
             max_fuel=100_000,
             timeout_seconds=5,
             max_memory_mb=32,
-        ))
+        )
+    )
+    warmup.run(tmp.name)
+    warmup.cleanup()
+    for _ in range(count):
+        sandbox = WASISandbox(
+            config=WASIConfig(
+                max_fuel=100_000,
+                timeout_seconds=5,
+                max_memory_mb=32,
+            )
+        )
         t0 = time.perf_counter()
         result = sandbox.run(tmp.name)
         walls.append((time.perf_counter() - t0) * 1000)
@@ -148,11 +152,13 @@ def bench_warm_start(wasm_bytes, count=300):
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm_bytes)
     tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=100_000,
-        timeout_seconds=5,
-        max_memory_mb=32,
-    ))
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=100_000,
+            timeout_seconds=5,
+            max_memory_mb=32,
+        )
+    )
     sandbox.run(tmp.name)
     for _ in range(count):
         t0 = time.perf_counter()
@@ -169,7 +175,10 @@ def bench_block_rate(count=10):
     attacks = {
         "cpu_dos": (INF_LOOP_WAT, {"max_fuel": 100_000}),
         "memory_exhaust": (MEM_GROW_WAT, {"max_memory_mb": 16}),
-        "infinite_loop_timeout": (INF_LOOP_WAT, {"max_fuel": None, "timeout_seconds": 2}),
+        "infinite_loop_timeout": (
+            INF_LOOP_WAT,
+            {"max_fuel": None, "timeout_seconds": 2},
+        ),
         "write_flood": (WRITE_LOOP_WAT, {"max_fuel": 500_000}),
     }
     results = {}
@@ -196,11 +205,13 @@ def bench_fuel_vs_io():
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm)
     tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=1_000_000,
-        timeout_seconds=10,
-        max_memory_mb=32,
-    ))
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=1_000_000,
+            timeout_seconds=10,
+            max_memory_mb=32,
+        )
+    )
     result = sandbox.run(tmp.name)
     sandbox.cleanup()
     os.unlink(tmp.name)
@@ -208,7 +219,9 @@ def bench_fuel_vs_io():
     # Estimate: 10000 writes × 4 bytes = 40KB if all complete
     # But fuel will stop it mid-way
     writes_completed = result.fuel_consumed // 29 if result.fuel_consumed else 0
-    fuel_per_write = result.fuel_consumed / (writes_completed or 1) if result.fuel_consumed else 0
+    fuel_per_write = (
+        result.fuel_consumed / (writes_completed or 1) if result.fuel_consumed else 0
+    )
     return {
         "fuel_consumed": result.fuel_consumed,
         "status": result.status.value,
@@ -225,11 +238,13 @@ def bench_throughput(count=100_000):
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(wasm)
     tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=500_000,
-        timeout_seconds=10,
-        max_memory_mb=32,
-    ))
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=500_000,
+            timeout_seconds=10,
+            max_memory_mb=32,
+        )
+    )
     result = sandbox.run(tmp.name)
     elapsed_s = result.elapsed_ms / 1000 if result.elapsed_ms else 0.001
     sandbox.cleanup()
@@ -278,7 +293,9 @@ def run_benchmarks(label="Local"):
     results["cold_start"] = stats(cold)
     results["cold_start_raw"] = cold
     results["cold_start_wall"] = stats(cold_walls)
-    print(f"  Mean: {results['cold_start']['mean_ms']}ms | P95: {results['cold_start']['p95_ms']}ms | P99: {results['cold_start']['p99_ms']}ms")
+    print(
+        f"  Mean: {results['cold_start']['mean_ms']}ms | P95: {results['cold_start']['p95_ms']}ms | P99: {results['cold_start']['p99_ms']}ms"
+    )
 
     # 2. Warm Start
     print("[2/5] Warm Start (300 runs, cached engine)...")
@@ -290,14 +307,18 @@ def run_benchmarks(label="Local"):
     results["overhead_warm_ms"] = round(
         results["warm_start_wall"]["median_ms"] - results["warm_start"]["median_ms"], 3
     )
-    print(f"  Mean: {results['warm_start']['mean_ms']}ms | P95: {results['warm_start']['p95_ms']}ms | Overhead(wall-guest): {results['overhead_warm_ms']}ms")
+    print(
+        f"  Mean: {results['warm_start']['mean_ms']}ms | P95: {results['warm_start']['p95_ms']}ms | Overhead(wall-guest): {results['overhead_warm_ms']}ms"
+    )
 
     # 3. Block Rate
     print("[3/5] Block Rate (4 attacks × 10 runs)...")
     block = bench_block_rate(10)
     results["block_rate"] = block
     for name, data in block.items():
-        print(f"  {name}: {data['blocked']}/{data['total']} blocked ({data['rate']:.0%})")
+        print(
+            f"  {name}: {data['blocked']}/{data['total']} blocked ({data['rate']:.0%})"
+        )
     total_blocked = sum(d["blocked"] for d in block.values())
     total_attacks = sum(d["total"] for d in block.values())
     results["block_rate_overall"] = {
@@ -310,7 +331,9 @@ def run_benchmarks(label="Local"):
     print("[4/5] Fuel-vs-I/O Gap...")
     fio = bench_fuel_vs_io()
     results["fuel_vs_io"] = fio
-    print(f"  Fuel consumed: {fio['fuel_consumed']} | Est. writes: {fio['estimated_writes']} | Fuel/Write: {fio['fuel_per_write']:.1f}")
+    print(
+        f"  Fuel consumed: {fio['fuel_consumed']} | Est. writes: {fio['estimated_writes']} | Fuel/Write: {fio['fuel_per_write']:.1f}"
+    )
 
     # 5. Memory Exhaustion
     print("[5/5] Memory Exhaustion Rate...")
@@ -318,11 +341,13 @@ def run_benchmarks(label="Local"):
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
     tmp.write(mem_wasm)
     tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=500_000,
-        timeout_seconds=10,
-        max_memory_mb=64,
-    ))
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=500_000,
+            timeout_seconds=10,
+            max_memory_mb=64,
+        )
+    )
     mem_result = sandbox.run(tmp.name)
     sandbox.cleanup()
     os.unlink(tmp.name)

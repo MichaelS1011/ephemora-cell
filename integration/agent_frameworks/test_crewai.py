@@ -7,7 +7,9 @@ Usage:
     python integration/agent_frameworks/test_crewai.py
     python integration/agent_frameworks/test_crewai.py --json
 """
+
 from __future__ import annotations
+
 import json
 import sys
 import uuid
@@ -18,9 +20,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from integration.ephemora_cell_agent_executor import EphemoraCellExecutor
 
 WORKLOADS = Path(__file__).parent.parent.parent / "benchmarks" / "workloads"
+LIGHT = WORKLOADS / "hello_rust.wasm"
 
 try:
-    from crewai import Agent, Task, Crew
+    from crewai import Agent, Crew, Task
     from crewai.tools import tool
 except ImportError:
     print("SKIP: crewai not installed")
@@ -30,13 +33,15 @@ except ImportError:
 @tool
 def ephemora_cell_execute(wasm_path: str):
     """Execute a WASM module in Ephemora Cell isolation."""
-    executor = EphemoraCellExecutor(max_fuel=100_000, timeout=5)
+    executor = EphemoraCellExecutor(max_fuel=200_000, timeout=5)
     result = executor.execute(wasm_path)
-    return json.dumps({
-        "status": result.status,
-        "elapsed_ms": result.elapsed_ms,
-        "stdout": result.stdout,
-    })
+    return json.dumps(
+        {
+            "status": result.status,
+            "elapsed_ms": result.elapsed_ms,
+            "stdout": result.stdout,
+        }
+    )
 
 
 def test_crewai():
@@ -67,22 +72,38 @@ def test_crewai():
         verbose=False,
     )
 
-    # CrewAI needs OPENAI_API_KEY — if missing, test is skipped
+    # --- offline integration proof (no LLM required) -------------------
+    # The Ephemora Cell tool is a real CrewAI BaseTool bound to the agent.
+    # Invoking it through CrewAI's own tool wrapper executes real WASM in the
+    # sandbox — this proves the framework<->Cell integration surface without
+    # calling a model. The autonomous LLM decision loop below needs a provider.
+    bound_tool = agent.tools[0]
+    tool_exec = json.loads(bound_tool.func(str(LIGHT)))
+    binding = {
+        "framework": "crewai",
+        "tools_registered": [t.name for t in agent.tools],
+        "tool_binding_verified": bound_tool.name == "ephemora_cell_execute",
+        "tool_execution_status": tool_exec.get("status"),
+    }
+
+    # CrewAI needs OPENAI_API_KEY for the LLM loop — if missing, only the
+    # tool-binding path above is exercised and the kickoff is skipped.
     import os
+
     if not os.environ.get("OPENAI_API_KEY"):
         return {
-            "framework": "crewai",
-            "status": "skipped",
-            "reason": "OPENAI_API_KEY not set — crewai requires LLM provider",
-            "tools_registered": ["ephemora_cell_execute"],
+            **binding,
+            "llm_loop": "skipped",
+            "llm_reason": "OPENAI_API_KEY not set — crew.kickoff() requires an LLM provider",
         }
 
     result = crew.kickoff()
     return {
-        "framework": "crewai",
-        "status": "executed",
-        "raw_output": str(result.raw)[:500] if hasattr(result, "raw") else str(result)[:500],
-        "tools_registered": ["ephemora_cell_execute"],
+        **binding,
+        "llm_loop": "executed",
+        "raw_output": (
+            str(result.raw)[:500] if hasattr(result, "raw") else str(result)[:500]
+        ),
     }
 
 
@@ -103,12 +124,21 @@ def main():
     else:
         print(f"CrewAI Integration (request: {request_id})")
         print("=" * 50)
-        print(f"Status: {result.get('status')}")
-        if result.get("status") == "skipped":
-            print(f"Reason: {result.get('reason')}")
-        else:
+        print(
+            f"Tool binding verified : {result.get('tool_binding_verified')} "
+            f"(registered: {result.get('tools_registered')})"
+        )
+        print(f"Tool executed in Cell : {result.get('tool_execution_status')}")
+        print(
+            f"LLM decision loop      : {result.get('llm_loop')}"
+            + (
+                f" — {result.get('llm_reason')}"
+                if result.get("llm_loop") == "skipped"
+                else ""
+            )
+        )
+        if result.get("llm_loop") == "executed":
             print(f"Output: {result.get('raw_output', '')[:200]}")
-        print(f"Tool registered: ephemora_cell_execute")
         print("Ephemora Cell used as CrewAI tool sandbox")
 
 

@@ -1,0 +1,739 @@
+{
+ "advisory_bands_and_severity": {
+  "GHSA-2mjx-qc3c-rqvc": {
+   "aliases": [
+    "RUSTSEC-2026-0285"
+   ],
+   "band": {
+    "rustls@0.23.37": "IN BAND (fix 0.23.45)"
+   },
+   "ghsa": "RUSTSEC-2026-0285",
+   "packages": [
+    "rustls"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+   ],
+   "summary": "Rustls: TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries"
+  },
+  "RUSTSEC-2024-0384": {
+   "aliases": [],
+   "band": {
+    "instant@0.1.13": "IN BAND (no fix released)"
+   },
+   "ghsa": "",
+   "packages": [
+    "instant"
+   ],
+   "severity": [],
+   "summary": "`instant` is unmaintained"
+  },
+  "RUSTSEC-2024-0436": {
+   "aliases": [],
+   "band": {
+    "paste@1.0.7": "IN BAND (no fix released)"
+   },
+   "ghsa": "",
+   "packages": [
+    "paste"
+   ],
+   "severity": [],
+   "summary": "paste - no longer maintained"
+  },
+  "RUSTSEC-2024-0449": {
+   "aliases": [],
+   "band": {
+    "unsafe-libyaml@0.2.11": "IN BAND (no fix released)"
+   },
+   "ghsa": "",
+   "packages": [
+    "unsafe-libyaml"
+   ],
+   "severity": [],
+   "summary": "unsafe-libyaml is unmaintained"
+  },
+  "RUSTSEC-2026-0313": {
+   "aliases": [
+    "GHSA-c9gc-w9vx-w86p"
+   ],
+   "band": {
+    "wasmtime-wasi-http@49.0.0": "IN BAND (fix 49.0.1)"
+   },
+   "ghsa": "GHSA-c9gc-w9vx-w86p",
+   "packages": [
+    "wasmtime-wasi-http"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+   ],
+   "summary": "Outgoing HTTP body write allows guest-driven host memory exhaustion"
+  },
+  "RUSTSEC-2026-0314": {
+   "aliases": [
+    "GHSA-j2g9-4prp-pf6h"
+   ],
+   "band": {
+    "wasmtime-wasi@49.0.0": "IN BAND (fix 49.0.1)"
+   },
+   "ghsa": "GHSA-j2g9-4prp-pf6h",
+   "packages": [
+    "wasmtime-wasi"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+   ],
+   "summary": "Guest can panic host through filesystem datetime overflow"
+  },
+  "RUSTSEC-2026-0315": {
+   "aliases": [
+    "GHSA-m63x-6p34-q65x"
+   ],
+   "band": {
+    "wasmtime@49.0.0": "IN BAND (fix 49.0.1)"
+   },
+   "ghsa": "GHSA-m63x-6p34-q65x",
+   "packages": [
+    "wasmtime"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:N/A:H"
+   ],
+   "summary": "`call_ref` and exception `catch` can drop some fuel accounting, leading to exponential fuel amplification"
+  },
+  "RUSTSEC-2026-0316": {
+   "aliases": [
+    "GHSA-jqpg-j7w6-42pr"
+   ],
+   "band": {
+    "wasmtime@49.0.0": "IN BAND (fix 49.0.1)"
+   },
+   "ghsa": "GHSA-jqpg-j7w6-42pr",
+   "packages": [
+    "wasmtime"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:A/AC:H/AT:P/PR:L/UI:P/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+   ],
+   "summary": "Dynamic record lifting can allocate beyond the hostcall fuel limit"
+  },
+  "RUSTSEC-2026-0320": {
+   "aliases": [
+    "GHSA-w4qr-p94g-mjhv"
+   ],
+   "band": {
+    "wasmtime-wasi-http@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-w4qr-p94g-mjhv",
+   "packages": [
+    "wasmtime-wasi-http"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+   ],
+   "summary": "Wasmtime wasi:http implementation panics with a zero timeout supplied"
+  },
+  "RUSTSEC-2026-0321": {
+   "aliases": [
+    "GHSA-j366-h8gg-77pm"
+   ],
+   "band": {
+    "wasmtime-wasi@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-j366-h8gg-77pm",
+   "packages": [
+    "wasmtime-wasi"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+   ],
+   "summary": "WASI preview 0 implementation of `poll_oneoff` circumvents fuel consumption"
+  },
+  "RUSTSEC-2026-0322": {
+   "aliases": [
+    "GHSA-gqmc-89g8-p25r"
+   ],
+   "band": {
+    "wasmtime-wasi@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-gqmc-89g8-p25r",
+   "packages": [
+    "wasmtime-wasi"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+   ],
+   "summary": "Excessive allocated memory on the host when guests don't have stdio"
+  },
+  "RUSTSEC-2026-0323": {
+   "aliases": [
+    "GHSA-96f6-r43r-8c24"
+   ],
+   "band": {
+    "wasmtime-wasi@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-96f6-r43r-8c24",
+   "packages": [
+    "wasmtime-wasi"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+   ],
+   "summary": "fd_readdir copies uninitialized struct padding into guest memory"
+  },
+  "RUSTSEC-2026-0324": {
+   "aliases": [
+    "GHSA-mr2v-56j5-cmfc"
+   ],
+   "band": {
+    "wasmtime-wasi@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-mr2v-56j5-cmfc",
+   "packages": [
+    "wasmtime-wasi"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+   ],
+   "summary": "Guest can panic host through filesystem timestamp before the epoch on wasip3"
+  },
+  "RUSTSEC-2026-0325": {
+   "aliases": [
+    "GHSA-cfhf-m2cr-62wj"
+   ],
+   "band": {
+    "wasmtime@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-cfhf-m2cr-62wj",
+   "packages": [
+    "wasmtime"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+   ],
+   "summary": "Mis-typed WebAssembly tag imports can lead to GC heap corruption"
+  },
+  "RUSTSEC-2026-0326": {
+   "aliases": [
+    "GHSA-hw8m-q44c-ggrf"
+   ],
+   "band": {
+    "wasmtime@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-hw8m-q44c-ggrf",
+   "packages": [
+    "wasmtime"
+   ],
+   "severity": [
+    "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:N/A:H"
+   ],
+   "summary": "Rooting for GC values live across `try_call` may be missing, causing GC heap corruption"
+  },
+  "RUSTSEC-2026-0327": {
+   "aliases": [
+    "GHSA-32h6-97mm-8q3c"
+   ],
+   "band": {
+    "wasmtime@49.0.0": "IN BAND (fix 49.0.2)"
+   },
+   "ghsa": "GHSA-32h6-97mm-8q3c",
+   "packages": [
+    "wasmtime"
+   ],
+   "severity": [
+    "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:H/VA:H/SC:L/SI:H/SA:H"
+   ],
+   "summary": "Wasmtime component async-lifted callback result count is unvalidated, causing a native stack buffer overflow"
+  }
+ },
+ "date": "2026-10-13",
+ "engine_version_under_test": "49.0.0",
+ "global_ghsa_database_lookup": {
+  "affects_wasmtime": 41,
+  "affects_wasmtime_wasi": 3,
+  "affects_wasmtime_wasi_http": 0,
+  "method": "gh api /advisories?affects=<pkg> plus /advisories/<ghsa> per id",
+  "the_12_current_advisories_present_in_global_db": false
+ },
+ "linker_reachability_probe": {
+  "attested_baseline": {
+   "exceptions_enabled": false,
+   "function_references_enabled": false,
+   "gc_enabled": false,
+   "memory64": false,
+   "multi_memory": false,
+   "stack_switching_enabled": false,
+   "threads_enabled": false
+  },
+  "guest": "unknown_import.wasm (component importing wasi:http/outgoing-handler@0.2.0)",
+  "worker_result": {
+   "exit_code": 1,
+   "status": "error",
+   "stderr": "component imports instance `wasi:http/outgoing-handler@0.2.0`, but a matching implementation was not found in the linker"
+  }
+ },
+ "lockfile_sweep": {
+  "git_sources_not_indexable": [],
+  "hit_packages": 7,
+  "hits": {
+   "instant@0.1.13": [
+    "RUSTSEC-2024-0384"
+   ],
+   "paste@1.0.7": [
+    "RUSTSEC-2024-0436"
+   ],
+   "rustls@0.23.37": [
+    "GHSA-2mjx-qc3c-rqvc",
+    "RUSTSEC-2026-0285"
+   ],
+   "unsafe-libyaml@0.2.11": [
+    "RUSTSEC-2024-0449"
+   ],
+   "wasmtime-wasi-http@49.0.0": [
+    "RUSTSEC-2026-0313",
+    "RUSTSEC-2026-0320"
+   ],
+   "wasmtime-wasi@49.0.0": [
+    "RUSTSEC-2026-0314",
+    "RUSTSEC-2026-0321",
+    "RUSTSEC-2026-0322",
+    "RUSTSEC-2026-0323",
+    "RUSTSEC-2026-0324"
+   ],
+   "wasmtime@49.0.0": [
+    "RUSTSEC-2026-0315",
+    "RUSTSEC-2026-0316",
+    "RUSTSEC-2026-0325",
+    "RUSTSEC-2026-0326",
+    "RUSTSEC-2026-0327"
+   ]
+  },
+  "lock_file_packages": 581,
+  "queried_packages": 581,
+  "workspace_path_crates_queried": 98
+ },
+ "native_artifact": {
+  "bytes": 25460800,
+  "file": "wasmtime/darwin-aarch64/_libwasmtime.dylib",
+  "sha256": "2cc7e37719916a84fb6c6b5e6cb6746817204e80d5a64b2c2ccff5db065b7c13",
+  "symbol_lines": 27817
+ },
+ "probe": "native_runtime_advisory_coverage",
+ "repository_advisory_coverage_60": {
+  "github_only_details": {
+   "GHSA-32h6-97mm-8q3c": {
+    "cve": null,
+    "sev": "critical",
+    "sum": "Wasmtime component async-lifted callback result count is unvalidated, causing a native stack buffer overflow",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-4ch3-9j33-3pmj": {
+    "cve": "CVE-2026-58494",
+    "sev": "medium",
+    "sum": "WASI hard links and renames bypass wasmtime-wasi's FilePerms for destination",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-96f6-r43r-8c24": {
+    "cve": null,
+    "sev": "low",
+    "sum": "fd_readdir copies uninitialized struct padding into guest memory",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-c9gc-w9vx-w86p": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "wasmtime-wasi-http: outgoing HTTP body write allows guest-driven host memory exhaustion (DoS)",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi-http",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-cfhf-m2cr-62wj": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Mis-typed WebAssembly tag imports can lead to GC heap corruption",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-gqmc-89g8-p25r": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Excessive allocated memory on the host when guests don't have stdio",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-hgjw-h833-99q9": {
+    "cve": null,
+    "sev": "low",
+    "sum": "Stores can mix up type indices between engines",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-hw8m-q44c-ggrf": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Rooting for GC values live across `try_call` may be missing, causing GC heap corruption",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-j2g9-4prp-pf6h": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "wasmtime-wasi: guest can panic host through filesystem datetime overflow (wasip1, 2, 3)",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-j366-h8gg-77pm": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "WASI preview 0 implementation of `poll_oneoff` circumvents fuel consumption",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-jqpg-j7w6-42pr": {
+    "cve": null,
+    "sev": "low",
+    "sum": "Dynamic record lifting can allocate beyond the hostcall fuel limit",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-m63x-6p34-q65x": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "`call_ref` and exception `catch` can drop some fuel accounting, leading to exponential fuel amplification",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-mr2v-56j5-cmfc": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Guest can panic host through filesystem timestamp before the epoch on wasip3",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-vqjp-4c8c-hfgg": {
+    "cve": null,
+    "sev": "high",
+    "sum": "Filesystem sandbox escape when paths or symlinks contain trailing slashes",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-w4qr-p94g-mjhv": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Wasmtime wasi:http implementation panics with a zero timeout supplied",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime-wasi-http",
+      "rng": null
+     }
+    ]
+   },
+   "GHSA-x84v-gj2h-g759": {
+    "cve": null,
+    "sev": "medium",
+    "sum": "Guest controlled-size host heap allocation through WASIp3 streams",
+    "vulns": [
+     {
+      "patched": null,
+      "pkg": "wasmtime",
+      "rng": null
+     }
+    ]
+   }
+  },
+  "github_only_not_in_osv": [
+   "GHSA-32h6-97mm-8q3c",
+   "GHSA-4ch3-9j33-3pmj",
+   "GHSA-96f6-r43r-8c24",
+   "GHSA-c9gc-w9vx-w86p",
+   "GHSA-cfhf-m2cr-62wj",
+   "GHSA-gqmc-89g8-p25r",
+   "GHSA-hgjw-h833-99q9",
+   "GHSA-hw8m-q44c-ggrf",
+   "GHSA-j2g9-4prp-pf6h",
+   "GHSA-j366-h8gg-77pm",
+   "GHSA-jqpg-j7w6-42pr",
+   "GHSA-m63x-6p34-q65x",
+   "GHSA-mr2v-56j5-cmfc",
+   "GHSA-vqjp-4c8c-hfgg",
+   "GHSA-w4qr-p94g-mjhv",
+   "GHSA-x84v-gj2h-g759"
+  ],
+  "repo_advisories_total": 60,
+  "resolvable_in_osv_by_ghsa_id": 44
+ },
+ "reverse_dependencies_of_hit_packages": {
+  "cap-primitives": {
+   "direct_dependents": [
+    "wasmtime-wasi@49.0.0"
+   ],
+   "direct_dependents_count": 1,
+   "versions_in_lock": [
+    "4.0.3"
+   ]
+  },
+  "cranelift-codegen": {
+   "direct_dependents": [
+    "cranelift-filetests@0.0.0",
+    "cranelift-frontend@0.136.0",
+    "cranelift-interpreter@0.136.0",
+    "cranelift-isle-veri-isaspec@0.1.0",
+    "cranelift-jit@0.136.0",
+    "cranelift-module@0.136.0",
+    "cranelift-native@0.136.0",
+    "cranelift-object@0.136.0",
+    "cranelift-reader@0.136.0",
+    "cranelift-serde@0.136.0",
+    "cranelift-tools@0.0.0",
+    "cranelift@0.136.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-fuzz@0.0.0",
+    "wasmtime-internal-cranelift@49.0.0",
+    "wasmtime-internal-unwinder@49.0.0",
+    "wasmtime-internal-winch@49.0.0",
+    "winch-codegen@49.0.0"
+   ],
+   "direct_dependents_count": 18,
+   "versions_in_lock": [
+    "0.136.0"
+   ]
+  },
+  "gimli": {
+   "direct_dependents": [
+    "addr2line@0.25.1",
+    "addr2line@0.26.0",
+    "cranelift-codegen@0.136.0",
+    "cranelift-filetests@0.0.0",
+    "cranelift-object@0.136.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-environ@49.0.0",
+    "wasmtime-internal-cranelift@49.0.0",
+    "wasmtime-internal-winch@49.0.0",
+    "wasmtime@49.0.0",
+    "wast@258.0.0",
+    "winch-codegen@49.0.0"
+   ],
+   "direct_dependents_count": 12,
+   "versions_in_lock": [
+    "0.32.3",
+    "0.33.0"
+   ]
+  },
+  "hyper": {
+   "direct_dependents": [
+    "cranelift-isle-veri-aslp@0.1.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-wasi-http@49.0.0"
+   ],
+   "direct_dependents_count": 3,
+   "versions_in_lock": [
+    "1.9.0"
+   ]
+  },
+  "instant": {
+   "direct_dependents": [
+    "egg@0.6.0",
+    "fastrand@1.9.0"
+   ],
+   "direct_dependents_count": 2,
+   "versions_in_lock": [
+    "0.1.13"
+   ]
+  },
+  "io-lifetimes": {
+   "direct_dependents": [
+    "cap-primitives@4.0.3",
+    "fs-set-times@0.20.3",
+    "io-extras@0.19.0"
+   ],
+   "direct_dependents_count": 3,
+   "versions_in_lock": [
+    "2.0.3",
+    "3.0.1"
+   ]
+  },
+  "paste": {
+   "direct_dependents": [
+    "v8@139.0.0"
+   ],
+   "direct_dependents_count": 1,
+   "versions_in_lock": [
+    "1.0.7"
+   ]
+  },
+  "rustls": {
+   "direct_dependents": [
+    "tokio-rustls@0.26.4",
+    "wasmtime-wasi-http@49.0.0",
+    "wasmtime-wasi-tls@49.0.0"
+   ],
+   "direct_dependents_count": 3,
+   "versions_in_lock": [
+    "0.23.37"
+   ]
+  },
+  "unsafe-libyaml": {
+   "direct_dependents": [
+    "serde_yaml@0.9.34+deprecated"
+   ],
+   "direct_dependents_count": 1,
+   "versions_in_lock": [
+    "0.2.11"
+   ]
+  },
+  "wasmparser": {
+   "direct_dependents": [
+    "component-async-tests@0.0.0",
+    "verify-component-adapter@49.0.0",
+    "wasm-compose@0.258.0",
+    "wasm-encoder@0.244.0",
+    "wasm-encoder@0.258.0",
+    "wasm-metadata@0.244.0",
+    "wasm-metadata@0.258.0",
+    "wasm-mutate@0.258.0",
+    "wasmi@1.0.8",
+    "wasmprinter@0.258.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-environ-fuzz@0.0.0",
+    "wasmtime-environ@49.0.0",
+    "wasmtime-fuzz@0.0.0",
+    "wasmtime-fuzzing@0.0.0",
+    "wasmtime-internal-cranelift@49.0.0",
+    "wasmtime-internal-winch@49.0.0",
+    "wasmtime-test-util@49.0.0",
+    "wasmtime-wast@49.0.0",
+    "wasmtime-wizer@49.0.0",
+    "wasmtime@49.0.0",
+    "winch-codegen@49.0.0",
+    "wit-component@0.244.0",
+    "wit-component@0.258.0",
+    "wit-parser@0.244.0"
+   ],
+   "direct_dependents_count": 26,
+   "versions_in_lock": [
+    "0.228.0",
+    "0.244.0",
+    "0.258.0"
+   ]
+  },
+  "wasmtime-wasi": {
+   "direct_dependents": [
+    "calculator@0.1.0",
+    "component-async-tests@0.0.0",
+    "wasmtime-bench-api@49.0.0",
+    "wasmtime-c-api-impl@49.0.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-internal-debugger@49.0.0",
+    "wasmtime-wasi-config@49.0.0",
+    "wasmtime-wasi-http@49.0.0",
+    "wasmtime-wasi-keyvalue@49.0.0",
+    "wasmtime-wasi-nn@49.0.0",
+    "wasmtime-wasi-tls@49.0.0",
+    "wasmtime-wizer@49.0.0"
+   ],
+   "direct_dependents_count": 12,
+   "versions_in_lock": [
+    "49.0.0"
+   ]
+  },
+  "wasmtime-wasi-http": {
+   "direct_dependents": [
+    "wasmtime-c-api-impl@49.0.0",
+    "wasmtime-cli@49.0.0",
+    "wasmtime-wasi-http@49.0.0"
+   ],
+   "direct_dependents_count": 3,
+   "versions_in_lock": [
+    "49.0.0"
+   ]
+  }
+ },
+ "symbol_projection_of_linked_code": {
+  "cranelift": 4643,
+  "io_uring": 0,
+  "rustls": 745,
+  "socket": 919,
+  "sockets": 899,
+  "tls": 876,
+  "tokio": 1011,
+  "wasi_http": 868,
+  "wasi_keyvalue": 0,
+  "wasi_nn": 0,
+  "wasi_sockets": 0,
+  "wasi_tls": 0,
+  "wasip3": 0,
+  "winch": 1165
+ }
+}

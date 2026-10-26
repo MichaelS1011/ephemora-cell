@@ -1,0 +1,58 @@
+{
+  "measured": true,
+  "date": "2026-10-13",
+  "note": "Compromised-worker boundary probe: BLOCKED = the OS/container wall still holds even with native code in the worker fully attacker-controlled. The positive control (tmpfs writable) must be ALLOWED.",
+  "results": {
+    "runs_as_nonroot": {
+      "status": "BLOCKED",
+      "detail": "uid=10001 gid=10001"
+    },
+    "capabilities_dropped": {
+      "status": "BLOCKED",
+      "detail": "CapEff=0000000000000000"
+    },
+    "no_setuid_to_root": {
+      "status": "BLOCKED",
+      "detail": "setuid(0) refused: errno 1 (Operation not permitted)"
+    },
+    "rootfs_read_only": {
+      "status": "BLOCKED",
+      "detail": "rootfs write refused: errno 30 (Read-only file system)"
+    },
+    "tmpfs_writable_positive_control": {
+      "status": "ALLOWED",
+      "detail": "writable=True"
+    },
+    "host_secret_etc_shadow": {
+      "status": "BLOCKED",
+      "detail": "/etc/shadow refused: errno 13"
+    },
+    "host_secret_root": {
+      "status": "BLOCKED",
+      "detail": "/root refused: errno 13"
+    },
+    "egress_8.8.8.8": {
+      "status": "BLOCKED",
+      "detail": "('8.8.8.8', 443) refused: errno 101 (Network is unreachable)"
+    },
+    "egress_1.1.1.1": {
+      "status": "BLOCKED",
+      "detail": "('1.1.1.1', 53) refused: errno 101 (Network is unreachable)"
+    },
+    "egress_dns": {
+      "status": "BLOCKED",
+      "detail": "resolution refused: (-3, 'Temporary failure in name resolution')"
+    },
+    "memory_cgroup_present": {
+      "status": "ALLOWED",
+      "detail": "memory.max=n/a"
+    },
+    "pids_limit": {
+      "status": "BLOCKED",
+      "detail": "cap='unreadable:2' ; fork blocked at 127 children: errno 11"
+    }
+  },
+  "blocked_count": 10,
+  "allowed_findings": 2
+}
+rc=0

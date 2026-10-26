@@ -1,0 +1,5 @@
+nr_periods 42
+nr_throttled 41
+throttled_usec 12031977
+nr_bursts 0
+usage_usec_delta_s=4

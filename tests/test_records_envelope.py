@@ -1,5 +1,5 @@
 """Records envelope tests: pre-exec chain (ADR-008) and open standards
-(DSSE envelope, detached JWS, inclusion-proof field — added with WP3b).
+(DSSE envelope, detached JWS, inclusion-proof field).
 
 The pre-exec/receipt split answers the verification-order problem: a
 verifier can validate what a run CLAIMED it would do (module digest,

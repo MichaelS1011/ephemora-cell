@@ -1,0 +1,18 @@
+    "NetworkMode": "none",
+    "CapAdd": null,
+    "CapDrop": [
+    "Dns": null,
+    "IpcMode": "private",
+    "PidMode": "",
+    "Privileged": false,
+    "ReadonlyRootfs": true,
+    "SecurityOpt": [
+    "Tmpfs": {
+    "Runtime": "runc",
+    "Memory": 536870912,
+    "NanoCpus": 1000000000,
+    "Devices": [],
+    "DeviceRequests": null,
+    "MemorySwap": 536870912,
+    "PidsLimit": 128,
+false true 128 536870912 1000000000 10001:10001 [no-new-privileges:true] ALL

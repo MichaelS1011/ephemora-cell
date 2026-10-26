@@ -31,12 +31,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from benchmarks.interpreter_guest.measure import (  # noqa: E402
+from benchmarks.interpreter_guest.measure import (
     _guest_paths,
     stdlib_guest_path,
 )
-from ephemora_cell import ExecutionStatus, WASISandbox, get_profile  # noqa: E402
-from ephemora_cell.wasi_runtime import SYNC_CALL_TRAPS  # noqa: E402
+from ephemora_cell import ExecutionStatus, WASISandbox, get_profile
+from ephemora_cell.wasi_runtime import SYNC_CALL_TRAPS
 
 # boot = the Cell equivalent of Docker's `python3 -c pass`. import_json pulls
 # a stdlib module, which is the path that writes __pycache__/*.pyc into the

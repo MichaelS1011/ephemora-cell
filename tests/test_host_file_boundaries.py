@@ -35,6 +35,7 @@ from ephemora_cell.egress_sidecar import (
     REQUEST_MAX_BYTES,
     RESPONSE_FILENAME,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell.wasi_runtime import WASIConfig, WASISandbox
 from ephemora_cell_mcp.engine import CellToolEngine
 
@@ -187,7 +188,11 @@ def test_cleanup_reports_a_directory_it_could_not_remove(tmp_path):
         )
     )
     sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000, timeout_seconds=10))
-    result = sandbox.run(str(guest))
+    # The subject is parent-side in-process cleanup of the sandbox dir the
+    # ``WASISandbox`` object owns; under the mandate the default posture would
+    # run in a worker whose dir the parent never sees, so use the sanctioned
+    # in-process path.
+    result = sandbox.run(str(guest), trust=TRUST_TRUSTED)
     guest_dir = result.sandbox_dir
     assert guest_dir and os.path.isdir(guest_dir)
 
@@ -241,7 +246,10 @@ def test_a_host_side_run_failure_keeps_its_traceback_off_the_guest_surface(tmp_p
             )
             """))
     sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000, timeout_seconds=10))
-    result = sandbox.run(str(broken))
+    # host_traceback is the parent-side in-process split of a host instantiate
+    # failure; the mandate's worker path would raise inside the child process,
+    # so exercise the in-process path this test's subject lives on.
+    result = sandbox.run(str(broken), trust=TRUST_TRUSTED)
     residue = sandbox.cleanup()
     assert residue == []
     assert result.status is not ExecutionStatus.SUCCESS, result.status

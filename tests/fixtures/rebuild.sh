@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regenerate the Rust-built WASI 0.2 fixtures (hello02.wasm, fs02.wasm)
-# from their sources in src/.
+# Regenerate the Rust-built WASI 0.2 fixtures (hello02.wasm, fs02.wasm,
+# exitwrite02.wasm, exit3_02.wasm) from their sources in src/.
 #
 # Requirements:
 #   cargo with the wasm32-wasip2 target   (rustup target add wasm32-wasip2)
@@ -13,7 +13,7 @@ set -euo pipefail
 
 FIXTURES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for crate in hello02 fs02; do
+for crate in hello02 fs02 exitwrite02 exit3_02; do
   (
     cd "$FIXTURES/src/$crate"
     cargo build --release --target wasm32-wasip2
@@ -23,4 +23,4 @@ for crate in hello02 fs02; do
     -o "$FIXTURES/$crate.wasm"
 done
 
-echo "fixtures regenerated: hello02.wasm, fs02.wasm"
+echo "fixtures regenerated: hello02.wasm, fs02.wasm, exitwrite02.wasm, exit3_02.wasm"

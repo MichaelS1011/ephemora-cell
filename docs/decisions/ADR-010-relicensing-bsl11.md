@@ -6,8 +6,8 @@
 - **Basis:** Relicensing audit 2026-09-29: Apache-2.0 is referenced in 2
   LICENSE files (root + shipped `ephemora_cell/LICENSE`), `pyproject.toml`
   (`license = {text = "Apache-2.0"}` + OSI classifier), README, and ~12 docs
-  (enterprise, architecture/performance diagrams, two whitepapers, LinkedIn
-  whitepaper, marketing PR drafts, two internal BEWEISE docs); the file
+  (enterprise, architecture/performance diagrams, whitepapers and other
+  release-prep documents); the file
   headers carried `# SPDX-License-Identifier: Apache-2.0` with a copyright
   line naming the author while the LICENSE appendix named "Ephemora AG (in
   formation)" — a copyright-holder inconsistency, and the shipped

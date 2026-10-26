@@ -32,6 +32,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Create verified Python environment (pip 26.2.2, certifi 2026.10.19)
+        run: |
+          bash scripts/create_qualified_venv.sh "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
       - name: Collect snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,10 +1,12 @@
 [build-system]
-requires = ["setuptools>=77.0", "wheel"]
+# Exact pins, not a floor: the artifact bytes must be buildable from a known
+# toolchain. Hashes for these wheels live in requirements-build.lock.
+requires = ["setuptools==84.2.1", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ephemora-cell"
-version = "1.1.0"
+version = "1.2.0"
 description = "Ephemora Cell — The execution layer for untrusted AI-generated code. Fast, capability-based WASM execution with explicit CPU, memory, time, I/O, and filesystem limits."
 readme = "README.md"
 license = "BUSL-1.1"
@@ -16,7 +18,13 @@ authors = [
     {name = "Michael Soppa"},
 ]
 requires-python = ">=3.10"
-dependencies = ["wasmtime>=49.0.0,<50"]  # floor 49.0.0 = the tested wheel that carries both the April-2026 CVE-2026-34971 fixes and the GHSA-vqjp filesystem-escape fix (engine 47.0.4), so the declared support contract — not only the internal CI pins — guarantees the improvement. PyPI ships one wheel per major (47.0.1 / 48.0.0 / 49.0.0); a fresh install from this range therefore resolves only to 49.0.0 and can never pull an older, GHSA-vqjp-affected engine. requirements.txt / requirements.lock pin the exact tested 49.0.0. Any future wheel inside <50 (e.g. 49.0.1 / 49.0.2 once they exist) must be re-qualified against the fuel / epoch / egress invariants before it can be trusted — engine-upgrade gate in docs/decisions/ADR-009-language-support.md, public advisory status in SECURITY.md
+dependencies = [
+    # fail-closed patched-line floor: the release ships a controlled 49.0.4-engine build (official Bytecode Alliance C-API asset, tarball sha256 f83147d1…5460 verified before embedding; embedded dylib sha256 247c1529…a30b; platform-tagged macosx_11_0_arm64). PyPI still carries no 49.0.4 wheel, so an unconfigured `pip install` resolves UNSATISFIABLE instead of silently pulling a vulnerable 49.0.0–49.0.3 — documented wheelhouse install path in the release notes; other platforms are refused by wheel tag (NOT QUALIFIED). Any future 49.x wheel below 49.0.4 stays out; the floor moves only upward deliberately.
+    "wasmtime>=49.0.4,<50",
+    # Host-side egress anchors HTTPS to certifi's audited bundle. 2026.10.19 is
+    # the first release without the compromised emSign ECC Root CA - G3.
+    "certifi>=2026.10.19",
+]
 
 classifiers = [
     # 4 - Beta, deliberately not 5 - Production/Stable: the PyPI classifier is read
@@ -28,7 +36,10 @@ classifiers = [
     # next release upload — see docs/release_assurance.md.
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "Operating System :: OS Independent",
+    # 1.2.x is qualified on macOS arm64 only (see SECURITY.md "Supported platforms");
+    # "OS Independent" advertised a portability the release does not carry. The
+    # metadata takes effect with the next upload — a published file cannot be re-labelled.
+    "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -59,17 +70,34 @@ Changelog = "https://github.com/MichaelS1011/ephemora-cell/blob/main/CHANGELOG.m
 Issues = "https://github.com/MichaelS1011/ephemora-cell/issues"
 
 [project.optional-dependencies]
-# pytest<10 keeps Python 3.11 support until CI moves off it.
-dev = ["pytest<10", "pytest-cov", "black>=24", "ruff>=0.5", "bandit>=1.7", "mypy>=1.8"]
+# pytest 9 keeps the 3.10 floor; pytest 10 drops older interpreters. The
+# 9.0.3 floor includes the PYSEC-2026-1845 fix, black 26.10.1 its CVE fix.
+dev = ["pytest>=9.0.3,<10", "pytest-cov", "black>=26.10.1", "ruff>=0.5", "bandit>=1.7", "mypy>=1.8"]
 # Official MCP Python SDK — pulls pydantic/uvicorn, so it is kept out of the
 # core `dev` extra and `testpaths` and run only as an explicit interop gate.
-integration = ["mcp"]
+# Floor pinned at 2: the SDK interop test drives the 2.x client API
+# (streamable-HTTP transport); measured against mcp 1.28.1 it fails.
+# 2.2.0 floor: GHSA-w4fh-qvv9-3v23, GHSA-fmmv-w9g8-j3gc,
+# GHSA-84m7-p3x7-pcfv, GHSA-rwrf-2pqf-9j8j and GHSA-5h93-6whr-6q8j are fixed
+# there; GHSA-jpw9-pfvf-9f58 is 1.x-only.
+integration = ["mcp>=2.2.0,<3"]
 # Ed25519 sign/verify for the ADR-006 signed-tools mode (manifest signing
 # utility + --require-signed-tools). Optional on purpose: the library-level
 # sign/verify primitives are signer-agnostic (bytes in, bytes out).
 tools-signing = ["cryptography>=42"]
+# Language guests (ADR-009): installing the extra pulls a
+# versioned guest distribution that registers the ``ephemora_cell.language_guest``
+# entry point, so ``run_python`` / ``run_javascript`` resolve the guest
+# automatically after install — no manual .wasm path, no runtime download, and
+# fail-closed (no host-interpreter fallback) when the guest is absent. The guest
+# distributions embed CPython (PSF-2.0) / QuickJS (MIT); public-index resolution
+# of these extras is gated on publishing those dists + license/SBOM clearance
+# Verified end-to-end against a local wheelhouse in the release tests.
+python = ["ephemora-cell-python-guest>=1.2.0,<2"]
+javascript = ["ephemora-cell-javascript-guest>=1.2.0,<2"]
 
 [project.scripts]
+ephemora = "ephemora_cell.cli:main"
 ephemora-cell = "ephemora_cell.cli:main"
 ephemora-cell-mcp = "ephemora_cell_mcp.__main__:main"
 
@@ -95,6 +123,8 @@ ignore = ["BLE001", "S110", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S110"]
+"benchmarks/**" = ["B007", "B023", "B905", "E402", "E702", "F841", "RUF001", "RUF003", "RUF005", "UP031"]
+"integration/**" = ["E402", "F401", "RUF005"]
 
 [tool.mypy]
 # Non-strict type gate (introduced 2026-09-12): production code only,
@@ -104,6 +134,24 @@ files = ["ephemora_cell", "ephemora_cell_mcp"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
+
+# The optional `integration` extra (the MCP SDK and its ASGI stack) is a
+# third-party, test-gated dependency: ephemora_cell_mcp.http_bridge imports it
+# inside functions only, so the core install never needs it. Type-checking that
+# library's own source is not this gate's job — it reported errors inside
+# site-packages the moment the bridge started importing `mcp` — so those imports
+# are skipped rather than audited. Our own code stays fully checked.
+[[tool.mypy.overrides]]
+module = [
+    "mcp.*",
+    "anyio.*",
+    "uvicorn.*",
+    "starlette.*",
+    "httpx.*",
+    "httpx2.*",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
 include = ["ephemora_cell*", "ephemora_cell_mcp*"]

@@ -1,0 +1,40 @@
+# CodeQL configuration for the Ephemora Cell repository.
+#
+# WHY THIS FILE EXISTS
+# The workflow used to pass only `languages:` and relied on whatever suite the
+# CodeQL action selects by default. That made the gate's scope a GitHub-side
+# fact instead of a reviewable decision: the same commit could be judged by the
+# default net (locally: 1 finding) or a wider net (locally: 5 with
+# `security-extended`, 124 with `security-and-quality`) depending on a default
+# nobody in this repository had written down.
+#
+# THE DECISION
+# `security-extended` for both analysed languages. It is a superset of the
+# default suite, so pinning it cannot hide anything the default would have
+# reported, and it adds the security queries a product whose claim is "runs
+# untrusted code safely" should be judged by.
+#
+# Measured locally on the 1.2.0 candidate with CodeQL CLI 2.27.2 and
+# python-queries 1.8.12 (all six suites, nothing suppressed):
+#   python  default           1   py/clear-text-logging-sensitive-data (refuted, see below)
+#   python  security-extended 5   + 4 py/overly-permissive-file (tests/, deliberate fixture chmod)
+#   actions default           0   (positive control: a poisoned workflow yields
+#   actions security-extended 0    actions/code-injection critical)
+#
+# EXPECTED ALERT SET, and how each is closed:
+#   * py/clear-text-logging-sensitive-data @ benchmarks/invariant_model.py:241
+#     -- the dataflow names the string literal "trusted"; the program's whole
+#     output is three fixed posture labels and matches no credential pattern.
+#     Refuted by executing the program, not by suppressing the query.
+#   * py/overly-permissive-file x4 (tests/test_grant_ledger.py,
+#     tests/test_grant_trust.py, tests/test_host_file_boundaries.py x2)
+#     -- chmod(0o644) in a finally-block restores a synthetic fixture's original
+#     mode. Test-only; dismissed in the alert review with that reason.
+#
+# Nothing here filters paths, excludes queries or adds suppressions. A finding
+# that is wrong is refuted in the review with a measurement; a finding that is
+# right is fixed in the code.
+name: "Ephemora Cell — security-extended"
+
+queries:
+  - uses: security-extended
