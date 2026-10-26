@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Security profiles (v1.2 v1.2, v1.2).
+"""Security profiles (v1.2).
 
 A profile must be more than a label: its budgets are enforced because they are a
 ``WASIConfig``, and its tool grants are enforced because

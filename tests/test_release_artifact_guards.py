@@ -42,11 +42,17 @@ def _load(name: str):
     return module
 
 
-try:
-    manifest_mod = _load("release_manifest")
-    license_mod = _load("license_matrix")
-except FileNotFoundError:  # unpacked sdist: `scripts/` is not shipped there
+# Deterministic on purpose: an unpacked sdist ships no `scripts/`, and that is
+# the only state in which this module is skipped whole. Catching FileNotFoundError
+# around the load made the skip depend on whatever a module happened to read.
+if not all(
+    (REPO / "scripts" / f"{name}.py").is_file()
+    for name in ("release_manifest", "license_matrix")
+):
     pytest.skip("scripts/ is not part of the distribution", allow_module_level=True)
+
+manifest_mod = _load("release_manifest")
+license_mod = _load("license_matrix")
 
 HEAD = subprocess.run(
     ["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, check=True

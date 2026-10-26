@@ -39,6 +39,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from ._sandbox_common import OUTPUT_FILE_HARD_LIMIT, limit_output_text
 from .runtime_qualification import (
@@ -831,7 +832,7 @@ def run_isolated(
         if not first_failure:
             first_failure = last_failure
 
-    first_kwargs = {
+    first_kwargs: dict[str, Any] = {
         "first_attempt_crashed": first_crashed,
         "first_attempt_error": first_failure,
         "first_attempt_fuel_consumed": first_attempt_fuel_consumed,

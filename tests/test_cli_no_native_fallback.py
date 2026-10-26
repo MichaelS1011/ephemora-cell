@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""No unsafe execution fallback (v1.2 v1.2).
+"""No unsafe execution fallback (v1.2).
 
 A native binary, a script, or a bare command name must never be executed by
 ``run`` — and must never be silently reinterpreted as a guest. These cases drive

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Fail-closed behaviour on the CLI product paths (v1.2 v1.2).
+"""Fail-closed behaviour on the CLI product paths (v1.2).
 
 "Nicht vertrauenswürdiger Code wird niemals ungeschützt als Fallback ausgeführt."
 These cases pin the *style* of the refusal too: an unusable guard must produce a

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""CLI surface for the security profiles (v1.2 v1.2).
+"""CLI surface for the security profiles (v1.2).
 
 Runs ``python -m ephemora_cell.cli`` as a real process, so what is tested is the
 exit code and stdout/stderr a user actually gets — not an in-process function.
@@ -59,7 +59,7 @@ def test_profiles_json_lists_capabilities_per_profile():
     assert entries["web-fetch"]["network"] == "egress-mediated"
 
 
-# --- profile inspect (v1.2/v1.2) ------------------------------------
+# --- profile inspect (v1.2) ------------------------------------
 
 
 def test_profile_inspect_shows_budgets_and_forbidden_actions():

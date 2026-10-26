@@ -25,7 +25,7 @@ import struct
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from .execution_report import jcs_canonicalize
 
@@ -544,13 +544,26 @@ class HostMediator:
         return resolved
 
 
-def send_frame(sock: socket.socket, payload: bytes) -> None:
+class FrameStream(Protocol):
+    """What frame transport needs from its peer: two ordered byte methods.
+
+    Both a :class:`socket.socket` and the serial-line transport the VM channel
+    uses satisfy this structurally, so framing stays one implementation instead
+    of two — and the length-prefix rules cannot drift apart per transport.
+    """
+
+    def sendall(self, data: bytes) -> None: ...
+
+    def recv(self, __count: int) -> bytes: ...
+
+
+def send_frame(sock: FrameStream, payload: bytes) -> None:
     if len(payload) > MAX_FRAME_BYTES:
         raise IPCViolation("frame_too_large")
     sock.sendall(struct.pack(">I", len(payload)) + payload)
 
 
-def recv_frame(sock: socket.socket) -> bytes:
+def recv_frame(sock: FrameStream) -> bytes:
     header = _recv_exact(sock, 4)
     (length,) = struct.unpack(">I", header)
     if length == 0 or length > MAX_FRAME_BYTES:
@@ -558,7 +571,7 @@ def recv_frame(sock: socket.socket) -> bytes:
     return _recv_exact(sock, length)
 
 
-def _recv_exact(sock: socket.socket, count: int) -> bytes:
+def _recv_exact(sock: FrameStream, count: int) -> bytes:
     chunks: list[bytes] = []
     remaining = count
     while remaining:
@@ -575,14 +588,14 @@ class GuestClient:
 
     def __init__(
         self,
-        sock: socket.socket,
+        sock: FrameStream,
         *,
         run_id: str,
         subject: str,
         policy_digest: str,
         module_digest: str,
     ) -> None:
-        self._sock = sock
+        self._sock: FrameStream | socket.socket = sock
         self._run_id = run_id
         self._subject = subject
         self._policy_digest = policy_digest
@@ -607,4 +620,7 @@ class GuestClient:
         return result
 
     def close(self) -> None:
-        self._sock.close()
+        # The client does not own the stream it was handed. A socket is closed;
+        # a serial transport belongs to the channel that opened it.
+        if isinstance(self._sock, socket.socket):
+            self._sock.close()

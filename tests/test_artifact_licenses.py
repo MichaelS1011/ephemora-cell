@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""License metadata consistency of the release artifacts (v1.2 v1.2).
+"""License metadata consistency of the release artifacts (v1.2).
 
 Checks what can be checked mechanically on the shipped 1.2.0 artifacts: PEP 639
 license metadata, the license documents travelling inside the wheels and the

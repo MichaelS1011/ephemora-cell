@@ -226,7 +226,7 @@ class CellToolEngine:
         tenant_budget: CumulativeBudget | None = None,
     ) -> None:
         self.default_profile = profile
-        # Host-wide and per-subject resource control (v1.2/v1.2). A cap without
+        # Host-wide and per-subject resource control (v1.2). A cap without
         # a book would admit every run while reporting a limit, so it is
         # refused here instead of silently doing nothing.
         if (host_budget is not None or tenant_budget is not None) and (

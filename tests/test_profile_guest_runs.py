@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Real guests under real profiles (v1.2 v1.2, v1.2, v1.2).
+"""Real guests under real profiles (v1.2).
 
 v1.2 requires that the profile choice changes *granted capabilities*, not just
 a display. These cases run actual guest modules and measure what the guest could

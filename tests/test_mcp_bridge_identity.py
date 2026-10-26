@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""HTTP-bridge identity mapping (v1.2 v1.2).
+"""HTTP-bridge identity mapping (v1.2).
 
 The bridge is the multi-client boundary, so it — not the request body — must
 resolve the authenticated client's identity. These cases need no MCP SDK: the

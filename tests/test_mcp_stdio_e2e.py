@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""End-to-end MCP over the real stdio process (v1.2 v1.2, controlled client).
+"""End-to-end MCP over the real stdio process (v1.2, controlled client).
 
 The other MCP cases drive ``handle_message`` in-process or a recorded server. This
 one starts the shipped entry point as a child process, speaks JSON-RPC on its

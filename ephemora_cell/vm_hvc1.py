@@ -119,7 +119,7 @@ class SerialFrameTransport:
             if len(self._raw) > self._max_line:
                 raise ipc.IPCViolation("line_too_long")
         line, _, self._raw = self._raw.partition(b"\n")
-        return line + b"\n"
+        return bytes(line) + b"\n"
 
     def recv(self, count: int) -> bytes:
         while len(self._buffer) < count:
@@ -177,15 +177,15 @@ class VMJob:
             ch not in "0123456789abcdef" for ch in self.module_digest.lower()
         ):
             raise ValueError("module_digest must be a 64-character hex digest")
-        for name, value in (
+        for field, amount in (
             ("max_fuel", self.max_fuel),
             ("max_memory_mb", self.max_memory_mb),
             ("timeout_seconds", self.timeout_seconds),
             ("io_budget_bytes", self.io_budget_bytes),
             ("max_wasm_bytes", self.max_wasm_bytes),
         ):
-            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-                raise ValueError(f"{name} must be a positive integer")
+            if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+                raise ValueError(f"{field} must be a positive integer")
         if self.io_cpu_seconds is not None and self.io_cpu_seconds <= 0:
             raise ValueError("io_cpu_seconds must be positive or None")
         if self.disk_quota_bytes is not None and self.disk_quota_bytes <= 0:
@@ -480,11 +480,11 @@ class GuestWorkerAgent:
                     raise ipc.IPCViolation("payload_meta_invalid")
                 staged_path, staged_dir = self._receive_payload(run_id, meta)
             worker = self._worker
-            if worker is None and language == "wasm":
-                from .process_executor import run_isolated
-
-                worker = run_isolated
             if language == "wasm":
+                if worker is None:
+                    from .process_executor import run_isolated
+
+                    worker = run_isolated
                 if staged_path is not None:
                     if module_path != "@payload":
                         raise ipc.IPCViolation("job_module_binding_invalid")
@@ -1176,8 +1176,10 @@ class ProductVMRunner:
         fuel_unknown = measured_fuel is None
         output_unknown = measured_output is None
         charge = Charge(
-            fuel=reserve.fuel if fuel_unknown else measured_fuel,
-            output_bytes=reserve.output_bytes if output_unknown else measured_output,
+            fuel=reserve.fuel if measured_fuel is None else measured_fuel,
+            output_bytes=(
+                reserve.output_bytes if measured_output is None else measured_output
+            ),
             wall_ms=result.wall_ms,
         )
         store.settle(

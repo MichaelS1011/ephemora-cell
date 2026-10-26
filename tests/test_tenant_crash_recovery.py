@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Crash recovery of the shared account book (v1.2 v1.2 / v1.2).
+"""Crash recovery of the shared account book (v1.2).
 
 A worker that is SIGKILLed while holding an admission must not leave the host
 permanently blocked, and must not corrupt the book for everyone else. Both halves

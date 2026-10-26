@@ -49,7 +49,7 @@ if os.environ.get("EPHEMORA_DIAG_MAPS"):
         pass
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     import resource
@@ -382,7 +382,7 @@ def run_worker(
         # in the finally so the suppression cannot leak to any later run.
         prev_boundary = set_isolation_boundary(True)
         try:
-            run_kwargs = {
+            run_kwargs: dict[str, Any] = {
                 "args": args or [],
                 "stdin_data": stdin_data,
                 "interrupt_event": interrupt_event,

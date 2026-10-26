@@ -106,7 +106,7 @@ PROFILES: dict[str, WASIConfig] = {
     "interpreter": INTERPRETER,
 }
 
-# Use-case security profiles (v1.2 v1.2) are selectable through the same
+# Use-case security profiles (v1.2) are selectable through the same
 # ``--profile`` surface: their budgets are enforced from here, while their
 # declared capabilities (network, MCP tool/action grants) live with the
 # :class:`~ephemora_cell.security_profiles.SecurityProfile`. ``setdefault`` so a

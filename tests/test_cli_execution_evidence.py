@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Signed execution evidence from the CLI run path (v1.2 v1.2).
+"""Signed execution evidence from the CLI run path (v1.2).
 
 A real run must be able to produce an artefact that ``verify`` actually checks,
 and tampering with it must be detected. The whole chain is driven as real

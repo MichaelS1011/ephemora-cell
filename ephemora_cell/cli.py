@@ -559,7 +559,7 @@ def cmd_run_vm(args, language: str) -> None:
         ("VM kernel", kernel),
         ("VM initrd", initrd),
     ):
-        if not os.path.isfile(value):
+        if value is None or not os.path.isfile(value):
             _refuse_caller(f"{label} not found: {value}")
 
     gate_ok, refusal, gate_note = _runtime_gate()
@@ -1407,7 +1407,7 @@ def cmd_profiles_list(args):
 
 
 def cmd_profile_inspect(args):
-    """Show one profile's budgets and declared capabilities (v1.2/v1.2)."""
+    """Show one profile's budgets and declared capabilities (v1.2)."""
     from ephemora_cell.profiles import PROFILES
     from ephemora_cell.security_profiles import SECURITY_PROFILES
 

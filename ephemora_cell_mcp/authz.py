@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Per-identity, per-tool MCP authorization (ADR-016 / v1.2 v1.2).
+"""Per-identity, per-tool MCP authorization (ADR-016 / v1.2).
 
 The bridge and the stdio server authenticate a *client*; this module decides
 what that client may then **do**. It is deliberately a small, versioned,

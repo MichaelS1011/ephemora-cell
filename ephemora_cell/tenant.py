@@ -348,7 +348,7 @@ class TenantStore:
         if budget.max_runs is None and budget.max_total_fuel is None:
             return budget
 
-        def decide(last: bytes | None) -> tuple[CumulativeBudget, bytes]:
+        def decide(last: bytes | None) -> tuple[CumulativeBudget | None, bytes]:
             recorded = self.host_policy()
             if recorded is not None:
                 return self._effective_host_budget(budget), b""

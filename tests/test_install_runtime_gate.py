@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # Copyright 2026 Michael Soppa
 
-"""Installation security: the runtime gate must refuse unqualified engines (v1.2 v1.2).
+"""Installation security: the runtime gate must refuse unqualified engines (v1.2).
 
 "Kein Test führt unbemerkt zu einer unqualifizierten produktiven Runtime." These
 cases use *real* interpreter environments recorded by the audit rather than a

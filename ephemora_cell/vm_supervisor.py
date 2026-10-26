@@ -93,15 +93,15 @@ class VMLimits:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
-        for name, value in (
+        for field, seconds in (
             ("boot_deadline_s", self.boot_deadline_s),
             ("run_deadline_s", self.run_deadline_s),
             ("shutdown_grace_s", self.shutdown_grace_s),
         ):
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"{name} must be a number")
-            if value <= 0:
-                raise ValueError(f"{name} must be positive")
+            if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+                raise ValueError(f"{field} must be a number")
+            if seconds <= 0:
+                raise ValueError(f"{field} must be positive")
         if (
             isinstance(self.max_restarts, bool)
             or not isinstance(self.max_restarts, int)

@@ -677,7 +677,7 @@ def test_two_sdk_clients_with_their_own_tokens_are_authorized_per_subject(tmp_pa
         bob_clock_text, bob_clock_err = run(token_b, "clock")
         assert not bob_clock_err, bob_clock_text
 
-        # v1.2 / v1.2 over the real stack: alice presents her OWN token but
+        # v1.2 over the real stack: alice presents her OWN token but
         # forges bob's identity in `_meta`. The bridge re-stamps the subject from
         # the authenticated bearer and does NOT forward a client `_meta`, so the
         # forged bob is dropped and the call is still authorized as alice — clock
