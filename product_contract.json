@@ -27,7 +27,7 @@
     "exercised": [
       "3.14"
     ],
-    "note": "Each qualified version ran the full suite against the qualified runtime 49.0.4.post1+git.2c2970205f in its own venv, in CI shape (no packaged guest, no built wheel): 3.10.20, 3.11.15, 3.12.13 and 3.13.14 each 1809 passed / 31 skipped, rc=0 (measured 2026-10-23 on the 49.0.4 runtime; the per-run logs are the evidence) — STALE as of 2026-10-24: the v1.2 work added tests after that measurement, so the matrix numbers must be re-run before they are quoted again. The 3.12 canonical count in the same shape is now 1948 passed / 32 skipped (1980 collected). Each of those venvs has the package installed, because two legs exec the `ephemora` console script and examples/signed_record_demo.py as a subprocess. The split moves with what a venv carries - installed guest wheels turn three resolver legs from pass to skip (docs/release_assurance.md, states C/D) - so the per-run log is the evidence, not a constant. 3.14 is exercised as an interpreter guest only and carries no host claim. 3.10/3.11 needed a parser repair: CPython only intermixes a nargs='*' positional with optionals from 3.12.5 (gh-61252), so `run target --json a b` dropped the guest argv there - fixed in cli._parse_argv and pinned by tests/test_language_env_args_cli.py on every version."
+    "note": "Each qualified version ran the full suite against the qualified runtime 49.0.4.post1+git.2c2970205f in its own venv, in CI shape (no packaged guest, no built wheel): 3.10.20, 3.11.15, 3.12.13 and 3.13.14 each 1809 passed / 31 skipped, rc=0 (measured 2026-10-23 on the 49.0.4 runtime; the per-run logs are the evidence) — STALE as of 2026-10-24: the v1.2 work added tests after that measurement, so the matrix numbers must be re-run before they are quoted again. The 3.12 canonical count in the same shape is now 2171 passed / 44 skipped (2215 collected). Each of those venvs has the package installed, because two legs exec the `ephemora` console script and examples/signed_record_demo.py as a subprocess. The split moves with what a venv carries - installed guest wheels turn three resolver legs from pass to skip (docs/release_assurance.md, states C/D) - so the per-run log is the evidence, not a constant. 3.14 is exercised as an interpreter guest only and carries no host claim. 3.10/3.11 needed a parser repair: CPython only intermixes a nargs='*' positional with optionals from 3.12.5 (gh-61252), so `run target --json a b` dropped the guest argv there - fixed in cli._parse_argv and pinned by tests/test_language_env_args_cli.py on every version."
   },
   "capability": [
     {
@@ -231,6 +231,52 @@
       "surface": "Private",
       "status": "unqualified",
       "reason": "Ephemora Enterprise is a separate private product. No Enterprise source, capability or configuration is part of this package or this contract."
+    },
+    {
+      "id": "cli.run.vm",
+      "surface": "CLI",
+      "status": "experimental",
+      "acceptance": [
+        "tests/test_vm_product.py",
+        "tests/test_hvc1_product.py",
+        "tests/test_hvc1_payload.py",
+        "tests/test_vm_supervisor.py"
+      ],
+      "reason": "`ephemora run --backend vm` runs the job inside a Linux VM created through Apple Virtualization.framework on macOS 15+ arm64, with the module or script streamed over a digest-bound `hvc1` channel and host actions gated by a host mediator; tenant attribution and a tenant book are mandatory and unsupported flags are refused instead of ignored. The contract tests run on every platform, and real runs on the qualified machine cover all three guest languages. It is experimental, not supported, because the VM assets (kernel, initramfs, probe) are third-party or locally built binaries that this source release does not carry: redistribution clearance for them is an open release gate, so a fresh install cannot build a VM guest by itself."
+    },
+    {
+      "id": "cli.run.vm.signed_evidence",
+      "surface": "CLI",
+      "status": "unavailable",
+      "owner": "maintainer",
+      "acceptance": [
+        "tests/test_vm_product.py"
+      ],
+      "reason": "A VM run cannot produce a signed execution record yet. The CLI refuses `--evidence` on the VM path rather than writing an unsigned file that looks like an attestation, and the record marks a VM run `host_verified: false` because fuel and output come from the guest, not from the host. A minimal host-side execution record for the VM path is the open item."
+    },
+    {
+      "id": "mcp.vm_backend",
+      "surface": "MCP",
+      "status": "unavailable",
+      "owner": "maintainer",
+      "reason": "The MCP tool surface executes on the native worker only. Nothing in the server reaches the VM backend, so an MCP run must not be described as VM-isolated; wiring and qualifying that path is separate work."
+    },
+    {
+      "id": "tenant.book.migration",
+      "surface": "CLI",
+      "status": "supported",
+      "acceptance": [
+        "tests/test_tenant_legacy_migration.py",
+        "tests/test_tenant_budgets.py"
+      ],
+      "note": "`ephemora tenant usage` reads a 1.1.0 book; `ephemora tenant migrate` writes a booking_version=2 copy carrying runs, charges, violations, refusals, recovered runs and the six conservative-booking counters, then re-reads and verifies what it carried. Legacy books remain readable and are never written; a book mixing stamped and unstamped settlements is refused as stripped-version tampering."
+    },
+    {
+      "id": "isolation.os_level.linux",
+      "surface": "Runtime",
+      "status": "unavailable",
+      "owner": "maintainer",
+      "reason": "Linux stays in the product strategy as an isolation backend, not as a claim. On the tested Linux host the OS-level isolation probe did not establish the expected boundary (unprivileged user namespaces were not available to the harness), and no qualified build of the release runtime exists for Linux, so no isolation profile is advertised there. The platform gate is open work, not a reason to reposition the product as macOS-only."
     }
   ]
 }

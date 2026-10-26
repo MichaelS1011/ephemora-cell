@@ -21,24 +21,36 @@ its old "from `/tmp`" wording hid).
 
 | Installation state | Result | Why it differs |
 |---|---|---|
-| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **1948 passed / 32 skipped** · 87.48 % of 7,148 statements (6,253 executed, 895 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
-| The same checkout after the wheel and sdist were built into `dist/` (previous candidate, 2026-10-22) | **1776 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping; not re-measured after the two added tests |
-| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel (previous candidate, 2026-10-22) | **1773 / 29** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed; not re-measured after the two added tests |
-| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) (previous candidate, 2026-10-22) | **1785 / 17** | the bring-your-own-guest round-trips run for real; not re-measured after the two added tests |
-| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` (previous candidate, 2026-10-22) | **1772 / 30** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true`; not re-measured after the two added tests |
+| Fresh checkout, no packaged language guest, no wheel in `dist/` — the shape CI runs | **2171 passed / 44 skipped** · 85.08 % of 9,864 statements (8,392 executed, 1,472 unexecuted) | the canonical number; `CHECK_TEST_COUNT_STRICT=1 python scripts/check_test_count.py` is the gate on it |
+| The same checkout after the wheel and sdist were built into `dist/` (historical, 2026-10-22) | **1776 / 26** | `tests/test_distribution_guard.py` scans the built `dist/` instead of skipping; not re-measured on this candidate — the row is kept as history, not as a current number |
+| Wheelhouse install of core + qualified runtime + **both** packaged guest wheels, suite run by that venv's `pytest` against the installed wheel (historical, 2026-10-22) | **1773 / 29** | the three `test_lang_guest.py` resolver legs and `test_lang_unified.py`'s missing-entrypoint leg assert the refusal that happens only where NO packaged guest exists, so they skip there; one `test_cli_new_commands.py` leg goes the other way because the guest it expected to be missing is now installed; not re-measured on this candidate |
+| The same install with `EPHEMORA_PY_COMPONENT_GUEST` / `EPHEMORA_JS_INTERPRETER_GUEST` pinned (with their `_SHA256` pins) (historical, 2026-10-22) | **1785 / 17** | the bring-your-own-guest round-trips run for real; not re-measured on this candidate |
+| Unqualified `wasmtime 49.0.0` development venv **with** `EPHEMORA_ALLOW_UNQUALIFIED_RUNTIME=1` (historical, 2026-10-22) | **1772 / 30** | the runtime gate refuses guest execution on an engine outside the qualified line or on a native binary that is not the qualified build; the hatch is the one documented way such a machine runs at all, and every run it allows is stamped `unqualified_runtime_allowed: true`; not re-measured on this candidate |
 
 Without the hatch the last venv is red by design (the execution legs are refused),
-and its count is not comparable to the release gate and is not offered as one. All five rows were
-measured for this release rather than derived from one another; the earlier practice
-of carrying a state forward by arithmetic is what this table exists to prevent.
+and its count is not comparable to the release gate and is not offered as one. Each
+row is a measurement of one installation state, not an extrapolation from another;
+the earlier practice of carrying a state forward by arithmetic is what this table
+exists to prevent. Row 1 is re-measured on every release candidate; rows 2–5 are
+kept as history from 2026-10-22 and are **not** current evidence for this tree — a
+fresh checkout with a built `dist/` would report different numbers today, and until
+it has been run, the old row must not be quoted as if it had.
 
-The canonical row and the Python matrix were re-run on 2026-10-23: matrix
-(3.10.20, 3.11.15 and 3.13.14 — each **1847/32**, rc=0, in the matrix venvs
-without the optional MCP SDK: 8 MCP interop tests are not collected there and
-5 more skip; 3.12.13 canonical **1948/32** in the clean 3.12 venv with the SDK
-installed). The difference is dependency shape, not a product failure. The conditional
-guest-wheel rows 3–5 retain their previous-candidate measurements and were not
-re-measured after the two added tests. Each matrix venv has the core
+One arithmetic detail so the numbers reconcile with `pytest`'s own summary: the
+canonical split counts *collected* items (2171 passed + 44 skipped = 2215
+collected). `pytest` prints one skipped more, because
+`tests/test_mcp_transport_hardening.py` skips as a whole module when the official
+MCP SDK is not installed, and a module-level skip never enters the collection
+count. The count guard checks the collected split, which is why the document says
+44 where the summary line says 45.
+
+The Python matrix was last run on 2026-10-23, before the 1.2 capability tests were
+added: 3.10.20, 3.11.15 and 3.13.14 — each **1847/32**, rc=0, in the matrix venvs
+without the optional MCP SDK (8 MCP interop tests are not collected there and 5
+more skip); 3.12.13 canonical **1948/32** at that time. Those matrix numbers are
+**STALE** and are not a current claim; the canonical 3.12 row above was re-measured
+on 2026-10-27 at 2171/44. The difference between the matrix venvs and the canonical
+row is dependency shape, not a product failure. Each matrix venv has the core
 wheel installed: two legs exec the `ephemora` console script and
 `examples/signed_record_demo.py` as a subprocess, so a venv that only carries the
 engine fails those two for want of an installed package — a venv shape, not a

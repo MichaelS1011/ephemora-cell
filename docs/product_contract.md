@@ -22,11 +22,14 @@ pretending otherwise. The runtime wheel is `macosx_11_0_arm64` only, so on any
 other platform the execution path fails closed rather than falling back to an
 unpatched engine.
 
-Each of the four Python versions ran the whole suite in its own virtualenv on
-the qualified runtime (3.12 canonical **1948/32**; the 3.10/3.11/3.13 matrix numbers are **stale** — last measured 1847/32 before the v1.2 tests were added and not yet re-run,
-measured 2026-10-23; the split moves by a few legs depending on which optional
-guests a virtualenv carries, so the per-run log is the evidence rather than a
-constant).
+The 3.12 canonical row ran the whole suite in its own virtualenv on the
+qualified runtime — **2171/44 (2215 collected), re-measured 2026-10-27**. The
+3.10 / 3.11 / 3.13 matrix numbers are **stale**: last measured at 1847/32 on
+2026-10-23, before the 1.2 tests were added, and not re-run since; they are kept
+so the gap is visible, not as a current claim, and the 3.10/3.11/3.13 rows must
+be re-run before they are quoted again. The split moves by a few legs depending
+on which optional guests a virtualenv carries, so the per-run log is the
+evidence rather than a constant.
 3.10 and 3.11 did not pass that run until a real defect was fixed: CPython only
 learned to intermix a `nargs="*"` positional with optionals in 3.12.5
 ([gh-61252](https://github.com/python/cpython/issues/61252)), so on those
@@ -38,15 +41,24 @@ that function's docstring rather than smoothed over.
 
 ## What the product does not promise
 
-**A7 — native worker compromise — is outside the support claim.** If an engine
-escape turns untrusted input into arbitrary native code inside the worker, the
-worker still runs with the invoking user's files, environment and network. The
-worker contains guest behavior and host crashes; it is not an operating-system
-sandbox. A second, kernel-enforced boundary is a hardening-version research
-direction, not a v1.2 capability. **A8 — local write access to the installed
-package — is also outside:** whoever can modify the installed code can modify
-the gate itself. The measured scope and the Option A/Option B comparison are in
-[docs/threat-model.md](threat-model.md#native-worker-compromise-a7).
+**A7 — native worker compromise — is outside the support claim for the native
+worker.** If an engine escape turns untrusted input into arbitrary native code
+inside that worker, the worker still runs with the invoking user's files,
+environment and network. The worker contains guest behavior and host crashes; it
+is not an operating-system sandbox, and no second kernel-enforced boundary is
+claimed for it in 1.2.
+
+The VM backend answers the same question with a different wall instead of
+smoothing it over: there the job runs inside a separate Linux VM created through
+Apple Virtualization.framework, so a compromise of the guest runtime is a
+compromise *inside* that VM. That is why it exists — and why it is offered only
+where it was measured (macOS arm64, CLI, operator-supplied VM assets), why it
+carries no signed execution record yet, and why nothing in this package may call
+a native-worker run "VM-isolated". **A8 — local write access to the installed
+package — is outside both:** whoever can modify the installed code can modify the
+gate itself. The measured scope and the Option A/Option B comparison are in
+[docs/threat-model.md](threat-model.md#native-worker-compromise-a7); the backend
+matrix is in [docs/platform_support.md](platform_support.md).
 
 ## What the four statuses mean
 
@@ -66,6 +78,11 @@ the gate itself. The measured scope and the Option A/Option B comparison are in
 | `ephemora run <module.wasm>` | CLI | supported |
 | `ephemora run <script.py>` | CLI | experimental |
 | `ephemora run <script.js>` | CLI | experimental |
+| `ephemora run --backend vm` (WASM, Python, JavaScript; macOS arm64, operator-supplied VM assets) | CLI | experimental |
+| Signed execution record on the VM backend | CLI | unavailable |
+| MCP tool surface over the VM backend | MCP | unavailable |
+| `ephemora tenant usage` / `ephemora tenant migrate` | CLI | supported |
+| OS-level isolation backend on Linux | Runtime | unavailable |
 | `ephemora inspect` | CLI | supported |
 | `ephemora benchmark` | CLI | supported |
 | `ephemora build` | CLI | experimental |

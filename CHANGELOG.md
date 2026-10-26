@@ -80,6 +80,59 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **A VM isolation backend on the CLI path (`--backend vm`).** The guest job runs
+  inside a Linux VM created through Apple Virtualization.framework on macOS 15+
+  arm64, and the only way in or out is a dedicated `hvc1` serial channel with a
+  host mediator on the other end. The backend is named explicitly — `--backend
+  host` stays the default — and there is no fallback: a machine without the VM
+  assets refuses the run instead of quietly using the weaker wall. Tenant
+  attribution is mandatory here (`--tenant`, `--tenant-book`), and flags whose
+  promises the VM path cannot keep (`--evidence`, `--allow-dirs`, `--allow-env`,
+  `--memory64`, an explicit `--abi`, guest stdin, JavaScript arguments) are
+  refused with the reason rather than accepted and ignored. `--trust` and
+  `--isolated` are inert on this backend and the help text says so.
+- **The module or script crosses as a digest-bound chunked payload.** The host
+  computes the payload digest before the VM starts, streams it in 24 KiB chunks
+  under a declared total size, stages it inside the guest at mode `0600` and runs
+  the *staged bytes*: a chunk that is empty, out of order, beyond the declared
+  size, or whose digest does not match ends the run. The job frame is encoded and
+  size-checked before the probe starts, so an oversized `argv` or stdin is a
+  caller error and never a half-started VM. WASM modules, Python scripts and
+  JavaScript sources take the same route to the same three adapters.
+- **The conversation with the guest is fixed, and claims are not grants.**
+  `hello → job → ready → one report → done`: no report or completion before the
+  host has granted `ready`, one report per run, and every host action the guest
+  wants must be granted by the mediator at call time. What the guest says about
+  its own fuel and output is recorded as the guest's claim — `host_verified:
+  false` — because the host did not measure it.
+- **Reservations cover every attempt the supervisor may make.** The ceiling
+  booked before the VM starts is the per-attempt reservation multiplied by the
+  restart ceiling the supervisor will actually enforce, so retries cannot spend
+  more than the account reserved; a backend that fails to start releases the
+  reservation, and a socket or connect failure cleans up its socket directory. A
+  run that never reached its boot marker counts as not-started, so it is not
+  billed like a run that executed.
+- **Unsettled attempts are booked conservatively and labelled as booked.** Fuel,
+  output and wall time that the guest never reported are charged at the reserved
+  ceiling, recorded in the account's audit counters, and printed as *booked*
+  against the guest's reported figure instead of as measured consumption. A
+  settlement that fails is a failure with the lease kept, not a success: the run
+  reports the booking error rather than an accounting of `settled`.
+- **Tenant books written by 1.1.0 migrate instead of breaking.** `ephemora tenant
+  usage <book> --tenant <id>` reads a legacy book; `ephemora tenant migrate <book>
+  --out <new>` writes a stamped (`booking_version=2`) copy that carries runs,
+  charges, violations, refusals, recovered runs and all six conservative-booking
+  counters, then verifies what it carried. It refuses while a reservation is
+  open, refuses to overwrite, and refuses a legacy book in which any stamped
+  line already exists — that mixture means the version marker was stripped, not
+  that the account is old. Legacy books stay readable and are never written to.
+- **A platform and backend matrix that separates capability, backend and proof.**
+  [docs/platform_support.md](docs/platform_support.md) states, per capability,
+  which isolation backend provides it, on which platform it was tested, and what
+  it does not prove there — including the Linux position: the OS-level isolation
+  probe on the tested Linux host did not establish the boundary, so no such claim
+  is made on Linux, and no macOS-only reframing is offered in its place.
+
 - **Three operator commands: `doctor`, `verify`, `policy check`.**
   `ephemora doctor` checks the installation, platform, runtime line and engine
   identity and then runs one real smoke execution; `--json` emits a schema-tagged

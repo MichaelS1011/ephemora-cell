@@ -131,11 +131,11 @@ jobs:
           python -m pip install "mypy==2.4.0"
           # bare `python -m mypy` had no targets/config and checked nothing (silent
           # green no-op). Real targets now: the two shipped packages must stay clean.
-          # verified green on the 1.2.0 tree: `Success: no issues found in 41 source
-          # files` (mypy 2.4.0, the pin above; 41 since runtime_qualification.py joined
-          # the shipped set). One latent crash path was closed to get
-          # there: the preview1 I/O-budget error result read its stdout capture without
-          # the None guard the other call sites already used.
+          # verified green on this tree: `Success: no issues found in 49 source
+          # files` (mypy 2.4.0, the pin above; 49 once the VM/IPC modules joined the
+          # shipped set, and the comment said 41 for as long as nobody re-ran the step
+          # against that set — the counts in comments rot, which is why the gate, not
+          # the sentence, decides).
           python -m mypy ephemora_cell ephemora_cell_mcp --ignore-missing-imports
 
       # Integration regressions must fail CI, not be silently skipped.

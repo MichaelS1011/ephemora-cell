@@ -182,7 +182,7 @@
 
 ## Amendment — 2026-10-24: host-wide caps, and the MCP path
 
-**Status:** accepted in the v1.2 security closure (v1.2/v1.2).
+**Status:** accepted in the v1.2 security closure.
 
 - **A second, host-wide cap.** `TenantStore.admit(..., host_budget=...)` checks
   the whole book — every tenant's settled and reserved usage — **before** the

@@ -62,7 +62,7 @@ be mistaken for the released one.
 
 ### Why there is no production GO
 
-A green suite (1948 passing / 32 skipped, 87.48 % statement coverage, measured 2026-10-24 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the previous candidate reported 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
+A green suite (2171 passing / 44 skipped, 85.08 % statement coverage, measured 2026-10-27 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the previous candidate reported 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
 probes establish **laboratory correctness of the tested commit** — they are not, and do not
 automatically become, a production-security approval. General production stays NO-GO until,
 at minimum: an independent external evaluation is completed; the newest isolation controls
@@ -83,16 +83,28 @@ QUALIFIED** for 1.2.x — no release evidence is claimed for them, and evidence
 measured on macOS is not transferred; the container reference for an
 authorized Linux qualification lives in `deploy/linux-reference/`.
 
-**CI runner (2026-10-22).** The five required legs run on `macos-15` (arm64).
-GitHub retires the `macos-14` image on 2026-11-02; `macos-15` is the arm64
-image and `macos-15-intel` is x64. The runtime bootstrap refuses an interpreter
-that does not run natively on arm64 (arm64 or universal2 on Apple Silicon) and a
-host older than macOS 11.0, so an x64 or Rosetta runner cannot pass. The first
+**CI runner.** The five required legs run on `macos-15` (arm64). GitHub retires
+the `macos-14` image on 2026-11-02; `macos-15` is the arm64 image and
+`macos-15-intel` is x64. The runtime bootstrap refuses an interpreter that does
+not run natively on arm64 (arm64 or universal2 on Apple Silicon) and a host
+older than macOS 11.0, so an x64 or Rosetta runner cannot pass. The first
 `macos-15` run stopped in the runtime bootstrap before any test ran: the
 runner's universal2 interpreter reports its 10.13 deployment target, not the
-host version. A completed run is still **PENDING GITHUB** and is not claimed as
-measured here; the local qualification host is macOS arm64 (platform tag
-`macosx-26.0-arm64`).
+host version. On the release-candidate branch the GitHub run of the head commit
+is the binding record; a local run is quoted with its environment and is not
+offered as a substitute for it. The local qualification host is macOS arm64
+(platform tag `macosx-26.0-arm64`).
+
+**The VM backend is a second wall, not a stronger version of the first.** On
+macOS arm64 the CLI can run a job inside a Linux VM created through Apple
+Virtualization.framework (`--backend vm`), with the module or script crossing a
+dedicated serial channel under a host mediator. It is off by default, needs the
+operator's VM assets, refuses a run without them instead of falling back to the
+native worker, and does **not** issue a signed execution record yet (`--evidence`
+is refused on that path). Its security position, per backend and per profile, is
+in [docs/platform_support.md](docs/platform_support.md) — including the Linux
+side, where no OS-level isolation is claimed because the probe did not establish
+the boundary on the tested host.
 
 ## Supported Versions
 
