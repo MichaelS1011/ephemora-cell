@@ -243,7 +243,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/node"
           tar -xzf "$NODE_TARBALL" -C "$RUNNER_TEMP/node" --strip-components=1
           echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"
-          test "$(node --version)" = "v22.23.4"
+          # GITHUB_PATH only affects LATER steps, so this assertion has to use the
+          # absolute path: `node` here still resolves to the runner's own Node and
+          # the check would compare the wrong binary — measured on this branch's
+          # first PR run, where the whole leg died on exactly that comparison.
+          test "$("$RUNNER_TEMP/node/bin/node" --version)" = "v22.23.4"
 
       - name: Install AssemblyScript
         run: npm install -g assemblyscript@0.28.20
@@ -382,11 +386,29 @@ jobs:
       # not a requirements listing. The custom wasmtime build is covered by the
       # advisory watcher below; pip-audit reports it as a local package it
       # cannot resolve on PyPI, which is expected and visible in the log.
-      - name: CVE scan (pip-audit, minimal product environment)
+      - name: CVE scan (pip-audit on the third-party dependencies)
         run: |
-          "$RUNNER_TEMP/audit-venv/bin/pip-audit" \
-            --path "$RUNNER_TEMP/product-venv/lib/python3.12/site-packages" \
-            --progress-spinner off
+          # pip-audit resolves every *installed* distribution against PyPI, so the
+          # two artifacts this project builds itself — ephemora_cell at this commit
+          # and wasmtime from the qualified 49.0.4 build — make it exit 1 with
+          # "not found on PyPI" without auditing anything (measured on this
+          # branch's first PR run). Suppressing that error would turn the step
+          # green while auditing nothing, so the scan runs on a copy of the very
+          # environment the product uses, minus exactly those two metadata
+          # entries, and names them in the log:
+          #   * the product wheel is pinned by scripts/release_manifest.py, and
+          #   * the engine line is watched for upstream advisories by the
+          #     check_wasmtime_advisories.py step below, which exists precisely
+          #     because advisories are published before a wheel appears.
+          shopt -s nullglob
+          SITE="$RUNNER_TEMP/product-venv/lib/python3.12/site-packages"
+          SCAN="$RUNNER_TEMP/audit-scan"
+          rm -rf "$SCAN"; cp -R "$SITE" "$SCAN"
+          for dist in "$SCAN"/ephemora_cell-*.dist-info "$SCAN"/wasmtime-*.dist-info; do
+            echo "not audited here (built by this project, pinned elsewhere): $(basename "$dist")"
+            rm -rf "$dist"
+          done
+          "$RUNNER_TEMP/audit-venv/bin/pip-audit" --path "$SCAN" --progress-spinner off
 
       # SAST scope: production code only. tests/ is excluded deliberately —
       # it contains documented fake positive-control secrets (e.g.

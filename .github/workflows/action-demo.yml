@@ -75,6 +75,17 @@ jobs:
           python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
           python scripts/check_ca_store.py
+          # The composite action runs `pip install ephemora-cell` inside its own
+          # setup-python interpreter. Resolving that from PyPI would demo the
+          # *published* package instead of this commit, and on an unpublished
+          # candidate it cannot resolve at all (measured on this branch's first
+          # PR run: "No matching distribution found"). The wheelhouse carries
+          # this commit's wheel, the qualified runtime wheel and the pinned CA
+          # wheel; the action step keeps PIP_NO_INDEX=1 and gains
+          # PIP_FIND_LINKS, so it installs these exact bytes or fails closed.
+          python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheelhouse" .
+          cp "$RUNNER_TEMP/runtime-wheel/"*.whl "$RUNNER_TEMP/wheelhouse/"
+          python -m pip download --no-deps -d "$RUNNER_TEMP/wheelhouse" certifi==2026.10.19
 
       - name: Assert qualified runtime identity
         run: |
@@ -100,10 +111,11 @@ jobs:
       - id: hello
         uses: ./action
         env:
-          # The checkout is installed above, so the action's own
-          # `pip install ephemora-cell` is already satisfied. No index: if that
-          # ever changes, the action fails closed instead of using PyPI.
+          # No index, only the wheelhouse: the action's own
+          # `pip install ephemora-cell` installs this commit's wheel plus the
+          # qualified runtime and the pinned CA bundle, or it fails closed.
           PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ runner.temp }}/wheelhouse
         with:
           module: examples/hello.wasm
           profile: llm
@@ -164,6 +176,17 @@ jobs:
           python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
           python scripts/check_ca_store.py
+          # The composite action runs `pip install ephemora-cell` inside its own
+          # setup-python interpreter. Resolving that from PyPI would demo the
+          # *published* package instead of this commit, and on an unpublished
+          # candidate it cannot resolve at all (measured on this branch's first
+          # PR run: "No matching distribution found"). The wheelhouse carries
+          # this commit's wheel, the qualified runtime wheel and the pinned CA
+          # wheel; the action step keeps PIP_NO_INDEX=1 and gains
+          # PIP_FIND_LINKS, so it installs these exact bytes or fails closed.
+          python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheelhouse" .
+          cp "$RUNNER_TEMP/runtime-wheel/"*.whl "$RUNNER_TEMP/wheelhouse/"
+          python -m pip download --no-deps -d "$RUNNER_TEMP/wheelhouse" certifi==2026.10.19
 
       - name: Assert qualified runtime identity
         run: |
@@ -198,6 +221,7 @@ jobs:
         env:
           # Same fail-closed binding as in the smoke job (see the file header).
           PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ runner.temp }}/wheelhouse
         with:
           module: examples/fuel_bomb.wasm
           profile: llm
