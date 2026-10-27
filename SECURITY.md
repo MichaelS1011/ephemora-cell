@@ -62,7 +62,7 @@ be mistaken for the released one.
 
 ### Why there is no production GO
 
-A green suite (2171 passing / 44 skipped, 85.09 % statement coverage, measured 2026-10-27 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the previous candidate reported 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
+A green suite (2171 passing / 44 skipped, 85.08–85.09 % statement coverage, measured 2026-10-27 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the previous candidate reported 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
 probes establish **laboratory correctness of the tested commit** — they are not, and do not
 automatically become, a production-security approval. General production stays NO-GO until,
 at minimum: an independent external evaluation is completed; the newest isolation controls
