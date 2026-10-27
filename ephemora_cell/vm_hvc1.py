@@ -426,7 +426,9 @@ class GuestWorkerAgent:
                 raise ipc.IPCViolation("payload_incomplete")
         if hashlib.sha256(buffer).hexdigest() != digest.lower():
             raise ipc.IPCViolation("payload_digest_mismatch")
-        work = tempfile.mkdtemp(prefix="ephemora-job-", dir="/tmp")
+        # nosec B108 — mkdtemp creates this 0700; /tmp is used deliberately as
+        # the shortest base so the staged name stays well inside PATH_MAX.
+        work = tempfile.mkdtemp(prefix="ephemora-job-", dir="/tmp")  # nosec B108
         path = os.path.join(work, name)
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as handle:
@@ -941,7 +943,7 @@ class HVC1Backend:
         # AF_UNIX paths are capped at ~104 bytes. A temp dir under the
         # per-user /var/folders tree can exceed that with the run id; /tmp
         # keeps the binding short. mkdtemp creates the directory mode 0700.
-        socket_root = Path(tempfile.mkdtemp(prefix="eh_", dir="/tmp"))
+        socket_root = Path(tempfile.mkdtemp(prefix="eh_", dir="/tmp"))  # nosec B108
         sock_path = socket_root / f"ipc-{request.run_id}.sock"
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
