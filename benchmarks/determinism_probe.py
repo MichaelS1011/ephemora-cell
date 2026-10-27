@@ -22,7 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from ephemora_cell import WASISandbox, WASIConfig  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox
 
 TOOL = REPO / "ephemora_cell_mcp" / "tools" / "echo.wasm"
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 10
@@ -35,28 +35,44 @@ def main() -> None:
 
     config = WASIConfig(max_memory_mb=128, max_fuel=2_000_000, timeout_seconds=30)
     sandbox = WASISandbox(config)
-    print(f"machine: {platform.machine()} | sys: {platform.system()} "
-          f"{platform.release()} | wasmtime: 47.0.1", file=sys.stderr)
-    print(f"tool: {TOOL.name} | runs: {N} | params: {{\"params\": {{\"greeting\": \"probe\"}}}}",
-          file=sys.stderr)
+    print(
+        f"machine: {platform.machine()} | sys: {platform.system()} "
+        f"{platform.release()} | wasmtime: 47.0.1",
+        file=sys.stderr,
+    )
+    print(
+        f'tool: {TOOL.name} | runs: {N} | params: {{"params": {{"greeting": "probe"}}}}',
+        file=sys.stderr,
+    )
 
     fuels: list[int] = []
     elapsed: list[float] = []
     for _ in range(N):
         t0 = time.perf_counter()
-        report = sandbox.run(str(TOOL), stdin_data=json.dumps({"params": {"greeting": "probe"}}))
+        report = sandbox.run(
+            str(TOOL), stdin_data=json.dumps({"params": {"greeting": "probe"}})
+        )
         dt = (time.perf_counter() - t0) * 1000.0
         fuels.append(report.fuel_consumed)
         elapsed.append(report.elapsed_ms)
-    print(json.dumps({
-        "fuel_consumed": fuels,
-        "fuel_median": statistics.median(fuels),
-        "fuel_spread": max(fuels) - min(fuels),
-        "elapsed_ms": elapsed,
-        "elapsed_median": round(statistics.median(elapsed), 4),
-        "elapsed_spread": round(max(elapsed) - min(elapsed), 4),
-        "status": report.status.value if hasattr(report.status, "value") else str(report.status),
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "fuel_consumed": fuels,
+                "fuel_median": statistics.median(fuels),
+                "fuel_spread": max(fuels) - min(fuels),
+                "elapsed_ms": elapsed,
+                "elapsed_median": round(statistics.median(elapsed), 4),
+                "elapsed_spread": round(max(elapsed) - min(elapsed), 4),
+                "status": (
+                    report.status.value
+                    if hasattr(report.status, "value")
+                    else str(report.status)
+                ),
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

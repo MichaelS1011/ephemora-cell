@@ -208,9 +208,9 @@ def main() -> int:
 
     # Part B: memory64 — grow past the 32-bit 4 GiB boundary (sparse touch).
     for cap_mb, target_pages in (
-        (4608, 65_792),     # cap 4.5 GiB; target 4 GiB + 2 MB: past the
-                            # 32-bit boundary, under the memory64 cap
-        (4096, 65_792),     # cap exactly 4 GiB; same target -> REFUSED
+        (4608, 65_792),  # cap 4.5 GiB; target 4 GiB + 2 MB: past the
+        # 32-bit boundary, under the memory64 cap
+        (4096, 65_792),  # cap exactly 4 GiB; same target -> REFUSED
     ):
         r = run_growth(cap_mb, target_pages, memory64=True)
         results["part_b_memory64"].append(r)

@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import wasmtime
+# ``wasmtime`` is imported where it is used, not at module scope. An installation
+# whose engine is broken or absent still has to be able to import this package and
+# run ``ephemora doctor`` — naming the missing runtime is that command's job, and a
+# top-level import turned the diagnosis itself into a traceback.
 
 DANGEROUS_IMPORTS = {
     "path_open": "filesystem — requires preopen",
@@ -69,6 +72,8 @@ class ModuleInfo:
 
 def inspect_module(path: str | Path) -> ModuleInfo:
     """Return ModuleInfo by parsing the WASM binary (no execution)."""
+    import wasmtime
+
     wasm_bytes = Path(path).read_bytes()
     engine = wasmtime.Engine()
     module = wasmtime.Module(engine, wasm_bytes)

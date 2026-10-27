@@ -257,10 +257,9 @@ def main() -> int:
     contained = legs["component_set_times_overflow_subprocess"]
 
     verdicts = {
-        "wasip1_not_reproducible": all(
-            not v["panic"] for v in p1.values()
-        ),
-        "component_in_process_aborts": overflow["aborted"] and overflow["panic_in_stderr"],
+        "wasip1_not_reproducible": all(not v["panic"] for v in p1.values()),
+        "component_in_process_aborts": overflow["aborted"]
+        and overflow["panic_in_stderr"],
         "control_succeeds": control.get("expected_set_times_ok", False),
         "subprocess_path_contains": (
             contained.get("parent_survived", False)

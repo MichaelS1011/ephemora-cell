@@ -63,6 +63,9 @@ from ._sandbox_common import (
     DANGEROUS_DIRS as _DANGEROUS_DIRS_POLICY,
 )
 from ._sandbox_common import (
+    OUTPUT_FILE_HARD_LIMIT as _OUTPUT_FILE_HARD_LIMIT,
+)
+from ._sandbox_common import (
     canonicalize_dir as _canonicalize_dir,
 )
 from ._sandbox_common import (
@@ -84,7 +87,16 @@ from ._sandbox_common import (
     is_memory_fault_trap as _is_memory_fault_trap,
 )
 from ._sandbox_common import (
+    limit_output_text as _limit_output_text,
+)
+from ._sandbox_common import (
+    make_output_fifo as _make_output_fifo,
+)
+from ._sandbox_common import (
     make_output_sink as _make_output_sink,
+)
+from ._sandbox_common import (
+    open_private as _open_private,
 )
 from ._sandbox_common import (
     read_capped_output as _read_capped_output,
@@ -99,15 +111,27 @@ from ._sandbox_common import (
     start_interrupt_watch as _start_interrupt_watch,
 )
 from ._sandbox_common import (
+    start_output_cap_reader as _start_output_cap_reader,
+)
+from ._sandbox_common import (
     under_canonical_exception as _under_canonical_exception,
 )
 from ._sandbox_common import (
     validate_allow_dirs as _validate_allow_dirs_impl,
 )
+from .component_guard import ComponentGuardError as _ComponentGuardError
+from .component_guard import guard_component_bytes as _guard_component_bytes
+from .runtime_qualification import (
+    runtime_qualification as _runtime_qualification,
+)
+from .runtime_qualification import (
+    unqualified_runtime_allowed as _unqualified_runtime_allowed,
+)
 from .wasi_runtime import (
     ExecutionResult,
     ExecutionStatus,
     WASIConfig,
+    _GuestWriteBudget,
     module_size_cap_error,
 )
 
@@ -160,6 +184,11 @@ class ComponentSandbox:
     of this primitive. Reach for :meth:`WASISandbox.run` unless you ARE the
     host authorising a low-level in-process run; this class is what the gate
     and the isolated worker themselves call to actually execute a component.
+    What this primitive DOES enforce on its own is the engine boundary: the
+    qualified runtime line is checked before a single byte is read, compiled or
+    billed, because a low-level route must not be a way around the runtime
+    gate. What it does not enforce is process isolation — that stays the
+    facade's decision, exactly as above.
 
     Example:
         config = WASIConfig(max_memory_mb=128, max_fuel=1_000_000)
@@ -222,15 +251,34 @@ class ComponentSandbox:
         Returns:
             ExecutionResult with status, stdout, stderr, and timing
         """
+        # The runtime line is enforced HERE too, not only at the facade: this
+        # primitive is reachable from the package surface, so a caller that
+        # skipped WASISandbox.run would otherwise compile and execute a guest on
+        # an engine this release does not qualify. Nothing is read, compiled or
+        # billed before this decision, and the same documented hatch governs it.
+        self._output_files_exceeded = False
+        qualified, why = _runtime_qualification()
+        if not qualified and not _unqualified_runtime_allowed():
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=1,
+                stderr=f"refused: unqualified runtime — {why}",
+                execution_started=False,
+            )
         resolved = Path(wasm_path).resolve()
         if not resolved.exists():
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 stderr=f"WASM component not found: {wasm_path}",
+                execution_started=False,
             )
         cap_error = module_size_cap_error(resolved, self._config.max_wasm_bytes)
         if cap_error is not None:
-            return ExecutionResult(status=ExecutionStatus.ERROR, stderr=cap_error)
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                stderr=cap_error,
+                execution_started=False,
+            )
         if not is_component_binary(str(resolved)):
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
@@ -238,6 +286,7 @@ class ComponentSandbox:
                     f"Not a component binary: {wasm_path} "
                     "(use WASISandbox for preview1 modules)"
                 ),
+                execution_started=False,
             )
 
         base = self._config.sandbox_base_dir or tempfile.gettempdir()
@@ -255,6 +304,10 @@ class ComponentSandbox:
         # turn into an UnboundLocalError while building the error result.
         store: Store | None = None
         timeout_event: threading.Event | None = None
+        # ADR-002 byte wall over the directories this run preopens (a component
+        # has no sandbox dir). Pre-bound for the same reason as the two above:
+        # an exception before the watcher exists must not raise NameError.
+        byte_watcher: _GuestWriteBudget | None = None
 
         try:
             # Hardened proposal-policy engine — ONE shared builder
@@ -278,6 +331,25 @@ class ComponentSandbox:
                         "module hash mismatch — executed bytes do not "
                         "match the registered module digest"
                     ),
+                    execution_started=False,
+                )
+            # GHSA-32h6-97mm-8q3c enforced path exclusion: the bytes are walked
+            # by an INDEPENDENT component-binary reader BEFORE they ever reach
+            # the native ``Component()`` parser (the code the advisory is in).
+            # Any component-model async construct (async-lift / future / stream)
+            # — the surface the unvalidated async callback result count
+            # overruns — is refused here, fail-closed, on every path (in-process
+            # trusted runs and the protected worker alike, since this is the
+            # single Component() construction site). This is loader-boundary
+            # avoidance, not a claim the upstream overflow is patched; the
+            # definitive fix remains a corrected wasmtime wheel (SECURITY.md).
+            try:
+                _guard_component_bytes(component_bytes)
+            except _ComponentGuardError as guard_err:
+                return ExecutionResult(
+                    status=ExecutionStatus.ERROR,
+                    stderr=str(guard_err),
+                    execution_started=False,
                 )
             component = _component.Component(engine, component_bytes)
 
@@ -292,12 +364,76 @@ class ComponentSandbox:
 
             wasi_cfg = WasmtimeWasiConfig()
             wasi_cfg.argv = ["wasm-module"] + (args or [])
-            budget: list[int] = [_MAX_OUTPUT_BYTES]
-            wasi_cfg.stdout_custom = _make_output_sink(stdout_path, budget)
-            wasi_cfg.stderr_custom = _make_output_sink(stderr_path, budget)
+            output_files_exceeded = threading.Event()
+            output_reader_stop = threading.Event()
+            output_reader_threads: list[threading.Thread] = []
+
+            def _stop_output_readers() -> None:
+                output_reader_stop.set()
+                for thread in output_reader_threads:
+                    thread.join(2.0)
+
+            if os.environ.get("EPHEMORA_WORKER_OUTPUT_SINK"):
+                # Untrusted worker path: the guest writes into a FIFO, and a
+                # host reader drains it into the capture file with a hard byte
+                # bound; no Python callback on Wasmtime's tokio worker.
+                stdout_fifo = os.path.join(host_dir, "stdout.fifo")
+                stderr_fifo = os.path.join(host_dir, "stderr.fifo")
+                reader_errors: list[BaseException] = []
+                try:
+                    _make_output_fifo(stdout_fifo)
+                    _make_output_fifo(stderr_fifo)
+                except OSError as fifo_error:
+                    reader_errors.append(fifo_error)
+                with _open_private(stdout_path, "wb"):
+                    pass
+                with _open_private(stderr_path, "wb"):
+                    pass
+                ready = [threading.Event(), threading.Event()]
+                if not reader_errors:
+                    for fifo, capture, ready_event in (
+                        (stdout_fifo, stdout_path, ready[0]),
+                        (stderr_fifo, stderr_path, ready[1]),
+                    ):
+                        output_reader_threads.append(
+                            _start_output_cap_reader(
+                                fifo,
+                                capture,
+                                _OUTPUT_FILE_HARD_LIMIT,
+                                output_files_exceeded,
+                                output_reader_stop,
+                                ready_event,
+                                reader_errors,
+                            )
+                        )
+                    for ready_event in ready:
+                        ready_event.wait(5.0)
+                else:
+                    ready[0].set()
+                    ready[1].set()
+                if reader_errors:
+                    _stop_output_readers()
+                    return ExecutionResult(
+                        status=ExecutionStatus.ERROR,
+                        stderr=(
+                            "worker output sink could not be established: "
+                            f"{reader_errors[0]!r}"
+                        ),
+                        sandbox_dir=None,
+                        elapsed_ms=(time.monotonic() - start_time) * 1000,
+                        execution_started=False,
+                    )
+                wasi_cfg.stdout_file = stdout_fifo
+                wasi_cfg.stderr_file = stderr_fifo
+            else:
+                # Trusted in-process path keeps the synchronous callback cap.
+                budget: list[int] = [_MAX_OUTPUT_BYTES]
+                wasi_cfg.stdout_custom = _make_output_sink(stdout_path, budget)
+                wasi_cfg.stderr_custom = _make_output_sink(stderr_path, budget)
 
             if stdin_data:
                 if len(stdin_data.encode("utf-8")) > STDIN_MAX_BYTES:
+                    _stop_output_readers()
                     return ExecutionResult(
                         status=ExecutionStatus.ERROR,
                         stderr=(
@@ -310,7 +446,7 @@ class ComponentSandbox:
                         elapsed_ms=(time.monotonic() - start_time) * 1000,
                     )
                 stdin_path = os.path.join(host_dir, "stdin.txt")
-                with open(stdin_path, "w") as f:
+                with _open_private(stdin_path, "w") as f:
                     f.write(stdin_data)
                 wasi_cfg.stdin_file = stdin_path
 
@@ -344,6 +480,7 @@ class ComponentSandbox:
             run_func = self._find_run_func(instance, store, component)
 
             if run_func is None:
+                _stop_output_readers()
                 return ExecutionResult(
                     status=ExecutionStatus.ERROR,
                     stderr=(
@@ -356,7 +493,22 @@ class ComponentSandbox:
                 )
 
             timeout_event = threading.Event()
+
             _start_epoch_timer(engine, timeout_event, self._config.timeout_seconds)
+
+            # ADR-002 I/O byte wall on the component path. The component has no
+            # /sandbox mount, so the wall covers the directories this run
+            # ACTUALLY preopened — its only writable scope. The enforcement
+            # mechanics (poll interval, epoch interrupt, breach result) are the
+            # shared ones from ``_GuestWriteBudget``.
+            if self._config.io_budget_bytes is not None:
+                byte_watcher = _GuestWriteBudget(
+                    engine,
+                    effective_preopens,
+                    self._config.io_budget_bytes,
+                    timeout_event,
+                )
+                byte_watcher.start()
 
             if interrupt_event is not None:
                 # ADR-002: external CPU watchdog — one increment fires
@@ -368,28 +520,54 @@ class ComponentSandbox:
             finally:
                 if timeout_event is not None:
                     timeout_event.set()
+                _stop_output_readers()
 
             stdout = _read_capped_output(stdout_path)
             stderr = _read_capped_output(stderr_path)
             elapsed_ms = (time.monotonic() - start_time) * 1000
+            self._output_files_exceeded = output_files_exceeded.is_set()
+
+            # ADR-002 end-of-run measurement: the poller cannot see a write that
+            # begins and finishes inside one 100 ms interval (the same sampling
+            # bound the preview1 path has), so the delta is re-read here and an
+            # overrun is reported as a breach instead of a silent success.
+            # ``finish()`` stops and joins the poller before reading, so the
+            # count published here cannot be a poller value that landed late.
+            written: int | None = None
+            if byte_watcher is not None:
+                written = byte_watcher.finish()
+                if written > byte_watcher.limit:
+                    return self._iobudget_error(
+                        written, elapsed_ms, effective_preopens, stderr
+                    )
 
             if isinstance(result, _component.Variant):
                 if result.tag == "err":
                     return ExecutionResult(
                         status=ExecutionStatus.ERROR,
                         exit_code=1,
+                        # the guest's own `result` channel reported the failure
+                        guest_exit_observed=True,
                         stdout=stdout,
-                        stderr=f"component run returned error: {result.payload!r}",
+                        stderr=_limit_output_text(
+                            f"component run returned error: {result.payload!r}"
+                            + (("\n" + stderr) if stderr else "")
+                        ),
                         elapsed_ms=elapsed_ms,
+                        output_files_exceeded=self._output_files_exceeded,
                         effective_preopens=effective_preopens,
                     )
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     exit_code=0,
+                    output_files_exceeded=self._output_files_exceeded,
+                    # the run export returned: the guest reached its own end
+                    guest_exit_observed=True,
                     stdout=stdout,
                     stderr=stderr,
                     elapsed_ms=elapsed_ms,
                     fuel_consumed=self._fuel_consumed(store),
+                    io_bytes_written=written,
                     effective_preopens=effective_preopens,
                 )
 
@@ -400,10 +578,14 @@ class ComponentSandbox:
             return ExecutionResult(
                 status=status,
                 exit_code=exit_code,
+                output_files_exceeded=self._output_files_exceeded,
+                # the adapter returned the guest's exit value to the host
+                guest_exit_observed=True,
                 stdout=stdout,
                 stderr=stderr,
                 elapsed_ms=elapsed_ms,
                 fuel_consumed=self._fuel_consumed(store),
+                io_bytes_written=written,
                 effective_preopens=effective_preopens,
             )
 
@@ -412,37 +594,61 @@ class ComponentSandbox:
             # need to keep the thread waiting out its timeout).
             if timeout_event is not None:
                 timeout_event.set()
+            stop_readers = locals().get("_stop_output_readers")
+            if callable(stop_readers):
+                stop_readers()
             trap_msg = str(exc)
             elapsed_ms = (time.monotonic() - start_time) * 1000
             stdout = _read_capped_output(stdout_path)
             stderr = _read_capped_output(stderr_path)
+            if "output_files_exceeded" in locals():
+                self._output_files_exceeded = output_files_exceeded.is_set()
+
+            # ADR-002: an epoch trap raised by the BYTE watcher is a budget
+            # breach, not a wall-clock timeout — same precedence as preview1.
+            if byte_watcher is not None and byte_watcher.exceeded:
+                return self._iobudget_error(
+                    byte_watcher.bytes_written,
+                    elapsed_ms,
+                    effective_preopens,
+                    stderr,
+                )
 
             if "all fuel consumed" in trap_msg:
                 return ExecutionResult(
                     status=ExecutionStatus.FUEL_EXHAUSTED,
-                    stderr=f"Fuel exhausted: {trap_msg}",
+                    stderr=_limit_output_text(
+                        f"Fuel exhausted: {trap_msg}"
+                        + (("\n" + stderr) if stderr else "")
+                    ),
                     stdout=stdout,
                     elapsed_ms=elapsed_ms,
                     fuel_consumed=self._fuel_consumed(store),
+                    output_files_exceeded=self._output_files_exceeded,
                     effective_preopens=effective_preopens,
                 )
             if _is_memory_fault_trap(trap_msg):
                 return ExecutionResult(
                     status=ExecutionStatus.MEMORY_EXCEEDED,
-                    stderr=(
+                    stderr=_limit_output_text(
                         f"Memory limit exceeded (max {self._config.max_memory_mb} "
-                        f"MiB): {trap_msg}"
+                        f"MiB): {trap_msg}" + (("\n" + stderr) if stderr else "")
                     ),
                     stdout=stdout,
                     elapsed_ms=elapsed_ms,
+                    output_files_exceeded=self._output_files_exceeded,
                     effective_preopens=effective_preopens,
                 )
             if "epoch" in trap_msg or "interrupt" in trap_msg:
                 return ExecutionResult(
                     status=ExecutionStatus.TIMEOUT,
-                    stderr=f"Timeout after {self._config.timeout_seconds}s: {trap_msg}",
+                    stderr=_limit_output_text(
+                        f"Timeout after {self._config.timeout_seconds}s: {trap_msg}"
+                        + (("\n" + stderr) if stderr else "")
+                    ),
                     stdout=stdout,
                     elapsed_ms=elapsed_ms,
+                    output_files_exceeded=self._output_files_exceeded,
                     effective_preopens=effective_preopens,
                 )
             # Fix (flagged in benchmarks/pocs/README.md): preview1
@@ -450,33 +656,125 @@ class ComponentSandbox:
             # command adapter forwards to wasi:cli/exit; wasmtime then raises
             # "Exited with i32 exit status 0" for a clean exit. Mirror the
             # preview1 sandbox and treat exit status 0 as SUCCESS.
+            # ADR-002 end-of-run VERDICT on this route too (the component
+            # hard-exit budget case). A guest that writes over budget and then
+            # leaves through wasi:cli/exit
+            # (std::process::exit, exit(), a lifted preview1 module's proc_exit)
+            # arrives HERE, and this branch used to return SUCCESS without ever
+            # comparing the measured bytes with the budget: 65536 B at
+            # io_budget_bytes=1024 came back success/io_budget_exceeded=False
+            # with the bytes on disk. The comparison below is the SAME one the
+            # regular return route applies (see the end-of-run measurement
+            # above). It runs AFTER the ``byte_watcher.exceeded`` check, so the
+            # poller's verdict keeps precedence and ``finish()`` (which stops
+            # the poller) can never mask a poller that already fired.
             if re.search(r"exit status 0", trap_msg):
+                written = self._finish_bytes(byte_watcher)
+                if (
+                    byte_watcher is not None
+                    and written is not None
+                    and written > byte_watcher.limit
+                ):
+                    return self._iobudget_error(
+                        written, elapsed_ms, effective_preopens, stderr
+                    )
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     exit_code=0,
+                    output_files_exceeded=self._output_files_exceeded,
+                    guest_exit_observed=True,
                     stdout=stdout,
                     stderr=stderr,
                     elapsed_ms=elapsed_ms,
                     fuel_consumed=self._fuel_consumed(store),
+                    io_bytes_written=written,
                     effective_preopens=effective_preopens,
                 )
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 exit_code=1,
+                # the guest left through wasi:cli/exit: the fact of a non-zero
+                # exit is observed, the guest's own number is not carried
+                guest_exit_observed=True,
                 stdout=stdout,
-                stderr=trap_msg,
+                # The trap text is the host's reading of the exit channel; the
+                # guest's own stderr stays readable behind it, and the output
+                # cap verdict must survive this route as well.
+                stderr=_limit_output_text(
+                    trap_msg + (("\n" + stderr) if stderr else "")
+                ),
                 elapsed_ms=elapsed_ms,
+                output_files_exceeded=self._output_files_exceeded,
                 effective_preopens=effective_preopens,
             )
         except Exception as exc:
+            # The run is over: stop the watcher thread (it polls every 100 ms
+            # until this event is set, and this path returned without setting
+            # it).
+            if timeout_event is not None:
+                timeout_event.set()
+            stop_readers = locals().get("_stop_output_readers")
+            if callable(stop_readers):
+                stop_readers()
+            captured_stdout = _read_capped_output(stdout_path)
+            captured_stderr = _read_capped_output(stderr_path)
+            if "output_files_exceeded" in locals():
+                self._output_files_exceeded = output_files_exceeded.is_set()
             return ExecutionResult(
                 status=ExecutionStatus.ERROR,
                 exit_code=1,
-                stdout=_read_capped_output(stdout_path),
-                stderr=str(exc),
+                stdout=captured_stdout,
+                # The host exception explains WHY the run stopped; the guest's
+                # own stderr stays separately readable behind it, and the
+                # output-cap verdict must survive this path too.
+                stderr=_limit_output_text(str(exc) + "\n" + captured_stderr),
+                output_files_exceeded=self._output_files_exceeded,
                 elapsed_ms=(time.monotonic() - start_time) * 1000,
+                io_bytes_written=self._finish_bytes(byte_watcher),
                 effective_preopens=effective_preopens,
             )
+
+    def _iobudget_error(
+        self,
+        written: int,
+        elapsed_ms: float,
+        effective_preopens: tuple[str, ...],
+        stderr: str = "",
+    ) -> ExecutionResult:
+        """ADR-002 byte-wall breach on the component path.
+
+        Same form as the preview1 breach (ERROR, ``io_budget_exceeded=True``,
+        the ``"I/O budget exceeded: guest wrote N bytes ..."`` text). Only the
+        named scope differs: a component has no ``/sandbox``, so the watched
+        scope is the set of directories this run actually preopened. The
+        guest's captured stderr and the output-cap verdict ride along: a run
+        stopped for writing too much must not also lose what it printed.
+        """
+        return ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            exit_code=0,
+            stderr=_limit_output_text(
+                "I/O budget exceeded: guest wrote "
+                f"{written} bytes into the granted directories "
+                f"(io_budget_bytes={self._config.io_budget_bytes})"
+                + (("\n" + stderr) if stderr else "")
+            ),
+            elapsed_ms=elapsed_ms,
+            io_bytes_written=written,
+            io_budget_exceeded=True,
+            output_files_exceeded=self._output_files_exceeded,
+            effective_preopens=effective_preopens,
+        )
+
+    @staticmethod
+    def _finish_bytes(watcher: _GuestWriteBudget | None) -> int | None:
+        """Authoritative end-of-run byte count (stops and joins the poller).
+
+        Feeds ``ExecutionResult.io_bytes_written`` so the component path
+        attests the same measurement the preview1 path reports (ADR-002
+        auditability) instead of a permanent ``None``.
+        """
+        return None if watcher is None else watcher.finish()
 
     def _fuel_consumed(self, store: Store | None) -> int | None:
         """Report fuel consumed for the component path (single shared
@@ -550,11 +848,35 @@ class ComponentSandbox:
             under_canonical_exception=_under_canonical_exception,
         )
 
-    def cleanup(self) -> None:
-        """Remove the host-owned capture directory."""
+    def cleanup(self) -> list[str]:
+        """Remove the host-owned capture directory and report what survived.
+
+        The Preview1 facade returns the paths that outlived its own removal, so a
+        residue is a fact the caller can see. This route used to answer ``None``
+        while deleting with ``ignore_errors=True`` — a directory that could not
+        be removed (immutable flag, permissions after an abrupt kill, a read-only
+        mount) was reported as cleaned. Measured during the pre-push review with
+        an unremovable capture directory. Same return shape as the facade now,
+        so a component run delegated through the facade cannot lose the report.
+        """
+        import logging
         import shutil
 
         if self._host_dir is None:
-            return
-        shutil.rmtree(self._host_dir, ignore_errors=True)
+            return []
+        dir_path = self._host_dir
+        leftovers: list[str] = []
+        try:
+            shutil.rmtree(dir_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                "component capture cleanup failed, residue survives at %s: %s",
+                dir_path,
+                exc,
+            )
+            if os.path.exists(dir_path):
+                leftovers.append(str(dir_path))
         self._host_dir = None
+        return leftovers

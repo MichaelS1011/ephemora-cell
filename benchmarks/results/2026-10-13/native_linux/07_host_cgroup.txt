@@ -1,0 +1,32 @@
+host_cgroup_dir=/sys/fs/cgroup/system.slice/docker-a79599ad940ff0e98c6a4497bd80e804fe3a04552657ecc126c0369238a508d6.scope
+cgroup.controllers
+cgroup.events
+cgroup.freeze
+cgroup.kill
+cgroup.max.depth
+cgroup.max.descendants
+cgroup.pressure
+cgroup.procs
+cgroup.stat
+cgroup.subtree_control
+cgroup.threads
+cgroup.type
+cpu.idle
+cpu.max
+cpu.max.burst
+cpu.pressure
+cpuset.cpus
+cpuset.cpus.effective
+cpuset.cpus.exclusive
+cpuset.cpus.exclusive.effective
+memory.max       536870912
+memory.current   540672
+memory.swap.max  0
+pids.max         128
+pids.current     1
+cpu.max          100000 100000
+cpuset.cpus      
+controllers=cpuset cpu io memory hugetlb pids rdma misc dmem
+docker_stats:
+cell-ref mem=528KiB / 512MiB cpu=0.00% pids=1
+cgroupns=host

@@ -3,7 +3,12 @@
 macOS-style terminal window, GitHub-dark palette, soft-scrolling transcript,
 ffmpeg palette render. Deterministic: same scenes + same inputs produce
 byte-identical frames. Importers define only their SCENES and OUT.
+
+Out lines wider than the frame soft-wrap at word boundaries, the way a real
+terminal wraps instead of running under the border. Lines that fit render
+byte-identically to before; only the wrap decision is added.
 """
+
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,29 +38,60 @@ LH = FONT_SIZE + 12
 PAUSE_CMD = 8
 PAUSE_OUT = 5
 
+# Widest out line that fits between the out indent and the window edge.
+WRAP_AVAIL = W - MARGIN - 8 - (MARGIN + 34)
+
+
+def _wrap_out(text):
+    """Split one out line at word boundaries when it exceeds the frame.
+    Deterministic (fixed font metrics); a line that fits is returned as-is."""
+    if FONT.getlength(text) <= WRAP_AVAIL:
+        return [text]
+    segments, current = [], ""
+    for word in text.split(" "):
+        candidate = f"{current} {word}" if current else word
+        if FONT.getlength(candidate) <= WRAP_AVAIL:
+            current = candidate
+        else:
+            if current:
+                segments.append(current)
+            current = word
+    if current:
+        segments.append(current)
+    return segments
+
 
 def frame(history, current_cmd, typed, out_lines, out_reveal, type_speed):
     img = Image.new("RGB", (W, H), BG)
     d = ImageDraw.Draw(img)
     # window chrome
-    d.rounded_rectangle([MARGIN, MARGIN, W - MARGIN, H - MARGIN], 12, fill=BG, outline=BORDER, width=2)
+    d.rounded_rectangle(
+        [MARGIN, MARGIN, W - MARGIN, H - MARGIN], 12, fill=BG, outline=BORDER, width=2
+    )
     d.rounded_rectangle([MARGIN, MARGIN, W - MARGIN, MARGIN + 44], 12, fill=TITLEBAR)
     d.rectangle([MARGIN, MARGIN + 26, W - MARGIN, MARGIN + 44], fill=TITLEBAR)
     for i, c in enumerate(("#ff5f57", "#febc2e", "#28c840")):
-        d.ellipse([MARGIN + 18 + i * 26, MARGIN + 16, MARGIN + 34 + i * 26, MARGIN + 32], fill=c)
-    d.text((MARGIN + 110, MARGIN + 14), "ephemora-cell — zsh", font=TITLE_FONT, fill=MUTED)
+        d.ellipse(
+            [MARGIN + 18 + i * 26, MARGIN + 16, MARGIN + 34 + i * 26, MARGIN + 32],
+            fill=c,
+        )
+    d.text(
+        (MARGIN + 110, MARGIN + 14), "ephemora-cell — zsh", font=TITLE_FONT, fill=MUTED
+    )
 
     # Soft scroll: build the full transcript, render only the lines that fit
     # (a multi-scene history overflows the frame — a real terminal scrolls too).
     lines = []
     for cmd, outs in history:
         lines.append(("prompt", cmd))
-        lines += [("out", t, c) for t, c in outs]
+        for t, c in outs:
+            lines += [("out", seg, c) for seg in _wrap_out(t)]
         lines.append(("gap", ""))
     if current_cmd is not None:
         cursor = "▌" if (typed // type_speed) % 2 else ""
         lines.append(("prompt", current_cmd[:typed] + cursor))
-        lines += [("out", t, c) for t, c in out_lines[:out_reveal]]
+        for t, c in out_lines[:out_reveal]:
+            lines += [("out", seg, c) for seg in _wrap_out(t)]
     avail = H - (MARGIN + 64) - 14
     height = sum(LH if it[0] != "gap" else 8 for it in lines)
     while height > avail and lines:
@@ -84,10 +120,14 @@ def build_frames(scenes, type_speed, window=1):
             frames.append(frame(history, cmd, t, [], 0, type_speed))
         frames += [frame(history, cmd, len(cmd), [], 0, type_speed)] * PAUSE_CMD
         for r in range(1, len(outs) + 1):
-            frames += [frame(history, cmd, len(cmd), outs, r, type_speed)] * (PAUSE_OUT if r == len(outs) else 2)
+            frames += [frame(history, cmd, len(cmd), outs, r, type_speed)] * (
+                PAUSE_OUT if r == len(outs) else 2
+            )
         frames += [frame(history, cmd, len(cmd), outs, len(outs), type_speed)] * 14
         history.append((cmd, outs))
-        history = history[-window:]  # one-scene window: worst case (prev + current) always fits the frame, so reveal frames never shift the whole screen
+        history = history[
+            -window:
+        ]  # one-scene window: worst case (prev + current) always fits the frame, so reveal frames never shift the whole screen
     frames += [frame(history, None, 0, [], 0, type_speed)] * 22  # hold final state
     return frames
 
@@ -97,10 +137,19 @@ def render_gif(frames, out):
         for i, f in enumerate(frames):
             f.save(f"{td}/{i:04d}.png")
         subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-framerate", "16",
-             "-i", f"{td}/%04d.png", "-vf",
-             "split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:new=1",
-             str(out)],
+            [
+                "ffmpeg",
+                "-y",
+                "-loglevel",
+                "error",
+                "-framerate",
+                "16",
+                "-i",
+                f"{td}/%04d.png",
+                "-vf",
+                "split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:new=1",
+                str(out),
+            ],
             check=True,
         )
     print(f"wrote {out} ({Path(out).stat().st_size // 1024} KB, {len(frames)} frames)")

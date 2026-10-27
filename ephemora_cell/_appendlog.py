@@ -27,6 +27,7 @@ ephemora_cell`` still works where locking primitives differ; constructing an
 from __future__ import annotations
 
 import os
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -64,29 +65,47 @@ class AppendLog:
                 f"this platform has no fcntl file locking, so {type(self).__name__} "
                 f"cannot guarantee a single writer: {self.path}"
             )
+        # Fail fast when the book exists: opening it now runs the same
+        # no-follow / write-permission checks the writer uses, so a construction
+        # site (TenantStore, the ledger) refuses a tamperable book cleanly
+        # instead of deep inside the first admit.
+        if self.path.exists():
+            fd = self._open(create=False)
+            os.close(fd)
 
     def _open(self, *, create: bool) -> int:
+        if os.path.islink(str(self.path)):
+            # A symlinked book is a tamper risk: refuse it everywhere, with a
+            # readable message. O_NOFOLLOW below stays as the race-safe backstop
+            # (a link swapped in after this check still cannot be followed).
+            raise OSError(
+                f"log path is a symbolic link, refusing to follow: {self.path}"
+            )
         # O_APPEND is not decoration: without it os.write lands at the file
         # offset (0 for a freshly opened O_RDWR descriptor) and overwrites the
-        # history instead of extending it.
-        #
-        # O_NOFOLLOW because these books ARE the enforcement: a ledger, a tenant
-        # budget or a chain that can be swapped for a symlink (or replaced by a
-        # rename between the check and the open) silently resets recorded calls
-        # and revocations. Refuse the link instead of writing through it.
+        # history instead of extending it. O_NOFOLLOW because these books ARE
+        # the enforcement: a ledger, tenant budget or chain swapped for a
+        # symlink (or renamed between check and open) silently resets recorded
+        # calls and revocations. Refuse the link instead of writing through it.
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         if create:
             flags |= os.O_RDWR | os.O_CREAT | os.O_APPEND
-        if not getattr(os, "O_NOFOLLOW", 0):
-            # Where O_NOFOLLOW does not exist the refusal has to happen BEFORE
-            # the open. Checked inside `except OSError` it was dead code: opening
-            # a symlink succeeds there, so no error ever reached the check.
-            if os.path.islink(str(self.path)):
-                raise OSError(f"log path is a symlink, refusing to follow: {self.path}")
         try:
-            return os.open(str(self.path), flags)
+            fd = os.open(str(self.path), flags)
         except OSError:
             raise
+        try:
+            st = os.fstat(fd)
+            if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                raise PermissionError(
+                    f"log file is group- or world-writable "
+                    f"({oct(st.st_mode & 0o777)}): a budget anyone can write is "
+                    f"a budget anyone can inflate — chmod 600/644: {self.path}"
+                )
+        except BaseException:
+            os.close(fd)
+            raise
+        return fd
 
     def tail_line(self, fd: int) -> bytes | None:
         """Last non-empty line, read backwards from EOF. None for an empty file.

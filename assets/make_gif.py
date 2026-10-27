@@ -1,20 +1,29 @@
-"""Generate assets/demo.gif — one execution, start to finish, on released 1.1.0.
+"""Generate assets/demo.gif — one execution, start to finish, on the 1.2.0
+release candidate (1.2.0rc2, wasmtime 49.0.3.post2+git.1d21c90f).
 
-Every string in these frames is a verbatim capture from real runs on 2026-10-05:
-the PyPI wheel (1.1.0, fresh venv) plus a clone of the `v1.1.0` tag, so each
-scene's own command reproduces its output. The arc is what the product boundary
-is today: install -> fresh execution -> the explicit capability/resource
-boundary the run got -> a hostile module stopped by that boundary -> capability
-and access denials measured live -> signed evidence that detects tampering ->
-execution ends.
+Every string in these frames is a verbatim capture from real runs on
+2026-10-16: a fresh venv with the candidate installed from the release
+wheelhouse, plus the v1.2.0 release source tree, so each scene's own command
+reproduces its output. The arc is what the product boundary is today: install
+-> fresh execution -> the explicit capability/resource boundary and the
+runtime identity the run got -> a hostile module stopped by that boundary ->
+capability and access denials measured live -> signed evidence that detects
+tampering -> execution ends.
 
 Deliberately absent:
 * elapsed_ms / throughput — platform-dependent; a demo that shows them ages
   into a false claim. The fuel numbers (100 of 100) are exact everywhere
   because the budget is enforced, not measured.
-* any attack scenario that 1.1.0 does not actually show. The 1.0.x frames here
-  claimed an import-layer blockade for fd_psync; the blockade lives at the call
-  layer now, which is what the verification scene prints.
+* any claim the candidate does not actually show. The JSON scene prints the
+  1.2.0 receipt fields (`wasmtime_version`, `execution_mode`,
+  `sync_blockade_enforced`) exactly as the run emitted them.
+
+The install scene shows the candidate's honest install path: the release
+wheelhouse, not PyPI — PyPI still serves 1.1.0 until the candidate ships. The
+README caption under the GIF names the recorded revision.
+
+Every elision inside a frame is marked with "..." so an abridged scene never
+reads as a complete transcript; a scene without "..." shows its output whole.
 
 Requires: Pillow (.venv), ffmpeg on PATH.
 """
@@ -42,13 +51,21 @@ from terminal_gif import (
 HERE = Path(__file__).parent
 OUT = HERE / "demo.gif"
 
-# (command, [(text, color), ...]) — outputs are verbatim real-run captures.
-# From this line on, the terminal is a clone of the repo with the venv active.
+# (command, [(text, color), ...]) — outputs are verbatim real-run captures
+# from 2026-10-16 on the 1.2.0rc2 candidate. Scene 1 installs from the release
+# wheelhouse; from scene 2 on, the terminal is a clone of the repo with the
+# venv active.
 SCENES = [
+    # install — the candidate's honest install path: the release wheelhouse,
+    # not PyPI (still 1.1.0 until the candidate ships).
     (
-        "pip install ephemora-cell",
+        "pip install --no-index --find-links wheelhouse ephemora-cell",
         [
-            ("Successfully installed ephemora-cell-1.1.0 wasmtime-47.0.1", GREEN),
+            ("...", MUTED),
+            (
+                "Successfully installed ephemora-cell-1.2.0rc2 wasmtime-49.0.3.post2+git.1d21c90f",
+                GREEN,
+            ),
         ],
     ),
     # 1 — fresh execution: nothing of yours is reused, nothing of it is kept.
@@ -58,8 +75,10 @@ SCENES = [
             ("Hello from Ephemora Cell!", TEXT),
         ],
     ),
-    # 2 — the same run names the boundary it ran under. Real keys, real values,
-    # real order; the "..." is where the report continues past what fits here.
+    # 2 — the same run names the boundary it ran under — and the runtime
+    # identity: the patched 49.0.3 engine and the 1.2.0 execution fields.
+    # Real keys, real values, real order; the "..." is where the report
+    # continues past what fits here.
     (
         "ephemora-cell run examples/hello.wasm --isolated --json",
         [
@@ -68,11 +87,9 @@ SCENES = [
             ('  "fuel_consumed": 16397,', TEXT),
             ('  "fuel_budget": 1000000,', TEXT),
             ('  "security_baseline": {', CYAN),
-            ('    "memory_limit_bytes": 134217728,', CYAN),
-            ('    "allow_fsync": false,', CYAN),
-            ('    "preopens": [', CYAN),
-            ('      "/sandbox"', CYAN),
-            ("    ],", CYAN),
+            ('    "wasmtime_version": "49.0.3.post2+git.1d21c90f",', CYAN),
+            ('    "execution_mode": "subprocess",', CYAN),
+            ('    "sync_blockade_enforced": true', CYAN),
             ("    ...", MUTED),
         ],
     ),
@@ -95,20 +112,23 @@ SCENES = [
         [
             ("[3/8] Network / socket", TEXT),
             ("  Result: BLOCKED — no socket API in WASI Preview1 surface", RED),
+            ("...", MUTED),
             ("[5/8] Host FS (/etc/passwd)", TEXT),
             ("  Result: BLOCKED (status=error, errno=63)", RED),
             ("[6/8] Symlink escape", TEXT),
             ("  Positive control (real file): OPENED (good)", GREEN),
             ("  Symlink attack: BLOCKED (errno=32)", RED),
-            ("Summary: 8/8 attack vectors blocked", GREEN),
+            ("...", MUTED),
+            ("Summary: 4 BLOCKED BY POLICY + 4 REJECTED AS UNSUPPORTED", GREEN),
         ],
     ),
     # 5 — evidence: the receipt is signed, and one rewritten field breaks it.
     (
         "pip install 'ephemora-cell[tools-signing]'",
         [
+            ("...", MUTED),
             (
-                "Successfully installed cffi-2.1.1 cryptography-50.0.2 pycparser-3.0",
+                "Successfully installed cffi-2.1.1 cryptography-50.0.2 pycparser-3.11",
                 TEXT,
             ),
         ],
@@ -119,7 +139,9 @@ SCENES = [
             ("record: success | fuel: 1", TEXT),
             ("verify(intact): True", GREEN),
             ("verify(tampered): False", RED),
+            ("...", MUTED),
             ("dsse(intact): True", GREEN),
+            ("...", MUTED),
             ("break after edit: entry 2: prev_hash does not seal entry 1", RED),
         ],
     ),

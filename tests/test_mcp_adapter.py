@@ -299,7 +299,7 @@ def test_cell_failure_maps_to_iserror(tmp_path, server_with):
     fake_wasm.write_bytes(b"\x00asm\x01\x00\x00\x00")
 
     class FailingEngine(CellToolEngine):
-        def execute(self, spec, params):
+        def execute(self, spec, params, *, subject=None):
             from ephemora_cell import ExecutionResult, ExecutionStatus
 
             result = ExecutionResult(
@@ -355,7 +355,7 @@ def test_tool_error_key_maps_to_iserror(tmp_path, server_with):
     fake_wasm.write_bytes(b"\x00asm\x01\x00\x00\x00")
 
     class FlakyEngine(CellToolEngine):
-        def execute(self, spec, params):
+        def execute(self, spec, params, *, subject=None):
             from ephemora_cell import ExecutionResult, ExecutionStatus
 
             result = ExecutionResult(
@@ -408,7 +408,14 @@ def test_tool_error_key_maps_to_iserror(tmp_path, server_with):
 def test_subprocess_stdio_cycle(tmp_path):
     """A real client cycle over pipes: initialize -> list -> call -> call(unknown)."""
     proc = subprocess.Popen(
-        [sys.executable, "-m", "ephemora_cell_mcp", "--tools-dir", str(PACKAGE_TOOLS)],
+        [
+            sys.executable,
+            "-m",
+            "ephemora_cell_mcp",
+            "--tools-dir",
+            str(PACKAGE_TOOLS),
+            "--legacy-allow-all",
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1134,7 +1141,7 @@ def test_host_traceback_never_reaches_the_client():
 
     host_frames = (
         "Traceback (most recent call last):\n"
-        '  File "/Users/operator/.venv/lib/python3.12/site-packages/'
+        '  File "/Users/example/.venv/lib/python3.12/site-packages/'
         'ephemora_cell/wasi_runtime.py", line 900, in run\n'
         "TypeError: bad import wiring"
     )
@@ -1158,7 +1165,7 @@ def test_host_traceback_never_reaches_the_client():
     body = json.dumps(message)
     assert "Traceback" not in body, body[:300]
     assert "site-packages" not in body, body[:300]
-    assert "/Users/operator" not in body
+    assert "/Users/example" not in body
     # The detail still exists for the operator side of the boundary.
     assert outcome.result.host_traceback.startswith("Traceback")
 

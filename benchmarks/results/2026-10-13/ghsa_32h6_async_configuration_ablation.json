@@ -1,0 +1,285 @@
+{
+ "advisory": "GHSA-32h6-97mm-8q3c / RUSTSEC-2026-0327",
+ "capi_surface_of_the_same_artifact": {
+  "combos": [
+   {
+    "child": {
+     "engine_built": true,
+     "setters": []
+    },
+    "combo": "baseline_default",
+    "returncode": 0,
+    "signal": null,
+    "stderr_tail": []
+   },
+   {
+    "child": {
+     "engine_built": true,
+     "setters": [
+      "wasmtime_config_wasm_component_model_async_set=True"
+     ]
+    },
+    "combo": "async_only",
+    "returncode": 0,
+    "signal": null,
+    "stderr_tail": []
+   },
+   {
+    "child": {
+     "engine_built": true,
+     "setters": [
+      "wasmtime_config_wasm_component_model_async_stackful_set=False",
+      "wasmtime_config_wasm_component_model_async_set=True"
+     ]
+    },
+    "combo": "async_stackful_off",
+    "returncode": 0,
+    "signal": null,
+    "stderr_tail": []
+   },
+   {
+    "child": {
+     "engine_built": true,
+     "setters": [
+      "wasmtime_config_concurrency_support_set=True",
+      "wasmtime_config_wasm_component_model_async_set=True"
+     ]
+    },
+    "combo": "async_plus_concurrency",
+    "returncode": 0,
+    "signal": null,
+    "stderr_tail": []
+   },
+   {
+    "child": null,
+    "combo": "async_concurrency_stackswitching",
+    "returncode": -6,
+    "signal": 6,
+    "stderr_tail": [
+     "thread '<unnamed>' (262421340) panicked at crates/c-api/src/engine.rs:37:38:",
+     "called `Result::unwrap()` on an `Err` value: the wasm_stack_switching feature is not supported on this compiler configuration",
+     "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace"
+    ],
+    "stdout_tail": ""
+   }
+  ],
+  "concurrent_symbols_in_artifact": 955,
+  "exported_async_entry_points": [
+   "wasmtime_component_func_call_async",
+   "wasmtime_component_func_type_async",
+   "wasmtime_component_linker_add_wasi_http_async",
+   "wasmtime_component_linker_add_wasip2_async",
+   "wasmtime_component_linker_instance_add_func_async",
+   "wasmtime_component_linker_instantiate_async",
+   "wasmtime_config_async_stack_size_set",
+   "wasmtime_config_wasm_component_model_async_set",
+   "wasmtime_config_wasm_component_model_async_stackful_set",
+   "wasmtime_config_wasm_component_model_more_async_builtins_set",
+   "wasmtime_context_epoch_deadline_async_yield_and_update",
+   "wasmtime_context_fuel_async_yield_interval",
+   "wasmtime_func_call_async",
+   "wasmtime_instance_pre_instantiate_async",
+   "wasmtime_linker_define_async_func",
+   "wasmtime_linker_instantiate_async",
+   "wasmtime_pooling_allocation_config_async_stack_keep_resident_set"
+  ],
+  "python_binding_surface": {
+   "component_module_async_attrs": [],
+   "config_stack_switching_readable": false,
+   "store_public_attrs": [
+    "close",
+    "data",
+    "gc",
+    "get_fuel",
+    "ptr",
+    "set_epoch_deadline",
+    "set_fuel",
+    "set_limits",
+    "set_wasi",
+    "set_wasi_http"
+   ],
+   "wasmtime_module_async_attrs": []
+  }
+ },
+ "date": "2026-10-13",
+ "engine": "wasmtime 49.0.0 (python binding), artifact darwin-aarch64/_libwasmtime.dylib sha256 2cc7e37719916a84fb6c6b5e6cb6746817204e80d5a64b2c2ccff5db065b7c13",
+ "findings": [
+  "component-model-async is NOT compiled out of the shipped artifact: wasmtime_config_wasm_component_model_async_set is exported and an engine builds with it enabled (engine_built=true) via the C API.",
+  "Only the combination with wasm_stack_switching=True makes engine construction fail, and it fails as a NATIVE ABORT (c-api/src/engine.rs:37 unwrap): 'the wasm_stack_switching feature is not supported on this compiler configuration'.",
+  "The Python binding exposes no async call surface at all (no *_async attribute on wasmtime, wasmtime.component, Store, Func, Linker) and Config.wasm_stack_switching has no getter, so the effective posture cannot be read back from the engine.",
+  "Under the product configuration the async-lifted shapes behave as measured: malformed shapes are REJECTED at parse; the accepted async-lifted export aborts at component/func.rs:345 ('async-lifted exports should have failed validation when component-model-async feature disabled') at CALL time, i.e. BEFORE any host->guest callback trampoline runs; no leg returned a value.",
+  "On native Linux the same abort is contained by the worker boundary (worker_crash_asynclift: exit 1, parent_survived=true) \u2014 see native_linux/09_protected_runs.jsonl."
+ ],
+ "isolation": "every leg in its own child interpreter; a native abort IS the measurement, not a harness failure",
+ "probe": "ghsa_32h6_async_configuration_ablation",
+ "recommended_architecture_step_not_implemented": "pre-validate every component with wasmparser >= 1.260.0 (or an equivalent reject-async gate) before handing bytes to Wasmtime, so the refusal is a clean up-front validation error instead of an engine abort. NOT implemented in this verification round: no new runtime features are authorised.",
+ "stack_switching_ablation_python_binding": [
+  {
+   "artifact": "shape_async_run.wasm",
+   "child": {},
+   "mode": "off",
+   "native_message": [
+    "internal error: entered unreachable code: async-lifted exports should have failed validation when `component-model-async` feature disabled"
+   ],
+   "returncode": -6,
+   "signal": 6
+  },
+  {
+   "artifact": "hello02.wasm",
+   "child": {
+    "artifact": "tests/fixtures/hello02.wasm",
+    "config_set": "ok",
+    "engine": "built",
+    "instantiate": "OK",
+    "lookup": "no export",
+    "mode": "off",
+    "validation": "ACCEPTED"
+   },
+   "mode": "off",
+   "native_message": [],
+   "returncode": 0,
+   "signal": null
+  },
+  {
+   "artifact": "shape_async_run.wasm",
+   "child": {},
+   "mode": "on",
+   "native_message": [
+    "called `Result::unwrap()` on an `Err` value: the wasm_stack_switching feature is not supported on this compiler configuration"
+   ],
+   "returncode": -6,
+   "signal": 6
+  },
+  {
+   "artifact": "hello02.wasm",
+   "child": {},
+   "mode": "on",
+   "native_message": [
+    "called `Result::unwrap()` on an `Err` value: the wasm_stack_switching feature is not supported on this compiler configuration"
+   ],
+   "returncode": -6,
+   "signal": 6
+  }
+ ],
+ "sync_call_legs_from_reachability_sweep": [
+  {
+   "artifact": "shape_async_run.wasm",
+   "instantiate": null,
+   "returncode": -6,
+   "signal": 6,
+   "sync_call": null,
+   "validation": null
+  },
+  {
+   "artifact": "shape_async_lift_only.wasm",
+   "instantiate": null,
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    the `async` canonical option requires an async function type (at offset 0x6e)\n"
+  },
+  {
+   "artifact": "shape_async_type_only.wasm",
+   "instantiate": "OK",
+   "returncode": 0,
+   "signal": null,
+   "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+   "validation": "ACCEPTED"
+  },
+  {
+   "artifact": "shape_async_type_and_lift.wasm",
+   "instantiate": null,
+   "returncode": -6,
+   "signal": 6,
+   "sync_call": null,
+   "validation": null
+  },
+  {
+   "artifact": "patch_async_callback.wasm",
+   "instantiate": null,
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    the `async` canonical option requires an async function type (at offset 0x56)\n"
+  },
+  {
+   "artifact": "patch_asynctype_only.wasm",
+   "instantiate": null,
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+  },
+  {
+   "artifact": "patch_async_callback_asynctype.wasm",
+   "instantiate": null,
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+  },
+  {
+   "artifact": "cb.wasm",
+   "instantiate": null,
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "REJECTED: WasmtimeError: failed to parse WebAssembly module\n\nCaused by:\n    lowered parameter types `[]` do not match parameter types `[I32]` of core function 0 (at offset 0x56)\n"
+  },
+  {
+   "artifact": "cb2.wasm",
+   "instantiate": "OK",
+   "returncode": 0,
+   "signal": null,
+   "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+   "validation": "ACCEPTED"
+  },
+  {
+   "artifact": "cb3.wasm",
+   "instantiate": "OK",
+   "returncode": 0,
+   "signal": null,
+   "sync_call": "REFUSED: WasmtimeError: error while executing at wasm backtrace:\n    0:     0x3d - m!<wasm function 1>\n\nCaused by:\n    wasm trap: interrupt\n",
+   "validation": "ACCEPTED"
+  },
+  {
+   "artifact": "async1.wasm",
+   "instantiate": "REFUSED: WasmtimeError: component imports function `wasi:cli/stdout`, but a matching implementation was not found in the linker\n\nCaused by:\n    function implementation is missing\n",
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "ACCEPTED"
+  },
+  {
+   "artifact": "async2.wasm",
+   "instantiate": "OK",
+   "returncode": 0,
+   "signal": null,
+   "sync_call": null,
+   "validation": "ACCEPTED"
+  }
+ ],
+ "vendor_preconditions": {
+  "patched": "48.0.4, 49.0.2",
+  "requires": [
+   "a component with an async-lifted export (canon lift ... async + callback)",
+   "the engine to RUN that callback through the async runtime (host->guest trampoline)",
+   "wasmparser <= 0.259.0 style validation that accepted the invalid signature"
+  ],
+  "source": "GHSA description (bytecodealliance/wasmtime repo advisory, state=published, severity=critical)",
+  "summary": "async-lifted callback result count is unvalidated -> guest writes up to ~16KB of chosen data onto the native stack (return-address overwrite)",
+  "vendor_workaround": "disable the component-model-async feature (Wasmtime then rejects components using async features), or pre-validate with wasmparser >= 1.260.0",
+  "vulnerable_range": ">= 39.0.0, < 48.0.4, >= 49.0.0, < 49.0.2"
+ },
+ "verdict": {
+  "classification": "REACHABLE FOR THE ARTIFACT / NOT REACHED UNDER THE DEPLOYED PROFILE \u2014 the pilot claim must be stated this way, not as 'unreachable'.",
+  "critical_path_under_deployed_configuration": "NOT EXECUTED (measured, not inferred from missing methods)",
+  "protection_level": "deployment invariant + process wall, NOT an artifact-level guarantee",
+  "residual_risk": [
+   "R1: any embedder that links the same _libwasmtime and enables component-model-async through the C API can reach the async runtime; 49.0.0 keeps the unvalidated callback result count, so the overflow is reachable for such an embedder.",
+   "R2: the guard is the engine's own call-time abort, which is a PROCESS ABORT rather than a clean validation error; a worker that aborts is contained, but the abort is the mechanism.",
+   "R3: the posture is not attestable by read-back (no getter for wasm_stack_switching); the signed security_baseline field is a host-side constant, so it documents intent, not engine state.",
+   "R4: no 49.0.2 wheel exists yet, so the vendor fix is not installable (check_wasmtime_patch.py, 2026-10-13)."
+  ]
+ }
+}

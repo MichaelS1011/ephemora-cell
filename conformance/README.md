@@ -22,23 +22,76 @@ the same sandbox is argued separately — see
 suite** ([WebAssembly/testsuite](https://github.com/WebAssembly/testsuite),
 pinned commit, `wast2json` + harness) against the exact engine
 configuration Cell ships. Files execute in isolated subprocesses, so a
-native upstream abort on one module cannot kill the suite. Every deviation
-is a documented class — memory64/multi-memory modules sit outside the
-shipped config by design, v128 cannot pass through the wasmtime-py 47
-binding (valkind 4), relaxed-simd modules abort natively upstream,
-text-format asserts are skipped (wabt parser domain) — and the remainder
-is listed verbatim in the evidence JSON rather than swept into a pass
-count.
+native upstream abort on one module cannot kill the suite. Per-file results
+are cached, and a cached entry is reused only when it carries the identity of
+the runtime version, engine configuration and pinned suite it was measured
+under — an entry without that stamp is re-measured, because unknown
+provenance is not evidence.
 
 ```bash
 .venv/bin/python conformance/run_core_spec.py   # requires wast2json (wabt)
 ```
 
-Latest run (2026-09-19, pinned `b464a4cd100d`, 257 files / ~36k commands,
-macOS arm64, wasmtime 47.0.1): **31,931 pass** — 3,282 classified
-deviations/limitations, 684 text-format skips, 46 documented binding-level
-NaN-bit remainder; zero unexpected sandbox-policy failures. Evidence:
-`conformance/results/core_spec_2026-09-19.json` (`date: 2026-09-19`).
+Latest run (2026-10-23, pinned `b464a4cd100d`, 257 files, 35,942 harness
+outcomes from the 157 files that completed,
+macOS arm64, wasmtime `49.0.4.post1+git.2c2970205f`):
+**31,896 pass / 3,281 classified deviations-and-limitations / 684 text-format
+skips / 81 failing commands across 15 files**, so the harness exits `1`.
+This job is evidence, not a release gate. The 81 are commands, not files, and
+are classified in `V120_CORE_SPEC_CLASSIFICATION.json`: 27 unsupported
+proposals (17 exceptions, 4 GC constant expressions, 1 function-reference table,
+5 dependent assertions), 51 harness gaps (26 NaN bit reads, 14 missing spectest
+imports, 10 table/externref, 1 trap text) and 3 `local_init` cases still
+unclassified. Zero were identified as product defects.
+
+**Pinned toolchain.** The suite compiler is the official WABT 1.0.42 macOS
+arm64 release asset (`wabt-1.0.42-macos-arm64.tar.gz`, sha256
+`3f654779b436c628db3ca4323c51538815f5fbc887a6d5f3bb1c18d36281e240`); the
+`wast2json` binary inside it has sha256
+`e4d4e15fd4938980a656cf3595a5deebf660606ea2a9acffc15555c2dca43082`. The
+evidence JSON records that binary digest and the harness digest
+(`0518f816…b1d4`) in every per-file identity and in the top-level `toolchain`
+object. The CI job downloads and verifies the asset before running the suite.
+
+The earlier CI evidence run installed Homebrew `wabt` 1.0.41 unpinned and
+recorded **31,090 pass / 2,310 xfail / 49 fail / 514 skipped**. A controlled
+rerun with the pinned 1.0.42 asset reproduces the committed totals exactly, so
+that difference is a `wast2json` toolchain difference in how text-format
+assertions are generated, not a product difference. Neither count is presented
+as a PASS; the unclassified failures stay visible in both.
+
+Their composition, measured case by case:
+
+- **27 on modules the shipped posture refuses by design.** 17 name the
+  exceptions proposal (9 direct, 8 dependent), 4 the GC constant-expression
+  forms, 1 the function-references table form, and 5 are dependent assertions
+  of the same files.
+- **51 harness gaps.** 26 exact-bit NaN comparisons cannot be recovered through
+  the Python binding (the value arrives as a plain float); 14 need a spectest
+  import the harness does not provide; 10 are table/externref handling; 1 is
+  trap-text strictness.
+- **3 `local_init` validation cases** remain unclassified: wasm-tools and both
+  wasmtime configurations accept them, while the pinned WABT rejects 3/10 — most
+  likely spec drift ahead of the validators, not a Cell defect.
+
+The **3,281 classified** figure deserves one caveat: 100 of the 257 files are
+counted as deviations because the process running them ended before a
+per-command result, and an aborted file has **no per-command measurement at
+all**. A per-file inspection found **44 never reached the engine** — the pinned
+`wast2json` 1.0.42 refused the text format (21 GC, 17 function-references, 3
+tail-call, 2 exceptions, 1 annotations) — and **56 died in the wasmtime-py v128
+binding** (50 plain SIMD, 6 relaxed SIMD). The harness's blanket "relaxed-simd
+native abort" label is accurate for 0/100, partially for 6, and wrong for 94.
+Their sources contain about 31,330 command-shaped forms (against 69,853 across
+all 257 `.wast` sources by the same pattern count), so neither the pass count
+nor the deviation count is a full-suite measurement.
+
+None of them is a sandbox-policy outcome: this harness drives the engine
+directly, and the policy layer is measured by the WASI suite below and by the
+security harnesses. The earlier published figure — 31,931 pass / 46 fail — was
+measured under wasmtime 47.0.1 and before the proposal lockdown entered this
+harness's engine configuration; the corrected numbers above are what the
+shipped configuration measures today.
 
 ## WASI suite
 
@@ -54,14 +107,26 @@ runtime adapter, the by-design deviation list and the runner-instability note.
 The orchestrator:
 
 1. checks out the suite at the **pinned commit** into
-   `.conformance_cache/wasi-testsuite` (gitignored — never vendored),
+   `.conformance_cache/wasi-testsuite` (gitignored — never vendored) and
+   **verifies the checkout is on that commit** before measuring — a cache left on
+   another revision aborts the run instead of labelling its results with the pin,
 2. invokes the suite's own `run-tests` with `adapters/ephemora_cell.py`
    and `expectations.toml`,
-3. writes the raw JSON plus a `summary-*.json` digest into `results/`.
+3. writes the raw JSON plus a `summary-*.json` digest into `results/`, counting
+   each test by its own recorded outcome and reporting the runner's per-suite
+   header alongside whenever the two disagree.
 
-Latest run (2026-09-14, pinned `609c44613995`, macOS arm64, wasmtime 47.0.1,
-ephemora-cell 1.0.1): **72 pass, 1 xfail (documented), 0 fail**; 55 preview-3
-tests skipped (Cell declares preview 1 only).
+Latest run (2026-10-22, pinned `609c44613995`, observed revision identical to the
+pin, macOS arm64, wasmtime `49.0.4.post1+git.2c2970205f`, ephemora-cell 1.2.0):
+**71 pass, 1 documented by-design expected-failure, 0 fail** across the 72 tests
+the preview-1 suites execute; 55 preview-3 tests skipped (Cell declares preview 1
+only). The run needed no engine-abort retry at all (`engine_abort_retries: []`).
+An earlier version of this document said **72 pass / 1 xfail** for the same 72
+tests: the upstream runner's per-suite header counts an expected failure inside
+its `passed` column, and this harness copied the header, so the two figures
+described 73 results from 72 executions. The summary now counts the per-test
+outcomes (71 + 1) and keeps the diverging header in the evidence file.
+Evidence: `conformance/results/summary-609c44613995-2026-10-21.json`.
 
 ### Adapter
 

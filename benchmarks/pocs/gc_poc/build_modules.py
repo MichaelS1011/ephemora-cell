@@ -16,6 +16,7 @@ Produces:
   lifted.wasm             gc_workload lifted to a component via wasm-tools
                           (preview1 -> WASI 0.2, command adapter embedded)
 """
+
 from __future__ import annotations
 
 import os
@@ -27,8 +28,9 @@ import wasmtime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ADAPTER = os.path.join(HERE, "..", "componentize_poc", "adapters",
-                       "wasi_snapshot_preview1.command.wasm")
+ADAPTER = os.path.join(
+    HERE, "..", "componentize_poc", "adapters", "wasi_snapshot_preview1.command.wasm"
+)
 
 LOOP_N = 100_000  # default iteration count for the GC vs arith comparison
 
@@ -68,7 +70,7 @@ def gc_loop(n: int, count_var: str = "i32.const {n}") -> str:
 
 def arith_loop(n: int) -> str:
     """Non-GC arithmetic twin — same trip count, no heap allocation."""
-    return f"""\
+    return """\
   (func $arith_loop (param $n i32) (result i32)
     (local $i i32) (local $acc i32)
     (loop $l
@@ -80,6 +82,7 @@ def arith_loop(n: int) -> str:
     (local.get $acc)
   )
 """
+
 
 WASI_PRELUDE = """\
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write
@@ -131,50 +134,57 @@ def main() -> None:
     print("Building GC PoC modules under", HERE)
 
     # 1. GC-heavy preview1 command module.
-    build("gc_workload", (
-        "(module\n"
-        + WASI_PRELUDE
-        + GC_TYPES
-        + gc_loop(LOOP_N)
-        + wasi_print(
-            f"gc-workload done ({LOOP_N} iterations)\n",
-            body=f"i32.const {LOOP_N} call $gc_loop drop",
-        )
-        + ")\n"
-    ))
+    build(
+        "gc_workload",
+        (
+            "(module\n"
+            + WASI_PRELUDE
+            + GC_TYPES
+            + gc_loop(LOOP_N)
+            + wasi_print(
+                f"gc-workload done ({LOOP_N} iterations)\n",
+                body=f"i32.const {LOOP_N} call $gc_loop drop",
+            )
+            + ")\n"
+        ),
+    )
 
     # 2. Non-GC arithmetic twin, same loop count.
-    build("arith_workload", (
-        "(module\n"
-        + WASI_PRELUDE
-        + arith_loop(LOOP_N)
-        + wasi_print(
-            f"arith-workload done ({LOOP_N} iterations)\n",
-            body=f"i32.const {LOOP_N} call $arith_loop drop",
-        )
-        + ")\n"
-    ))
+    build(
+        "arith_workload",
+        (
+            "(module\n"
+            + WASI_PRELUDE
+            + arith_loop(LOOP_N)
+            + wasi_print(
+                f"arith-workload done ({LOOP_N} iterations)\n",
+                body=f"i32.const {LOOP_N} call $arith_loop drop",
+            )
+            + ")\n"
+        ),
+    )
 
     # 3. Unbounded GC churn (fuel / epoch timeout scenarios).
-    build("gc_infinite", (
-        "(module\n"
-        + WASI_PRELUDE
-        + GC_TYPES
-        + gc_loop(2 ** 31 - 1)
-        + wasi_print(
-            "unreachable\n",
-            body=f"i32.const {2 ** 31 - 1} call $gc_loop drop",
-        )
-        + ")\n"
-    ))
+    build(
+        "gc_infinite",
+        (
+            "(module\n"
+            + WASI_PRELUDE
+            + GC_TYPES
+            + gc_loop(2**31 - 1)
+            + wasi_print(
+                "unreachable\n",
+                body=f"i32.const {2 ** 31 - 1} call $gc_loop drop",
+            )
+            + ")\n"
+        ),
+    )
 
     # 4. GC + linear memory growth (Store.set_limits applies to linear
     #    memory even when GC is enabled — the GC heap itself is separate).
-    build("gc_grow", (
-        "(module\n"
-        + WASI_PRELUDE
-        + GC_TYPES
-        + """\
+    build(
+        "gc_grow",
+        ("(module\n" + WASI_PRELUDE + GC_TYPES + """\
   (memory (export "memory") 1)
   (func (export "_start")
     (local $i i32) (local $s (ref null $pt)) (local $acc i32)
@@ -188,22 +198,28 @@ def main() -> None:
     )
     (drop (local.get $acc))
     i32.const 0 call $exit)
-"""
-        + ")\n"
-    ))
+""" + ")\n"),
+    )
 
     # 5. Self-contained GC core module with a direct `run` export — the
     #    payload of the hand-written wrapper component (no WASI imports).
-    build("gc_core", (
-        "(module\n"
-        + GC_TYPES
-        + gc_loop(LOOP_N).replace("$gc_loop (param $n i32)", "$run (export \"run\") (result i32)").replace("local.get $n", "i32.const " + str(LOOP_N))
-        + ")\n"
-    ))
+    build(
+        "gc_core",
+        (
+            "(module\n"
+            + GC_TYPES
+            + gc_loop(LOOP_N)
+            .replace("$gc_loop (param $n i32)", '$run (export "run") (result i32)')
+            .replace("local.get $n", "i32.const " + str(LOOP_N))
+            + ")\n"
+        ),
+    )
 
     # 6. Hand-written component wrapping the GC core module with a direct
     #    `run` export (canon lift). No preview1 adapter involved.
-    build("gc_wrapper", """\
+    build(
+        "gc_wrapper",
+        """\
 (component
     (core module $m
         (type $pt (sub (struct (field i32) (field i32))))
@@ -229,10 +245,13 @@ def main() -> None:
     (core instance $i (instantiate $m))
     (func (export "run") (result u32) (canon lift (core func $i "run")))
 )
-""" % LOOP_N)
+""" % LOOP_N,
+    )
 
     # 6b. Infinite-GC twin of the wrapper for fuel/epoch component tests.
-    build("gc_wrapper_inf", """\
+    build(
+        "gc_wrapper_inf",
+        """\
 (component
     (core module $m
         (type $pt (sub (struct (field i32) (field i32))))
@@ -253,17 +272,26 @@ def main() -> None:
     (core instance $i (instantiate $m))
     (func (export "run") (result u32) (canon lift (core func $i "run")))
 )
-""")
+""",
+    )
 
     # 7. Lift the WASI GC module into a component (wasm-tools command
     #    adapter, same path as the componentize PoC).
     if os.path.exists(ADAPTER):
         lifted = os.path.join(HERE, "lifted.wasm")
-        subprocess.run([
-            "wasm-tools", "component", "new",
-            os.path.join(HERE, "gc_workload.wasm"),
-            "--adapt", ADAPTER, "-o", lifted,
-        ], check=True)
+        subprocess.run(
+            [
+                "wasm-tools",
+                "component",
+                "new",
+                os.path.join(HERE, "gc_workload.wasm"),
+                "--adapt",
+                ADAPTER,
+                "-o",
+                lifted,
+            ],
+            check=True,
+        )
         print(f"  built lifted.wasm  ({os.path.getsize(lifted)} bytes, wasm-tools)")
     else:
         print("  SKIP lifted.wasm — adapter missing; run componentize PoC build first")

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import statistics
 import subprocess
 import sys
 import time
@@ -137,7 +136,10 @@ OPEN_CHURN_WAT = """
 def canary_stats(duration: float, path: Path) -> dict:
     proc = subprocess.run(
         [sys.executable, "-c", CANARY_SRC, str(duration), str(path)],
-        capture_output=True, text=True, timeout=duration + 30, check=True,
+        capture_output=True,
+        text=True,
+        timeout=duration + 30,
+        check=True,
     )
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -147,7 +149,7 @@ def run_attack(mode: str, wasm: Path, datadir: Path, subdir: str = "") -> dict:
         datadir = datadir / subdir
         datadir.mkdir(exist_ok=True)
     config = WASIConfig(
-        max_fuel=None,               # trusted config: the realistic DoS surface
+        max_fuel=None,  # trusted config: the realistic DoS surface
         timeout_seconds=ATTACK_TIMEOUT,
         allow_dirs=(str(datadir),),
         disk_quota_bytes=512 * 1024 * 1024,
@@ -195,16 +197,16 @@ def main() -> int:
 
         # --- baseline: canary alone ---
         baseline = canary_stats(CANARY_SECONDS_BASELINE, canary_path)
-        print("baseline jitter mean/p95/max [ms]:",
-              round(baseline["jitter_ms_mean"], 3),
-              round(baseline["jitter_ms_p95"], 3),
-              round(baseline["jitter_ms_max"], 3))
+        print(
+            "baseline jitter mean/p95/max [ms]:",
+            round(baseline["jitter_ms_mean"], 3),
+            round(baseline["jitter_ms_p95"], 3),
+            round(baseline["jitter_ms_max"], 3),
+        )
 
         # --- attack 1: write flood ---
         with ThreadPoolExecutor(max_workers=2) as ex:
-            canary_future = ex.submit(
-                canary_stats, CANARY_SECONDS_ATTACK, canary_path
-            )
+            canary_future = ex.submit(canary_stats, CANARY_SECONDS_ATTACK, canary_path)
             time.sleep(1.0)  # canary settles before the guest starts
             attack1 = run_attack("write_flood", write_wasm, datadir)
             impact1 = canary_future.result()
@@ -212,9 +214,7 @@ def main() -> int:
 
         # --- attack 2: open churn ---
         with ThreadPoolExecutor(max_workers=2) as ex:
-            canary_future = ex.submit(
-                canary_stats, CANARY_SECONDS_ATTACK, canary_path
-            )
+            canary_future = ex.submit(canary_stats, CANARY_SECONDS_ATTACK, canary_path)
             time.sleep(1.0)
             attack2 = run_attack("open_churn", churn_wasm, datadir)
             impact2 = canary_future.result()
@@ -224,23 +224,17 @@ def main() -> int:
         stat_wasm = datadir / "stat_flood.wasm"
         stat_wasm.write_bytes(wasmtime.wat2wasm(STAT_FLOOD_WAT))
         with ThreadPoolExecutor(max_workers=2) as ex:
-            canary_future = ex.submit(
-                canary_stats, CANARY_SECONDS_ATTACK, canary_path
-            )
+            canary_future = ex.submit(canary_stats, CANARY_SECONDS_ATTACK, canary_path)
             time.sleep(1.0)
             attack3 = run_attack("stat_flood", stat_wasm, datadir)
             impact3 = canary_future.result()
 
         # --- attack 4: 4x parallel write floods ---
         with ThreadPoolExecutor(max_workers=5) as ex:
-            canary_future = ex.submit(
-                canary_stats, CANARY_SECONDS_ATTACK, canary_path
-            )
+            canary_future = ex.submit(canary_stats, CANARY_SECONDS_ATTACK, canary_path)
             time.sleep(1.0)
             futures = [
-                ex.submit(
-                    run_attack, "write_flood", write_wasm, datadir, f"p{i}"
-                )
+                ex.submit(run_attack, "write_flood", write_wasm, datadir, f"p{i}")
                 for i in range(4)
             ]
             attacks4 = [f.result() for f in futures]

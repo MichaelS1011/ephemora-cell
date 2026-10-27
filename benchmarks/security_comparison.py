@@ -4,10 +4,11 @@ import json
 import os
 import sys
 import tempfile
+
 import wasmtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ephemora_cell import WASISandbox, WASIConfig, ExecutionStatus
+from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 
 # ============================================================
 # Attack payloads
@@ -219,7 +220,7 @@ def main():
     }
     with open("/tmp/ephemora_cell-security-comparison.json", "w") as f:
         json.dump(output, f, indent=2)
-    print(f"\nSaved: /tmp/ephemora_cell-security-comparison.json")
+    print("\nSaved: /tmp/ephemora_cell-security-comparison.json")
 
 
 if __name__ == "__main__":

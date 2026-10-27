@@ -97,8 +97,8 @@ def build(p: dict) -> str:
         f'aria-label="One execution lifecycle: an agent hands untrusted code to '
         f"the Ephemora-cell capability boundary, which grants explicit "
         f"capabilities and budgets, denies network and process access by "
-        f"default, and returns a bounded result with a signed record while the "
-        f'execution state is destroyed">',
+        f"default, and returns a bounded result with a record that can be "
+        f'signed — the evidence persists, no execution state survives into the next run">',
         f'<rect width="{W}" height="{H}" fill="{p["canvas"]}"/>',
     ]
 
@@ -168,7 +168,7 @@ def build(p: dict) -> str:
             632,
             124,
             232,
-            "result + signed record",
+            "result + signable record",
             p,
             size=13.5,
             fill=p["accent_fill"],
@@ -176,7 +176,7 @@ def build(p: dict) -> str:
         )
     )
     parts.append(
-        chip(632, 196, 232, "execution state destroyed", p, size=13.5, dashed=True)
+        chip(632, 196, 232, "no execution state survives", p, size=13.5, dashed=True)
     )
     parts.append(text(748, 258, "evidence persists · state does not", 12, p["muted"]))
 

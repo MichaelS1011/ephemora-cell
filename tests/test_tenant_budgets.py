@@ -28,7 +28,6 @@ from ephemora_cell import (
     WASISandbox,
     process_executor,
 )
-from ephemora_cell._sandbox_common import _MAX_OUTPUT_BYTES
 from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell.tenant import (
     Charge,
@@ -158,7 +157,7 @@ class TestAdmissionAndSettlement:
             store.settle("acme", admission.admit_id, charge=Charge(fuel=1))
         assert store.usage("acme").charged.fuel == 5
 
-    def test_expired_reservation_stops_blocking(self, tmp_path):
+    def test_expired_lease_frees_the_slot_but_keeps_its_fuel_booked(self, tmp_path):
         store = _store(tmp_path)
         budget = CumulativeBudget(max_total_fuel=1000)
         stuck = store.admit(
@@ -171,11 +170,18 @@ class TestAdmissionAndSettlement:
 
         sleep(0.1)
         expired_view = store.usage("acme")
+        # The run slot is freed (a crashed holder must not block forever) ...
         assert expired_view.inflight == 0 and expired_view.reserved == Charge()
-        assert store.admit("acme", reserve=Charge(fuel=1), budget=budget).allowed
-        # the abandoned reservation is explicitly retired in the file
+        # ... but the fuel ceiling is an upper-bound charge, not a free release.
+        assert expired_view.recovered.fuel == 1000
+        assert expired_view.recovered_expired_runs == 1
+        assert not store.admit("acme", reserve=Charge(fuel=1), budget=budget).allowed
+        # An explicit expire is the administrator's "nothing ran" assertion;
+        # only that releases the recovered fuel.
         store.expire("acme", stuck.admit_id)
+        assert store.usage("acme").recovered == Charge()
         assert store.usage("acme").runs == 0
+        assert store.admit("acme", reserve=Charge(fuel=1), budget=budget).allowed
 
     def test_unknown_or_foreign_admission_is_refused(self, tmp_path):
         store = _store(tmp_path)
@@ -392,15 +398,17 @@ class TestRunEnforcement:
         tight = WASISandbox(
             WASIConfig(max_fuel=4000, io_budget_bytes=1000, timeout_seconds=5)
         )
+        per_attempt_output = 1000 + 2 * 75_536
         assert tight.reservation() == Charge(
-            fuel=4000,
-            output_bytes=2 * _MAX_OUTPUT_BYTES + 1000,
-            wall_ms=5000,
+            fuel=8000,
+            output_bytes=2 * per_attempt_output,
+            wall_ms=20000,
         )
-        # An unbounded knob contributes 0 rather than an invented number.
+        # An unbounded fuel knob contributes 0 rather than an invented number;
+        # output still has the two host-capped capture files as a hard bound.
         open_ended = WASISandbox(WASIConfig(max_fuel=None, io_budget_bytes=None))
         assert open_ended.reservation() == Charge(
-            fuel=0, output_bytes=2 * _MAX_OUTPUT_BYTES, wall_ms=30_000
+            fuel=0, output_bytes=2 * (2 * 75_536), wall_ms=70_000
         )
 
     def test_refusal_starts_nothing(self, tmp_path):
@@ -470,7 +478,37 @@ class TestRunEnforcement:
         # the receipt carries what the host decided, not what the guest saw
         assert result.tenant == "acme" and result.tenant_budget_ref == budget.ref()
 
-    def test_a_run_that_never_returns_gives_its_reservation_back(
+    def test_retry_charges_first_attempt_bytes_and_flags_unknown_fuel(
+        self, tmp_path, monkeypatch
+    ):
+        result = ExecutionResult(
+            status=ExecutionStatus.SUCCESS,
+            fuel_consumed=10,
+            stdout="ok",
+            worker_attempts=2,
+            first_attempt_crashed=True,
+            first_attempt_error="panic",
+            first_attempt_fuel_consumed=None,
+            first_attempt_stdout_bytes=3,
+            first_attempt_stderr_bytes=4,
+            first_attempt_execution_started=True,
+            first_attempt_wall_ms=12,
+        )
+        _, fake = _bookkeeper(tmp_path, result)
+        monkeypatch.setattr(WASISandbox, "_execute", fake)
+        store = _store(tmp_path)
+        WASISandbox().run("m.wasm", tenant="acme", tenant_store=store)
+        entries = [e for e in store.entries("acme") if e["kind"] == "settle"]
+        assert entries
+        settle = entries[-1]
+        # Measured final-run fuel (10) plus the per-run ceiling for the
+        # unmeasured first attempt (1_000_000, WASISandbox default).
+        assert settle["charge"]["fuel"] == 1_000_010
+        assert settle["unknown_fuel_charged"] == 1_000_000
+        assert settle["charge"]["output_bytes"] >= 9
+        assert settle["unknown"] is True
+
+    def test_a_run_that_never_returns_is_settled_conservatively(
         self, tmp_path, monkeypatch
     ):
         def explode(self, wasm_path, **kwargs):
@@ -480,9 +518,16 @@ class TestRunEnforcement:
         store = _store(tmp_path)
         with pytest.raises(RuntimeError, match="worker died"):
             WASISandbox().run("m.wasm", tenant="acme", tenant_store=store)
-        assert store.usage("acme").inflight == 0
-        assert store.usage("acme").runs == 0
-        assert [line["kind"] for line in store.entries("acme")] == ["admit", "expire"]
+        usage = store.usage("acme")
+        assert usage.inflight == 0
+        assert usage.runs == 1
+        entries = store.entries("acme")
+        assert [line["kind"] for line in entries] == ["admit", "settle"]
+        assert entries[-1]["unknown"] is True
+        # The two-attempt reservation ceiling is booked because the host
+        # cannot prove the interrupted call never started a worker.
+        assert usage.charged.fuel == 2_000_000
+        assert usage.unknown_fuel_charged == 2_000_000
 
     @pytest.mark.parametrize(
         "result,expect",
@@ -520,9 +565,9 @@ class TestRunEnforcement:
         seen: list[bytes] = []
         original = process_executor._spawn_worker
 
-        def spy(cmd, payload, process_timeout):
+        def spy(cmd, payload, process_timeout, env):
             seen.append(payload)
-            return original(cmd, payload, process_timeout)
+            return original(cmd, payload, process_timeout, env)
 
         monkeypatch.setattr(process_executor, "_spawn_worker", spy)
         store = _store(tmp_path)

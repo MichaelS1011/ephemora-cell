@@ -1,0 +1,37 @@
+{
+  "measured": true,
+  "source": "measurement",
+  "date": "2026-10-16",
+  "generated_at": "2026-10-16T21:57:12",
+  "python": "3.12.13",
+  "wasmtime": "49.0.3.post2+git.1d21c90f",
+  "guest": "examples/hello.wasm",
+  "n": 300,
+  "warmup": 50,
+  "scenarios": {
+    "pooled_warm (trust=trusted, io_budget_bytes=None)": {
+      "n": 300,
+      "trust": "trusted",
+      "wall_ms_median": 1.4296,
+      "wall_ms_p95": 2.8813,
+      "wall_ms_min": 0.924,
+      "guest_elapsed_ms_median": 0.5659
+    },
+    "default (trust=trusted, io_budget_bytes=64MiB, per-run engine)": {
+      "n": 300,
+      "trust": "trusted",
+      "wall_ms_median": 2.2808,
+      "wall_ms_p95": 3.7322,
+      "wall_ms_min": 1.6335,
+      "guest_elapsed_ms_median": 1.4398
+    },
+    "default_posture (trust=unknown -> disposable worker, ADR-015)": {
+      "n": 300,
+      "trust": "unknown",
+      "wall_ms_median": 132.8683,
+      "wall_ms_p95": 173.4348,
+      "wall_ms_min": 114.7107,
+      "guest_elapsed_ms_median": 3.6069
+    }
+  }
+}

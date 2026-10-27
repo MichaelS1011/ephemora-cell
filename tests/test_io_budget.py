@@ -23,6 +23,7 @@ from ephemora_cell import (
     WASIConfig,
     WASISandbox,
 )
+from ephemora_cell.execution_report import TRUST_TRUSTED
 
 # 300000 x 32B = 9.6 MB — a "10-MB-writer" that the 10 KB budget must stop.
 MB_WRITER_WAT = """
@@ -182,9 +183,14 @@ class TestIOByteBudget:
     """fd_write output is bounded by a real byte budget."""
 
     def test_mb_writer_stopped_at_budget(self):
-        """A ~10 MB writer must be stopped at ~10 KB and the capture file must stay small."""
+        """A ~10 MB writer must be stopped at ~10 KB and the capture file must stay small.
+
+        The subject is the parent-side in-process capture file (``sandbox._host_dir``);
+        under the 1.2.0 mandate the default posture runs the guest in a worker, whose
+        host dir the parent object never owns, so declare the sanctioned in-process path.
+        """
         sandbox = WASISandbox(config=WASIConfig(max_fuel=None, timeout_seconds=60))
-        result = sandbox.run(_write_wasm(MB_WRITER_WAT))
+        result = sandbox.run(_write_wasm(MB_WRITER_WAT), trust=TRUST_TRUSTED)
 
         assert result.status == ExecutionStatus.SUCCESS, result.stderr[:300]
         # In-memory output bounded at 10 KB (+ truncation slack)
@@ -204,9 +210,13 @@ class TestIOByteBudget:
         assert file_size <= 10_050, f"capture file grew past budget: {file_size} bytes"
 
     def test_capture_files_not_in_guest_sandbox(self):
-        """Capture files must live in the host dir, NOT in the guest-visible /sandbox."""
+        """Capture files must live in the host dir, NOT in the guest-visible /sandbox.
+
+        Parent-side in-process placement (``sandbox._host_dir`` vs ``result.sandbox_dir``);
+        run on the sanctioned in-process path so those parent attributes are populated.
+        """
         sandbox = WASISandbox(config=WASIConfig(max_fuel=None, timeout_seconds=60))
-        result = sandbox.run(_write_wasm(MB_WRITER_WAT))
+        result = sandbox.run(_write_wasm(MB_WRITER_WAT), trust=TRUST_TRUSTED)
         assert result.status == ExecutionStatus.SUCCESS, result.stderr[:300]
 
         sandbox_dir = result.sandbox_dir

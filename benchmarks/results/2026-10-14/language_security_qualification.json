@@ -1,0 +1,91 @@
+{
+  "probes": [
+    {
+      "fuel_consumed": 454990607,
+      "probe": "attack1.py",
+      "report": {
+        "cwd": "/",
+        "env_keys": [],
+        "host_repo_listdir": "refused: [Errno 76]",
+        "stat_root:/": "refused: [Errno 76]",
+        "stat_root:/sandbox": "ok: []",
+        "stat_root:/work": "ok: ['hello.py', 'subproc2.py', 'no_cap.py', 'version_probe.py', 'attack2c.py', 'subproc.py']",
+        "symlink_escape": "refused at link: [Errno 63] Operation not permitted",
+        "traversal:/opt/wasi-python/lib/python3.10/../../../etc/hosts": "refused: [Errno 63] Operation not permitted",
+        "traversal:/sandbox/../../etc/hosts": "refused: [Errno 63] Operation not permitted",
+        "traversal:/work/../../etc/passwd": "refused: [Errno 63] Operation not permitted",
+        "traversal:/work/../etc/hosts": "refused: [Errno 63] Operation not permitted"
+      },
+      "status": "ExecutionStatus.SUCCESS",
+      "wall_s": 1.423
+    },
+    {
+      "fuel_consumed": 1111576084,
+      "probe": "attack2a.py",
+      "report": {
+        "ctypes": "refused at import: ModuleNotFoundError: No module named '_ctypes'",
+        "home": "/",
+        "multiprocessing": "importable cpus=1",
+        "putenv_then_getenv": null,
+        "threading": "refused: RuntimeError: can't start new thread"
+      },
+      "status": "ExecutionStatus.SUCCESS",
+      "wall_s": 1.393
+    },
+    {
+      "fuel_consumed": 512886565,
+      "probe": "attack2b.py",
+      "report": {
+        "sandbox_fill": "wrote 64 MB without an OS error"
+      },
+      "status": "ExecutionStatus.SUCCESS",
+      "wall_s": 1.285
+    },
+    {
+      "fuel_consumed": null,
+      "probe": "attack2c.py",
+      "status": "ExecutionStatus.ERROR",
+      "stderr_head": "I/O budget exceeded: guest wrote 201326592 bytes to the sandbox dir (io_budget_bytes=67108864)",
+      "stdout_head": "",
+      "wall_s": 1.404
+    },
+    {
+      "fuel_consumed": 515873,
+      "probe": "os_surface.wasm",
+      "report": {
+        "Javy_keys": [
+          "IO"
+        ],
+        "typeof_Javy": "object",
+        "typeof_fetch": "undefined",
+        "typeof_global_fs": "undefined",
+        "typeof_process": "undefined",
+        "typeof_require": "undefined",
+        "typeof_setTimeout": "undefined"
+      },
+      "status": "ExecutionStatus.SUCCESS",
+      "wall_s": 0.74
+    }
+  ],
+  "provenance": {
+    "cpython_guest_bytes": 22363477,
+    "cpython_guest_sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02",
+    "guest_version_report": {
+      "executable": "",
+      "maxunicode": 1114111,
+      "platform": "wasi",
+      "version": "3.10.2+ (heads/3.10-dirty:a7af34d407, Mar  1 2022, 15:42:28) [Clang 13.0.0 (https://github.com/llvm/llvm-project fd1d8c2f04dde23bee0fb3a7d069",
+      "version_info": [
+        3,
+        10,
+        2,
+        "final",
+        0
+      ]
+    },
+    "javy_cli_sha256": "a5d4ce308e3b975f35460962dea182b0bc6c15e46941604dfc3258c77eacba5a",
+    "javy_plugin_sha256": "cbd110a0ee5c7f25723e7b95eb688bd9e831213165a8370c615d409b5a6ad417",
+    "js_probe_sha256": "738d0ab7e5e3965b5bc32604e8d6a1cdaa6595d7f61eb208cb3b5709bf56784c"
+  },
+  "scope": "Language security qualification"
+}

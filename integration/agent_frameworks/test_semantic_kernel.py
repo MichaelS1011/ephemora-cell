@@ -7,7 +7,9 @@ Usage:
     python integration/agent_frameworks/test_semantic_kernel.py
     python integration/agent_frameworks/test_semantic_kernel.py --json
 """
+
 from __future__ import annotations
+
 import asyncio
 import json
 import sys
@@ -27,6 +29,11 @@ except ImportError:
     print("SKIP: semantic_kernel not installed")
     sys.exit(0)
 
+#: Semantic Kernel validates plugin names against ``^[0-9A-Za-z_]+$`` (measured
+#: with semantic-kernel 1.36.0: a space makes ``KernelFunctionMetadata`` raise
+#: ``ValidationError`` and ``add_plugin`` fail). Keep it an identifier.
+PLUGIN_NAME = "EphemoraCell"
+
 
 class EphemoraCellPlugin:
     """Semantic Kernel plugin for WASM execution via Ephemora Cell."""
@@ -39,19 +46,23 @@ class EphemoraCellPlugin:
     def execute_wasm(wasm_path: str) -> str:
         executor = EphemoraCellExecutor(max_fuel=100_000, timeout=5)
         result = executor.execute(wasm_path)
-        return json.dumps({
-            "status": result.status,
-            "elapsed_ms": result.elapsed_ms,
-        })
+        return json.dumps(
+            {
+                "status": result.status,
+                "elapsed_ms": result.elapsed_ms,
+            }
+        )
 
 
 async def run_test():
     kernel = Kernel()
     try:
-        kernel.add_plugin(EphemoraCellPlugin(), plugin_name="Ephemora Cell")
+        kernel.add_plugin(EphemoraCellPlugin(), plugin_name=PLUGIN_NAME)
     except Exception as exc:
-        print("SKIP: plugin registration failed: %s" % exc)
-        sys.exit(0)
+        # A registration failure is not "the framework is not installed": it is a
+        # broken example. Reporting it as SKIP (exit 0) would let a real defect
+        # masquerade as an absent dependency, and a SKIP is not evidence.
+        raise SystemExit(f"FAIL: plugin registration failed: {exc}") from exc
 
     wasm_paths = [
         str(WORKLOADS / "data_transform.wasm"),
@@ -62,14 +73,16 @@ async def run_test():
     results = []
     for wasm in wasm_paths:
         outcome = await kernel.invoke(
-            plugin_name="Ephemora Cell",
+            plugin_name=PLUGIN_NAME,
             function_name="execute",
             wasm_path=wasm,
         )
-        results.append({
-            "wasm": Path(wasm).name,
-            "output": str(outcome.value) if outcome else "error",
-        })
+        results.append(
+            {
+                "wasm": Path(wasm).name,
+                "output": str(outcome.value) if outcome else "error",
+            }
+        )
 
     return {
         "framework": "semantic_kernel",

@@ -9,15 +9,15 @@ Usage:
     python benchmarks/agentic_workflow.py --inject --n-agents 5 --stats
     python benchmarks/agentic_workflow.py --json > report.json
 """
+
 from __future__ import annotations
+
 import argparse
 import json
 import math
-import random
 import statistics
 import subprocess
 import sys
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -25,8 +25,7 @@ from typing import Any
 
 # Setup path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ephemora_cell import WASISandbox, WASIConfig
-
+from ephemora_cell import WASIConfig, WASISandbox
 
 WORKLOADS = Path(__file__).parent / "workloads"
 
@@ -80,10 +79,7 @@ def _docker_transform_payload(wasm_path: str) -> str:
             "assert len(data) == 500 and sum(d['v'] for d in data) > 0"
         ),
         "plugin_chain": (
-            "v = 1;\n"
-            "for i in range(1000):\n"
-            "    v = v * 2 + 1\n"
-            "assert v > 0"
+            "v = 1;\n" "for i in range(1000):\n" "    v = v * 2 + 1\n" "assert v > 0"
         ),
     }
     return payloads.get(
@@ -109,7 +105,8 @@ def run_docker(wasm_path: str, n_calls: int) -> list[float] | None:
         start = time.monotonic()
         result = subprocess.run(
             ["docker", "run", "--rm", "python:3.12-slim", "python3", "-c", payload],
-            capture_output=True, timeout=30
+            capture_output=True,
+            timeout=30,
         )
         if result.returncode != 0:
             return None
@@ -126,7 +123,7 @@ def stats(values: list[float]) -> dict[str, Any]:
     mean = statistics.mean(values)
     stdev = statistics.stdev(values) if n > 1 else 0
     median = statistics.median(values)
-    ci = 1.96 * stdev / (n ** 0.5)
+    ci = 1.96 * stdev / (n**0.5)
     s = sorted(values)
     return {
         "n": n,
@@ -246,8 +243,14 @@ def _lgamma(x: float) -> float:
     """Stirling's approximation for log-gamma."""
     if x <= 0:
         return 0
-    cof = [76.18009172947146, -86.50532032941677, 24.01409824083091,
-           -1.231739572450155, 0.001208650973866179, -5.395239384953e-6]
+    cof = [
+        76.18009172947146,
+        -86.50532032941677,
+        24.01409824083091,
+        -1.231739572450155,
+        0.001208650973866179,
+        -5.395239384953e-6,
+    ]
     y = x
     tmp = x + 5.5
     tmp -= (x + 0.5) * math.log(tmp)
@@ -289,7 +292,7 @@ def run_security_injection(
         for call_idx in range(n_calls):
             config = WASIConfig(max_fuel=1_000_000, timeout_seconds=5, max_memory_mb=64)
             sandbox = WASISandbox(config=config)
-            is_exploit = (call_idx % inject_every == inject_every - 1)
+            is_exploit = call_idx % inject_every == inject_every - 1
             wasm = exploit_path if is_exploit else scenario_wasm
 
             start = time.monotonic()
@@ -329,8 +332,10 @@ def run_security_injection(
     }
 
     if not quiet:
-        print(f"  Security Injection:")
-        print(f"    {total_blocked}/{total_injections} exploits blocked ({result['block_rate']:.0%})")
+        print("  Security Injection:")
+        print(
+            f"    {total_blocked}/{total_injections} exploits blocked ({result['block_rate']:.0%})"
+        )
         print(f"    Normal: {result['normal_stats'].get('mean_ms', 0):.2f}ms/call")
         print(f"    Inject: {result['inject_stats'].get('mean_ms', 0):.2f}ms/call")
 
@@ -462,21 +467,25 @@ def run_scenario(
         if all_times_docker:
             s = stats(all_times_docker)
             results["docker"] = s
-            results["docker_payload"] = "python transform logic (equivalent work, not WASM)"
+            results["docker_payload"] = (
+                "python transform logic (equivalent work, not WASM)"
+            )
             if not quiet:
-                print(f"mean={s['mean_ms']}ms, total={s['total_ms']}ms "
-                      f"(python transform logic, not WASM)")
+                print(
+                    f"mean={s['mean_ms']}ms, total={s['total_ms']}ms "
+                    f"(python transform logic, not WASM)"
+                )
         else:
             if not quiet:
                 print("skipped (docker not available)")
             results["docker"] = None
 
     # Cost analysis
-    if "ephemora_cell_naive" in results and results["ephemora_cell_naive"]:
+    if results.get("ephemora_cell_naive"):
         results["cost_ephemora_cell_naive"] = cost_analysis(
             results["ephemora_cell_naive"]["throughput"]
         )
-    if "ephemora_cell_pooled" in results and results["ephemora_cell_pooled"]:
+    if results.get("ephemora_cell_pooled"):
         results["cost_ephemora_cell_pooled"] = cost_analysis(
             results["ephemora_cell_pooled"]["throughput"]
         )
@@ -492,23 +501,31 @@ def main():
         description="Agentic Workflow Benchmark — Ephemora Cell vs Docker",
     )
     parser.add_argument(
-        "--scenario", choices=SCENARIOS + ["all"], default="all",
+        "--scenario",
+        choices=SCENARIOS + ["all"],
+        default="all",
         help="Scenario to run (default: all)",
     )
     parser.add_argument("--n", type=int, default=50, help="Tool-calls per agent")
     parser.add_argument("--repeats", type=int, default=10, help="Repeat each run")
-    parser.add_argument("--no-docker", action="store_true", help="Skip Docker comparison")
+    parser.add_argument(
+        "--no-docker", action="store_true", help="Skip Docker comparison"
+    )
     parser.add_argument("--json", action="store_true", help="JSON output only")
     parser.add_argument(
-        "--inject", action="store_true",
+        "--inject",
+        action="store_true",
         help="Inject exploits every N calls (security test)",
     )
     parser.add_argument(
-        "--n-agents", type=int, default=0,
+        "--n-agents",
+        type=int,
+        default=0,
         help="Concurrent agents (0 = sequential only)",
     )
     parser.add_argument(
-        "--stats", action="store_true",
+        "--stats",
+        action="store_true",
         help="Include statistical significance (t-test, Cohen's d)",
     )
     args = parser.parse_args()
@@ -523,15 +540,22 @@ def main():
         # Security injection
         if args.inject:
             r["security_injection"] = run_security_injection(
-                f"{scenario}.wasm", "exploit.wasm",
-                args.n, 10, args.repeats, args.json,
+                f"{scenario}.wasm",
+                "exploit.wasm",
+                args.n,
+                10,
+                args.repeats,
+                args.json,
             )
 
         # Concurrency
         if args.n_agents > 0:
             r["concurrent"] = run_concurrent(
-                scenario, args.n, args.n_agents,
-                max(1, args.repeats // 3), args.json,
+                scenario,
+                args.n,
+                args.n_agents,
+                max(1, args.repeats // 3),
+                args.json,
             )
 
         # Statistical significance (Naive vs Docker)
@@ -559,33 +583,41 @@ def main():
                 s = r.get(mode)
                 if s:
                     cost = r.get(f"cost_{mode}", {})
-                    print(f"    {mode:20s}: {s['mean_ms']:>7.2f}ms/call "
-                          f"| total {s['total_ms']:>8.2f}ms "
-                          f"| {s['throughput']:>7.1f} calls/s "
-                          f"| $1K={cost.get('cost_per_1k', 'N/A')}")
+                    print(
+                        f"    {mode:20s}: {s['mean_ms']:>7.2f}ms/call "
+                        f"| total {s['total_ms']:>8.2f}ms "
+                        f"| {s['throughput']:>7.1f} calls/s "
+                        f"| $1K={cost.get('cost_per_1k', 'N/A')}"
+                    )
             # Speedup
             if r.get("ephemora_cell_naive") and r.get("docker"):
                 speedup = r["docker"]["mean_ms"] / r["ephemora_cell_naive"]["mean_ms"]
                 print(f"    {'':>20s}  Speedup (Naive/Docker): {speedup:.0f}x")
             # Security
-            if "security_injection" in r and r["security_injection"]:
+            if r.get("security_injection"):
                 si = r["security_injection"]
                 if "error" not in si:
-                    print(f"\n  Security Injection:")
-                    print(f"    Block rate: {si['block_rate']:.0%} "
-                          f"({si['total_blocked']}/{si['total_injections']})")
-                    print(f"    Normal mean: {si['normal_stats'].get('mean_ms', 0):.2f}ms")
-                    print(f"    Inject mean: {si['inject_stats'].get('mean_ms', 0):.2f}ms")
+                    print("\n  Security Injection:")
+                    print(
+                        f"    Block rate: {si['block_rate']:.0%} "
+                        f"({si['total_blocked']}/{si['total_injections']})"
+                    )
+                    print(
+                        f"    Normal mean: {si['normal_stats'].get('mean_ms', 0):.2f}ms"
+                    )
+                    print(
+                        f"    Inject mean: {si['inject_stats'].get('mean_ms', 0):.2f}ms"
+                    )
             # Concurrency
-            if "concurrent" in r and r["concurrent"]:
+            if r.get("concurrent"):
                 cc = r["concurrent"]
                 if "error" not in cc:
                     print(f"\n  Concurrent ({cc['n_agents']} agents):")
                     print(f"    Throughput: {cc['concurrent_throughput']:.1f} calls/s")
             # Stats
-            if "stat_significance" in r and r["stat_significance"]:
+            if r.get("stat_significance"):
                 ss = r["stat_significance"]
-                print(f"\n  Statistical Significance:")
+                print("\n  Statistical Significance:")
                 print(f"    t={ss['t']:.4f}, p={ss['p']}, d={ss['cohens_d']:.4f}")
 
 

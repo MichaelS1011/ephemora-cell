@@ -81,23 +81,78 @@ def _engine() -> wasmtime.Engine:
 
 
 def ensure_suite() -> None:
+    """Put the suite at PINNED_COMMIT, from a cold cache on any machine.
+
+    The clone is deliberately NOT shallow. Measured on 2026-10-19: a
+    `--depth 1` clone carries exactly one commit — whatever the branch tip is at
+    that moment — so the subsequent `git checkout <pin>` fails with
+    `pathspec '<pin>' did not match any file(s) known to git` unless the pin
+    happens to BE the tip. `fetch --depth 1 origin <sha>` is not an alternative:
+    GitHub answers `fatal: couldn't find remote ref <sha>`. A full clone of this
+    repository is 283 commits / 14 MB and does contain the pin, so it is cloned
+    whole and checked out. The final assertion makes the claim self-evidencing:
+    the run reports the revision it measured, and a wrong revision cannot pass it.
+    """
     if (CACHE / ".git").exists():
+        if _is_at_pin():
+            return
+        if not _pin_available():
+            subprocess.run(
+                ["git", "-C", str(CACHE), "fetch", "--quiet", "origin"],
+                check=True,
+            )
+        subprocess.run(
+            ["git", "-C", str(CACHE), "checkout", "--quiet", PINNED_COMMIT],
+            check=True,
+        )
+    else:
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["git", "clone", "--quiet", SUITE_URL, str(CACHE)],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(CACHE), "checkout", "--quiet", PINNED_COMMIT],
+            check=True,
+        )
+
+    if not _is_at_pin():
         head = subprocess.run(
             ["git", "-C", str(CACHE), "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
         ).stdout.strip()
-        if head.startswith(PINNED_COMMIT):
-            return
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    if not (CACHE / ".git").exists():
-        subprocess.run(
-            ["git", "clone", "--quiet", "--depth", "1", SUITE_URL, str(CACHE)],
-            check=True,
+        sys.exit(
+            f"FAIL: core-testsuite is at {head}, not the pinned {PINNED_COMMIT} — "
+            "a conformance result measured on another revision is not this claim"
         )
-    subprocess.run(
-        ["git", "-C", str(CACHE), "checkout", "--quiet", PINNED_COMMIT], check=True
+
+
+def _is_at_pin() -> bool:
+    """Does this cache's HEAD equal the pin?
+
+    PINNED_COMMIT is written as an abbreviation, while `rev-parse HEAD` prints
+    the full 40 characters — so the comparison is prefix-based, as it was before.
+    """
+    head = subprocess.run(
+        ["git", "-C", str(CACHE), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    return head.startswith(PINNED_COMMIT)
+
+
+def _pin_available() -> bool:
+    """Is the pinned commit already an object in this cache?"""
+    return (
+        subprocess.run(
+            ["git", "-C", str(CACHE), "cat-file", "-t", PINNED_COMMIT],
+            capture_output=True,
+            text=True,
+        ).returncode
+        == 0
     )
 
 
@@ -157,7 +212,7 @@ def _value_matches(expected: dict, got) -> bool:
         return bits == (int(raw) & ((1 << width) - 1))
     if t == "v128":
         raise HarnessLimitation(
-            "wasmtime-py 47 cannot pass or return v128 values (valkind 4)"
+            "wasmtime-py binding cannot pass or return v128 (no ValType.v128)"
         )
     if t == "ref.null":
         return got is None or (getattr(got, "type", None) is None and got is None)
@@ -321,7 +376,7 @@ class SpecRunner:
             except wasmtime.WasmtimeError as e:
                 if "valkind" in str(e):
                     raise HarnessLimitation(
-                        "wasmtime-py 47 binding: v128 unsupported " "(valkind 4)"
+                        "wasmtime-py binding: v128 unsupported " "(no ValType.v128)"
                     ) from e
                 raise
         if kind == "get":
@@ -331,7 +386,7 @@ class SpecRunner:
             except (wasmtime.WasmtimeError, NotImplementedError) as e:
                 if "valkind" in str(e) or "v128" in str(e):
                     raise HarnessLimitation(
-                        "wasmtime-py 47 binding: v128 unsupported"
+                        "wasmtime-py binding: v128 unsupported"
                     ) from e
                 raise
         raise HarnessLimitation(f"action type {kind}")
@@ -507,14 +562,99 @@ def _worker_run(wast: Path) -> None:
         result = run_file(runner, json_path)
     finally:
         runner.stop()
+    result["identity"] = _identity()
     (gen_dir / "result.json").write_text(json.dumps(result))
+
+
+def _identity() -> dict:
+    """The full configuration a cached per-file result belongs to.
+
+    The suite result cache is keyed by nothing but the file name, so without this
+    stamp a run can silently inherit numbers measured under another runtime or
+    another engine configuration — and the evidence JSON would then attribute
+    those numbers to the configuration it names in its own header. That happened:
+    `core_spec_2026-10-12.json` (wasmtime 49.0.0) carries the `data`, `global`
+    and `imports` records of the 2026-09-19 cache, which was measured under
+    wasmtime 47.0.1 and before the GHSA-m63x-6p34-q65x proposal lockdown was part
+    of ENGINE_KWARGS.
+
+    Four of the fields are OBSERVED, not declared, because a dict in this file
+    can be edited to say anything while the numbers it claims to describe came
+    from somewhere else: the digest of the native library actually loaded, the
+    digest of this harness's own bytes, and the version and digest of the
+    `wast2json` that turned the suite's .wast files into the binaries under test.
+    A bumped toolchain or an edited harness therefore invalidates the cache
+    instead of inheriting it.
+    """
+    return {
+        "wasmtime": _pkg_version("wasmtime"),
+        "engine_config": ENGINE_KWARGS,
+        "pinned_commit": PINNED_COMMIT,
+        "runtime_library_sha256": _runtime_library_sha256(),
+        "harness_sha256": _sha256_of(Path(__file__).resolve()),
+        "wast2json_version": _wast2json_version(),
+        "wast2json_sha256": _wast2json_sha256(),
+    }
+
+
+def _sha256_of(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _runtime_library_sha256() -> str:
+    """Digest of the wasmtime native library this process actually loaded."""
+    import platform
+
+    machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(
+        platform.machine(), platform.machine()
+    )
+    name = "_libwasmtime.dylib" if sys.platform == "darwin" else "libwasmtime.so"
+    lib = Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / name
+    if not lib.exists():
+        return "missing"
+    return _sha256_of(lib)
+
+
+def _wast2json_version() -> str:
+    """Tool and version of the suite compiler, so a wabt bump is a new identity."""
+    tool = shutil.which("wast2json")
+    if not tool:
+        return "missing"
+    proc = subprocess.run(
+        [tool, "--version"], capture_output=True, text=True, check=False
+    )
+    text = ((proc.stdout or "") + (proc.stderr or "")).strip()
+    if proc.returncode != 0 or not text:
+        return "error"
+    return f"{Path(tool).name} {text.splitlines()[0]}"
+
+
+def _wast2json_sha256() -> str:
+    """Digest of the exact suite compiler binary used for this measurement."""
+    tool = shutil.which("wast2json")
+    return "missing" if not tool else _sha256_of(Path(tool))
+
+
+def _result_is_current(payload: dict) -> bool:
+    """May this cached result be reused for the configuration being measured?
+
+    Only an exact identity match is reused. Entries written before the identity
+    existed have no stamp and are therefore always re-measured: an unknown
+    provenance is not evidence.
+    """
+    return payload.get("identity") == _identity()
 
 
 def _run_isolated(wast: Path, timeout_s: float = 240.0) -> dict:
     gen_dir = CACHE / "gen" / wast.stem
     result_path = gen_dir / "result.json"
     if result_path.exists():
-        return json.loads(result_path.read_text())  # resume
+        cached = json.loads(result_path.read_text())
+        if _result_is_current(cached):
+            return cached  # resume, same runtime + same engine configuration
+
     try:
         subprocess.run(
             [
@@ -536,14 +676,28 @@ def _run_isolated(wast: Path, timeout_s: float = 240.0) -> dict:
                 "(upstream engine on this module)"
             ],
             "status": "aborted",
+            # Stamped like any other result: an abort is a statement about THIS
+            # configuration too, and must not be inherited by another one.
+            "identity": _identity(),
         }
     except subprocess.CalledProcessError:
         return {
             "outcomes": {"pass": 0, "xfail": 0, "fail": 0, "skipped": 0},
             "failures": ["native-abort (upstream engine exited non-zero)"],
             "status": "aborted",
+            "identity": _identity(),
         }
     return json.loads(result_path.read_text())
+
+
+def _is_measured(file_results: list[dict], total: dict, aborted: int) -> bool:
+    """Did this run actually measure the suite?
+
+    `measured` answers provenance, not verdict. A run in which nothing ran, or in
+    which every file died in the engine, has not measured anything — and would
+    otherwise report zero unexpected failures with a green-looking document.
+    """
+    return bool(file_results) and total["pass"] > 0 and aborted < len(file_results)
 
 
 def main() -> int:
@@ -573,6 +727,7 @@ def main() -> int:
 
     total = {"pass": 0, "xfail": 0, "fail": 0, "skipped": 0}
     file_results = []
+    aborted = 0
     t0 = time.monotonic()
     for idx, wast in enumerate(wast_files, 1):
         result = _run_isolated(wast)
@@ -592,9 +747,17 @@ def main() -> int:
             elif "multiple memories" in joined:
                 feature_reason = "multi-memory disabled (frozen baseline)"
         if result.get("status") == "aborted":
+            aborted += 1
             result["outcomes"]["fail"] = 0
-            result["outcomes"]["xfail"] += 1  # classified: upstream abort
-            result["deviation"] = "relaxed-simd native abort (upstream engine)"
+            result["outcomes"]["xfail"] += 1  # classified: file-level abort
+            # A file abort has no per-command cause. The 2026-10-23 audit
+            # measured the actual split (44 wast2json parse refusals, 56
+            # wasmtime-py v128 aborts); the old blanket "relaxed-simd" label
+            # was wrong for 94/100 and is not repeated here.
+            result["deviation"] = (
+                "file aborted before per-command measurement "
+                "(cause not recorded by this harness)"
+            )
         elif feature_reason and len(real) == result["outcomes"]["fail"]:
             # every real fail in this file traces to the disabled feature
             result["outcomes"]["xfail"] += result["outcomes"]["fail"]
@@ -610,9 +773,10 @@ def main() -> int:
             flush=True,
         )
 
-    ok = total["fail"] == 0
+    measured = _is_measured(file_results, total, aborted)
+    ok = total["fail"] == 0 and measured
     doc = {
-        "measured": True,
+        "measured": measured,
         "source": "measurement",
         "date": str(date.today()),
         "suite": {
@@ -623,7 +787,23 @@ def main() -> int:
         },
         "wasmtime": _pkg_version("wasmtime"),
         "engine_config": ENGINE_KWARGS,
+        "toolchain": {
+            "wast2json_version": _wast2json_version(),
+            "wast2json_sha256": _wast2json_sha256(),
+            "harness_sha256": _sha256_of(Path(__file__).resolve()),
+        },
         "totals": total,
+        # How many files never produced a measurement at all, because the process
+        # running them died. They are counted as documented deviations, which is
+        # honest only while the number is visible: a run in which every file
+        # aborted would otherwise report zero unexpected failures.
+        "aborted_files": aborted,
+        "aborted_note": (
+            "An aborted file has no per-command measurement. The harness labels "
+            "the abort as an upstream native abort but does NOT verify the cause, "
+            "so this count is part of the deviation total and is disclosed here "
+            "rather than presented as measured conformance."
+        ),
         "elapsed_s": round(time.monotonic() - t0, 1),
         "files": file_results,
         "note": (
@@ -631,10 +811,14 @@ def main() -> int:
             "configuration Cell ships. Documented deviation classes: "
             "memory64/multi-memory modules are by design out of the shipped "
             "config (opt-in/frozen baseline); v128 is limited by the "
-            "wasmtime-py 47 binding (valkind 4); relaxed-simd files abort "
+            "wasmtime-py binding (no ValType.v128); relaxed-simd files abort "
             "natively upstream; text-format asserts are skipped (wabt "
-            "parser domain). The sandbox policy layer is exercised by the "
-            "WASI suite + the security harnesses."
+            "parser domain). Modules of the exceptions and function-reference "
+            "proposals are refused because the shipped posture enforces them "
+            "off (GHSA-m63x-6p34-q65x) — those refusals and the assertions "
+            "that cascade from them are deliberately LEFT in the fail count "
+            "rather than reclassified into an xfail. The sandbox policy layer "
+            "is exercised by the WASI suite + the security harnesses."
         ),
     }
     RESULTS.mkdir(exist_ok=True)

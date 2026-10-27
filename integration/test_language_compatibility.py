@@ -7,7 +7,9 @@ Usage:
     python integration/test_language_compatibility.py
     python integration/test_language_compatibility.py --json
 """
+
 from __future__ import annotations
+
 import json
 import shutil
 import subprocess
@@ -43,7 +45,10 @@ def compile_rust_wasm(out: Path) -> bool:
         )
         r = subprocess.run(
             ["cargo", "build", "--target", "wasm32-wasip1", "--release"],
-            capture_output=True, text=True, timeout=120, cwd=str(tmp)
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(tmp),
         )
         if r.returncode == 0:
             src = tmp / "target" / "wasm32-wasip1" / "release" / "hello.wasm"
@@ -75,16 +80,23 @@ def test_language_compatibility() -> dict:
 
     # Execute all available WASM modules
     executions = []
-    for wasm_name in ["hello_rust.wasm", "data_transform.wasm", "plugin_chain.wasm", "code_review.wasm"]:
+    for wasm_name in [
+        "hello_rust.wasm",
+        "data_transform.wasm",
+        "plugin_chain.wasm",
+        "code_review.wasm",
+    ]:
         wasm_path = WORKLOADS / wasm_name
         if wasm_path.exists():
             result = executor.execute(str(wasm_path))
-            executions.append({
-                "wasm": wasm_name,
-                "status": result.status,
-                "elapsed_ms": result.elapsed_ms,
-                "stdout": result.stdout[:200],
-            })
+            executions.append(
+                {
+                    "wasm": wasm_name,
+                    "status": result.status,
+                    "elapsed_ms": result.elapsed_ms,
+                    "stdout": result.stdout[:200],
+                }
+            )
 
     return {
         "test": "language_compatibility",
@@ -122,12 +134,16 @@ def main():
         print("Ephemora Cell execution:")
         for e in result["executions"]:
             status_icon = "✅" if e["status"] == "success" else "⚠️"
-            print(f"  {status_icon} {e['wasm']:25s} {e['status']} ({e['elapsed_ms']}ms)")
+            print(
+                f"  {status_icon} {e['wasm']:25s} {e['status']} ({e['elapsed_ms']}ms)"
+            )
             if e["stdout"].strip():
                 print(f"    stdout: {e['stdout'].strip()[:80]}")
         print("=" * 50)
         print(f"Modules executed: {result['wasm_modules_executed']}")
-        print("Ephemora Cell is language-agnostic — any language that compiles to WASM works")
+        print(
+            "Ephemora Cell is language-agnostic — any language that compiles to WASM works"
+        )
 
 
 if __name__ == "__main__":

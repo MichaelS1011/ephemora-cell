@@ -33,10 +33,13 @@ Security properties:
 from __future__ import annotations
 
 import http.client
+import importlib.metadata as importlib_metadata
 import ipaddress
 import json
 import os
+import re
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -47,6 +50,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import certifi
 
 from ._fsutil import read_regular_nofollow
 
@@ -63,6 +68,53 @@ RESPONSE_FILENAME = "sidecar.response.json"
 _MAX_REQUEST_BYTES = 64 * 1024
 _ALLOWED_HEADER_NAMES = {"accept", "content-type", "user-agent"}
 _DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+#: certifi removed the compromised eMudhra/emSign G3 root in this release.
+#: A product install below the floor must not be able to complete HTTPS
+#: egress, even if the dependency metadata in the wheel is correct.
+_CERTIFI_MIN_VERSION = (2026, 10, 19)
+
+
+class _TlsTrustAnchorError(RuntimeError):
+    """The installed CA bundle is not acceptable for verified egress."""
+
+
+def _installed_certifi_version() -> tuple[int, int, int]:
+    try:
+        raw = importlib_metadata.version("certifi")
+    except importlib_metadata.PackageNotFoundError as exc:
+        raise _TlsTrustAnchorError(
+            "certifi is not installed; TLS verification has no audited anchor"
+        ) from exc
+    match = re.fullmatch(r"(\d{4})\.(\d{1,2})\.(\d{1,2})(?:[.+-].*)?", raw.strip())
+    if not match:
+        raise _TlsTrustAnchorError(f"cannot parse certifi version {raw!r}")
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def _https_context() -> ssl.SSLContext:
+    """TLS context for mediated egress, anchored to certifi's audited bundle.
+
+    The host's system trust store can still contain a root that the certifi
+    release removed (the eMudhra/emSign incident is the concrete case). Loading
+    the bundle explicitly keeps hostname checking and certificate verification
+    on and never falls back to an unverified context. The version floor is a
+    product-path gate, not just package metadata: an older certifi refuses to
+    build the context instead of trusting the removed root.
+    """
+    installed = _installed_certifi_version()
+    if installed < _CERTIFI_MIN_VERSION:
+        raise _TlsTrustAnchorError(
+            "certifi "
+            + ".".join(map(str, installed))
+            + " predates the eMudhra/emSign removal; HTTPS egress requires >= "
+            + ".".join(map(str, _CERTIFI_MIN_VERSION))
+        )
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    return context
 
 
 class _EgressDeadline(RuntimeError):
@@ -354,6 +406,12 @@ class EgressAuditEntry:
     method: str
     decision: str  # "allowed" | "denied"
     reason: str
+    # None means no transport was attempted (a policy/grant/parse denial).
+    # False means the policy allowed the request but no response was delivered
+    # (TLS verification, DNS, reset, timeout or an HTTP protocol failure).
+    # Keeping this separate from `decision` stops "allowed" from reading like
+    # "delivered" in the audit.
+    transport_ok: bool | None = None
     status: int | None = None
     bytes: int | None = None
     elapsed_ms: float | None = None
@@ -610,13 +668,16 @@ def execute_request(
     # A mediated egress goes direct to the allowlisted origin; if a deployment
     # needs a proxy, that is an explicit operator decision, never one inherited
     # from the ambient environment.
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
-        _RevalidatingRedirectHandler(policy, trail, ceiling=ceiling),
-    )
-    _install_getaddrinfo_guard()
-    resolver = resolver or _real_getaddrinfo
     try:
+        handlers: list[urllib.request.BaseHandler] = [
+            urllib.request.ProxyHandler({}),
+            _RevalidatingRedirectHandler(policy, trail, ceiling=ceiling),
+        ]
+        if urllib.parse.urlsplit(request.url).scheme == "https":
+            handlers.insert(1, urllib.request.HTTPSHandler(context=_https_context()))
+        opener = urllib.request.build_opener(*handlers)
+        _install_getaddrinfo_guard()
+        resolver = resolver or _real_getaddrinfo
         req = urllib.request.Request(
             request.url,
             data=request.body.encode("utf-8") if request.body else None,
@@ -665,6 +726,26 @@ def execute_request(
                 if total > max_response_bytes:
                     break
             body = b"".join(chunks)
+    except _TlsTrustAnchorError as e:
+        elapsed = (time.monotonic() - started) * 1000
+        reason = f"TLS trust anchor refused: {e}"
+        return EgressResult(
+            response_doc={
+                "ok": False,
+                "error": reason,
+                "elapsed_ms": round(elapsed, 3),
+            },
+            audit=EgressAuditEntry(
+                url=request.url,
+                method=request.method,
+                decision="denied",
+                reason=reason,
+                transport_ok=None,
+                elapsed_ms=elapsed,
+                hops=tuple(trail.attempted),
+                limit="tls",
+            ),
+        )
     except _EgressDeadline as e:
         elapsed = (time.monotonic() - started) * 1000
         reason = str(e)
@@ -679,6 +760,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=False,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="timeout",
@@ -703,6 +785,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=False,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="transport",
@@ -722,6 +805,7 @@ def execute_request(
                 method=request.method,
                 decision="denied",
                 reason=reason,
+                transport_ok=None,
                 elapsed_ms=elapsed,
                 hops=tuple(trail.attempted),
                 limit="ssrf",
@@ -742,6 +826,7 @@ def execute_request(
                     method=request.method,
                     decision="denied",
                     reason=trail.denied_reason,
+                    transport_ok=False,
                     elapsed_ms=elapsed,
                     hops=tuple(trail.attempted),
                     limit=trail.denied_limit,
@@ -752,6 +837,7 @@ def execute_request(
             method=request.method,
             decision="allowed",
             reason="fetch failed (see response doc)",
+            transport_ok=False,
             elapsed_ms=elapsed,
             hops=tuple(trail.followed),
         )
@@ -772,6 +858,7 @@ def execute_request(
         method=request.method,
         decision="allowed",
         reason="fetched",
+        transport_ok=True,
         status=status,
         bytes=len(body),
         elapsed_ms=elapsed,

@@ -15,6 +15,7 @@ Produces (preview1 core modules and their lifted components):
   rust_fs.wasm       (prebuilt Rust wasm32-wasip1, sources in rust_fs/src)
                      -> rust_fs_lifted.wasm     args/env/fs/preopen exercise
 """
+
 from __future__ import annotations
 
 import os
@@ -29,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ADAPTER = os.path.join(HERE, "adapters", "wasi_snapshot_preview1.command.wasm")
 
 MODULES = {
-    "p1_print.wat": '''\
+    "p1_print.wat": """\
 (module
   (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
@@ -40,8 +41,8 @@ MODULES = {
     (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 32)
     call $fd_write drop
     i32.const 0 call $exit))
-''',
-    "p1_loop.wat": '''\
+""",
+    "p1_loop.wat": """\
 (module
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
   (memory (export "memory") 1)
@@ -52,8 +53,8 @@ MODULES = {
     end
     i32.const 0 call $exit)
 )
-''',
-    "p1_grow.wat": '''\
+""",
+    "p1_grow.wat": """\
 (module
   (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
   (memory (export "memory") 1)
@@ -67,7 +68,7 @@ MODULES = {
     end
     i32.const 0 call $exit)
 )
-''',
+""",
 }
 
 
@@ -89,12 +90,22 @@ def lift(module_path: str, out_path: str) -> None:
         raise SystemExit("missing adapter: " + ADAPTER)
     t0 = time.perf_counter()
     subprocess.run(
-        ["wasm-tools", "component", "new", module_path, "--adapt", ADAPTER,
-         "-o", out_path],
+        [
+            "wasm-tools",
+            "component",
+            "new",
+            module_path,
+            "--adapt",
+            ADAPTER,
+            "-o",
+            out_path,
+        ],
         check=True,
     )
     dt = (time.perf_counter() - t0) * 1000
-    print(f"-> {os.path.basename(out_path)} ({os.path.getsize(out_path)} B, lift {dt:.1f} ms)")
+    print(
+        f"-> {os.path.basename(out_path)} ({os.path.getsize(out_path)} B, lift {dt:.1f} ms)"
+    )
 
 
 def main() -> None:
@@ -102,8 +113,9 @@ def main() -> None:
     for name, wat in MODULES.items():
         build(name, wat)
 
-    rust_wasm = os.path.join(HERE, "rust_fs", "target", "wasm32-wasip1",
-                             "release", "rust_fs.wasm")
+    rust_wasm = os.path.join(
+        HERE, "rust_fs", "target", "wasm32-wasip1", "release", "rust_fs.wasm"
+    )
     prebuilt = os.path.join(HERE, "rust_fs.wasm")
     if os.path.exists(rust_wasm):
         shutil.copyfile(rust_wasm, prebuilt)

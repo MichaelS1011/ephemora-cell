@@ -5,20 +5,31 @@ Deterministic: rerunning produces byte-identical SVGs. Palette derived from
 GitHub's primer light/dark tokens (same scheme as make_hero.py) so both
 variants sit cleanly on the respective README background.
 """
+
 from pathlib import Path
 
 HERE = Path(__file__).parent
 
 PALETTES = {
     "light": {
-        "text": "#1f2328", "muted": "#59636e", "box_fill": "#ffffff",
-        "box_stroke": "#d1d9e0", "accent": "#0969da", "accent_fill": "#ddf4ff",
-        "danger": "#cf222e", "ok": "#1a7f37",
+        "text": "#1f2328",
+        "muted": "#59636e",
+        "box_fill": "#ffffff",
+        "box_stroke": "#d1d9e0",
+        "accent": "#0969da",
+        "accent_fill": "#ddf4ff",
+        "danger": "#cf222e",
+        "ok": "#1a7f37",
     },
     "dark": {
-        "text": "#e6edf3", "muted": "#9198a1", "box_fill": "#151b23",
-        "box_stroke": "#3d444d", "accent": "#4493f8", "accent_fill": "#121d2f",
-        "danger": "#f85149", "ok": "#3fb950",
+        "text": "#e6edf3",
+        "muted": "#9198a1",
+        "box_fill": "#151b23",
+        "box_stroke": "#3d444d",
+        "accent": "#4493f8",
+        "accent_fill": "#121d2f",
+        "danger": "#f85149",
+        "ok": "#3fb950",
     },
 }
 
@@ -26,7 +37,14 @@ W, H = 880, 250
 
 NODES = [
     (20, 175, "VENDOR", "signs manifest", "Ed25519 · RFC 8785 JCS", "box"),
-    (255, 220, "HOST VERIFIES", "signature ✓  hash ✓  path ✓", "fail-closed at load", "accent"),
+    (
+        255,
+        220,
+        "HOST VERIFIES",
+        "signature ✓  hash ✓  path ✓",
+        "fail-closed at load",
+        "accent",
+    ),
     (530, 175, "CELL SANDBOX", "fuel · memory", "timeout · I/O walls", "box"),
     (745, 115, "SIGNED RECORD", "status · fuel · baseline", "tamper-evident", "ok"),
 ]
@@ -39,8 +57,8 @@ def esc(s: str) -> str:
 def node(x, w, title, l1, l2, kind, p):
     fill = p["accent_fill"] if kind == "accent" else p["box_fill"]
     stroke = p["accent"] if kind == "accent" else p["box_stroke"]
-    title_fill = p["accent"] if kind == "accent" else (
-        p["ok"] if kind == "ok" else p["text"]
+    title_fill = (
+        p["accent"] if kind == "accent" else (p["ok"] if kind == "ok" else p["text"])
     )
     return (
         f'<rect x="{x}" y="70" width="{w}" height="86" rx="12" fill="{fill}" stroke="{stroke}" stroke-width="1.5"/>'
@@ -79,7 +97,7 @@ def render(theme: str) -> str:
     )
     parts.append(
         f'<text x="{W // 2}" y="244" text-anchor="middle" font-size="12" fill="{p["muted"]}" font-family="-apple-system,Segoe UI,sans-serif">'
-        f'the agent proposes; the host disposes — every step attested (ADR-006)</text>'
+        f"the agent proposes; the host disposes — every step attested (ADR-006)</text>"
     )
     parts.append("</svg>")
     return "".join(parts)

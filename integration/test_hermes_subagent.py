@@ -12,7 +12,9 @@ Usage:
     python integration/test_hermes_subagent.py
     python integration/test_hermes_subagent.py --json
 """
+
 from __future__ import annotations
+
 import hashlib
 import json
 import sys
@@ -21,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from ephemora_cell import WASISandbox, WASIConfig
+from ephemora_cell import WASIConfig, WASISandbox
 
 WORKLOADS = Path(__file__).parent.parent / "benchmarks" / "workloads"
 
@@ -121,7 +123,9 @@ def main():
     else:
         print(f"\n{'=' * 60}")
         print(f"Result: {total - blocked}/{total} passed, {blocked}/{total} blocked")
-        print(f"Mode: Ephemora Cell isolation only (execution isolation, no full pipeline)")
+        print(
+            "Mode: Ephemora Cell isolation only (execution isolation, no full pipeline)"
+        )
         print("=" * 60)
 
 

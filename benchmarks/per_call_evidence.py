@@ -39,7 +39,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "benchmarks"))
 
-from mcp_cve_replay import McpStdioClient, _redact  # noqa: E402
+from mcp_cve_replay import McpStdioClient, _redact
 
 VULNERABLE_SERVER = "@modelcontextprotocol/server-filesystem@2025.3.28"
 RECEIPT_KEYS = ("fuel_consumed", "elapsed_ms", "security_baseline", "wasmtime_version")

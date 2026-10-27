@@ -7,6 +7,7 @@ Measures exact fuel consumption at the exhaustion boundary for:
 
 Produces reproducible fuel-vs-output curves.
 """
+
 import json
 import os
 import platform
@@ -19,12 +20,12 @@ from pathlib import Path
 import wasmtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ephemora_cell import WASISandbox, WASIConfig, ExecutionStatus
-
+from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 
 # ============================================================
 # Payloads
 # ============================================================
+
 
 def cpu_wasm(n: int) -> bytes:
     """CPU: N iterations of i32.add."""
@@ -108,15 +109,19 @@ def mixed_wasm(n: int) -> bytes:
 # Measurement helpers
 # ============================================================
 
+
 def run_wasm(wasm_bytes, max_fuel, timeout=10):
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    tmp.write(wasm_bytes); tmp.close()
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=max_fuel,
-        timeout_seconds=timeout,
-        max_memory_mb=32,
-        allow_dirs=(),
-    ))
+    tmp.write(wasm_bytes)
+    tmp.close()
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=max_fuel,
+            timeout_seconds=timeout,
+            max_memory_mb=32,
+            allow_dirs=(),
+        )
+    )
     result = sandbox.run(tmp.name)
     sandbox.cleanup()
     os.unlink(tmp.name)
@@ -141,7 +146,11 @@ def fuel_curve(label, wasm_fn, steps, fuel_budget=20_000_000):
         curve.append(entry)
         status_str = entry["status"].upper()
         fuel_str = f"{result.fuel_consumed:,}" if result.fuel_consumed else "N/A"
-        per_str = f"~{entry.get('fuel_per_iter', 0):.1f}/iter" if "fuel_per_iter" in entry else ""
+        per_str = (
+            f"~{entry.get('fuel_per_iter', 0):.1f}/iter"
+            if "fuel_per_iter" in entry
+            else ""
+        )
         print(f"  n={n:>8,}: fuel={fuel_str:>12} [{status_str:>5}] {per_str}")
     return curve
 
@@ -187,7 +196,9 @@ def find_exhaustion(label, wasm_fn, fuel_budget=1_000_000):
     }
 
     print(f"  Boundary at n={low:,}")
-    print(f"  At n={low:,}: {r_success.status.value} (fuel={r_success.fuel_consumed or 0:,})")
+    print(
+        f"  At n={low:,}: {r_success.status.value} (fuel={r_success.fuel_consumed or 0:,})"
+    )
     print(f"  At n={low+1:,}: {r_fail.status.value}")
     return result
 
@@ -234,19 +245,24 @@ def main():
     # is also reported on FUEL_EXHAUSTED, so filter on status)
     cpu_success = [c for c in cpu_curve if c["status"] == "success"]
     avg_cpu_per_iter = (
-        sum(c["fuel_consumed"] / c["iterations"] for c in cpu_success) / len(cpu_success)
-        if cpu_success else 0
+        sum(c["fuel_consumed"] / c["iterations"] for c in cpu_success)
+        / len(cpu_success)
+        if cpu_success
+        else 0
     )
 
     # I/O fuel curve
     io_steps = [10, 100, 500, 1_000, 5_000, 10_000, 50_000, 100_000, 500_000]
-    io_curve = fuel_curve("I/O-bound (fd_write 32B)", io_wasm, io_steps, fuel_budget=20_000_000)
+    io_curve = fuel_curve(
+        "I/O-bound (fd_write 32B)", io_wasm, io_steps, fuel_budget=20_000_000
+    )
     results["io_curve"] = io_curve
 
     io_success = [c for c in io_curve if c["status"] == "success"]
     avg_io_per_write = (
         sum(c["fuel_consumed"] / c["iterations"] for c in io_success) / len(io_success)
-        if io_success else 0
+        if io_success
+        else 0
     )
 
     # Mixed fuel curve
@@ -288,19 +304,31 @@ def main():
     print(f"  Fuel per CPU iteration: ~{avg_cpu_per_iter:.1f}")
     print(f"  Fuel per fd_write (32B):  ~{avg_io_per_write:.1f}")
     if avg_cpu_per_iter > 0:
-        ratio = avg_cpu_per_iter / avg_io_per_write if avg_io_per_write > 0 else float('inf')
-        print(f"  I/O bypasses fuel by ~{ratio:.0f}x (CPU costs {avg_cpu_per_iter:.0f} fuel, I/O costs {avg_io_per_write:.0f} fuel)")
+        ratio = (
+            avg_cpu_per_iter / avg_io_per_write
+            if avg_io_per_write > 0
+            else float("inf")
+        )
+        print(
+            f"  I/O bypasses fuel by ~{ratio:.0f}x (CPU costs {avg_cpu_per_iter:.0f} fuel, I/O costs {avg_io_per_write:.0f} fuel)"
+        )
 
     if io_boundary.get("max_iterations"):
         io_bytes = io_boundary["max_iterations"] * 32
-        print(f"\n  At default max_fuel=1,000,000:")
-        print(f"    CPU:   {cpu_boundary['max_iterations']:,} iterations before FUEL_EXHAUSTED")
-        print(f"    I/O:   {io_boundary['max_iterations']:,} writes before FUEL_EXHAUSTED")
+        print("\n  At default max_fuel=1,000,000:")
+        print(
+            f"    CPU:   {cpu_boundary['max_iterations']:,} iterations before FUEL_EXHAUSTED"
+        )
+        print(
+            f"    I/O:   {io_boundary['max_iterations']:,} writes before FUEL_EXHAUSTED"
+        )
         print(f"    I/O:   {io_bytes:,} bytes ({io_bytes/1024/1024:.2f} MB)")
 
     results_dir = (
         Path(__file__).resolve().parents[1]
-        / "benchmarks" / "results" / str(date.today())
+        / "benchmarks"
+        / "results"
+        / str(date.today())
     )
     results_dir.mkdir(parents=True, exist_ok=True)
     out = results_dir / "fuel_boundary.json"

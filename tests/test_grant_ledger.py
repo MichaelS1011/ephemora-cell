@@ -264,9 +264,8 @@ def test_the_book_refuses_to_be_a_symlink(tmp_path):
     link = tmp_path / "grants.jsonl"
     GrantLedger(real).record_call(_grant(max_calls=1))
     link.symlink_to(real)
-    ledger = GrantLedger(link)
-    with pytest.raises(OSError, match="symbolic links"):
-        ledger.record_call(_grant(max_calls=1))
+    with pytest.raises(OSError, match="symbolic link"):
+        GrantLedger(link)
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")

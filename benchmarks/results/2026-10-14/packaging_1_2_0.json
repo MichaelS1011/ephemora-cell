@@ -1,0 +1,45 @@
+{
+  "generated": "2026-10-14",
+  "subject": "Packaging (local): ephemora-cell 1.2.0 wheel + sdist built, digested, install-verified, SBOM generated",
+  "build_host": "macOS (Apple silicon), uv 0.11.26, backend setuptools>=77 + wheel, Python 3.12",
+  "not_published": true,
+  "note": "Artifacts are built into the gitignored dist/ for local verification only. This is NOT a PyPI release; the release directive forbids an unauthorised publish and 1.2.0 is on HOLD (GHSA-32h6).",
+  "artifacts": [
+    {
+      "file": "ephemora_cell-1.2.0-py3-none-any.whl",
+      "sha256": "5f92229f59019e6fa5f3874c4f4163674d9c20ca299719c0ab2a5e32a72de4bb",
+      "size_bytes": 268937
+    },
+    {
+      "file": "ephemora_cell-1.2.0.tar.gz",
+      "sha256": "100aa8df2df2ce3e9ab291118c7f536dd6f7a3f4d9130952251320420e760e37",
+      "size_bytes": 563997
+    }
+  ],
+  "fresh_install_verification": {
+    "method": "python -m venv (isolated) -> pip install the built wheel -> import + run from a neutral CWD so site-packages (not repo source) is loaded",
+    "imported_path": ".tmp_install/venv/lib/python3.12/site-packages/ephemora_cell/__init__.py",
+    "version_reported": "1.2.0",
+    "console_script": "ephemora-cell --version -> ephemora-cell 1.2.0",
+    "lazy_language_api": "available_languages() -> ('javascript', 'python') resolved through the PEP 562 loader from the installed wheel",
+    "bundled_tool_run": "run_wasm(installed ephemora_cell_mcp/tools/echo.wasm) -> ExecutionStatus.SUCCESS",
+    "verdict": "core package installs and executes from a fresh venv (E2E-from-install for the CORE, not the gated language guests)"
+  },
+  "sbom": {
+    "path": "sbom/ephemora-cell-1.2.0.deps.cdx.json",
+    "format": "CycloneDX 1.7 (package-level view derived from a syft scan of the fresh-install dependency tree, pruned to PyPI package components; no absolute local paths)",
+    "components": [
+      "pkg:pypi/ephemora-cell@1.2.0 (with wheel + sdist SHA-256 hashes)",
+      "pkg:pypi/wasmtime@49.0.0",
+      "pkg:pypi/pip@25.0.1"
+    ],
+    "dependency_edge": "ephemora-cell 1.2.0 -> wasmtime 49.0.0 (the single declared runtime dependency)",
+    "security_flag": "wasmtime 49.0.0 is the engine carrying the still-open GHSA-32h6 (fix 49.0.2 wheel absent from PyPI) plus other in-band advisories — surfaced here for supply-chain transparency; see SECURITY.md",
+    "path_scrub_note": "the initial syft dir-scan embedded the local build environment's absolute home paths in per-file components; those file-level entries were removed and the SBOM reduced to package-level components before publication (PUBLIC-REWRITE)"
+  },
+  "known_open_items_not_claimed_done": [
+    "ephemora-cell[python] / [javascript] extras are NOT declared in pyproject: the versioned language-guest distributions do not exist yet (componentize-py is not bit-deterministic → build-once digest; JS toolchain absent on this host) and publishing them needs authorization + license/SBOM clearance of the embedded CPython/JS-engine tree (esc7). lang_guest._INSTALL_HINTS currently names those extras as the documented command — they resolve only once the guest packages ship.",
+    "language-guest packages are out of scope of this core wheel build and remain gated",
+    "native-Linux build/qualification results remain OFFEN (macOS-only host)"
+  ]
+}

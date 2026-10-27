@@ -7,7 +7,11 @@ Usage:
     python integration/agent_frameworks/test_langgraph.py
     python integration/agent_frameworks/test_langgraph.py --json
 """
+
 from __future__ import annotations
+
+import importlib.metadata
+import itertools
 import json
 import sys
 import uuid
@@ -19,13 +23,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from integration.ephemora_cell_agent_executor import EphemoraCellExecutor
 
 WORKLOADS = Path(__file__).parent.parent.parent / "benchmarks" / "workloads"
+EXAMPLES = Path(__file__).parent.parent.parent / "examples"
 
 try:
-    from langgraph.graph import StateGraph, END
-    import langgraph
+    from langgraph.graph import END, StateGraph
 except ImportError:
     print("SKIP: langgraph not installed")
     sys.exit(0)
+
+# Three lightweight tools that complete inside the budget (proves the graph
+# drives real Cell executions) plus one deliberately-heavy module run against a
+# tight fuel cap — that node returns `fuel_exhausted`, which is the sandbox
+# *correctly* bounding a runaway tool, not an integration failure.
+TOOLS = [
+    ("data_transform", WORKLOADS / "data_transform.wasm", 200_000, False),
+    ("hello_rust", WORKLOADS / "hello_rust.wasm", 200_000, False),
+    ("hello", EXAMPLES / "hello.wasm", 200_000, False),
+    ("code_review_heavy", WORKLOADS / "code_review.wasm", 100_000, True),
+]
 
 
 class AgentState(TypedDict):
@@ -33,48 +48,67 @@ class AgentState(TypedDict):
     results: list[dict]
 
 
-def make_tool_node(wasm_path: Path, tool_name: str):
+def make_tool_node(wasm_path: Path, tool_name: str, max_fuel: int):
     """LangGraph node that runs WASM in Ephemora Cell."""
-    executor = EphemoraCellExecutor(max_fuel=100_000, timeout=5)
+    executor = EphemoraCellExecutor(max_fuel=max_fuel, timeout=5)
 
     def node(state: AgentState) -> dict:
         result = executor.execute(str(wasm_path))
+        # the refusal reason is kept in the row so the verdict below can tell
+        # "the host said no" apart from "the guest failed" — a status alone reads
+        # the same for both
+        refused = bool(result.reason) or "refused:" in (result.stderr or "")
         return {
             "tool_calls": state.get("tool_calls", []) + [tool_name],
-            "results": state.get("results", []) + [{
-                "tool": tool_name,
-                "wasm": wasm_path.name,
-                "status": result.status,
-                "elapsed_ms": result.elapsed_ms,
-            }],
+            "results": state.get("results", [])
+            + [
+                {
+                    "tool": tool_name,
+                    "wasm": wasm_path.name,
+                    "status": result.status,
+                    "blocked": result.blocked,
+                    "refused": refused,
+                    "reason": result.reason or (result.stderr or "")[:80] or None,
+                    "elapsed_ms": result.elapsed_ms,
+                }
+            ],
         }
 
     return node
 
 
 def test_langgraph():
-    """Build and run LangGraph agent with Ephemora Cell."""
+    """Build and run a LangGraph agent that executes WASM in Ephemora Cell."""
     graph = StateGraph(AgentState)
+    names = [t[0] for t in TOOLS]
+    for name, path, fuel, _ in TOOLS:
+        graph.add_node(name, make_tool_node(path, name, fuel))
 
-    graph.add_node("transform", make_tool_node(WORKLOADS / "data_transform.wasm", "data_transform"))
-    graph.add_node("plugin", make_tool_node(WORKLOADS / "plugin_chain.wasm", "plugin_chain"))
-    graph.add_node("review", make_tool_node(WORKLOADS / "code_review.wasm", "code_review"))
-
-    graph.set_entry_point("transform")
-    graph.add_edge("transform", "plugin")
-    graph.add_edge("plugin", "review")
-    graph.add_edge("review", END)
+    graph.set_entry_point(names[0])
+    for a, b in itertools.pairwise(names):
+        graph.add_edge(a, b)
+    graph.add_edge(names[-1], END)
 
     app = graph.compile()
-    initial = {"tool_calls": [], "results": []}
-    final = app.invoke(initial)
+    final = app.invoke({"tool_calls": [], "results": []})
+    results = final["results"]
+    succeeded = [r for r in results if r["status"] == "success"]
+    bounded = [r for r in results if r["status"] == "fuel_exhausted"]
+    # A node that produced a refusal is NOT a node that ran a tool. Counting rows
+    # alone made a wholly refused session (an engine outside the qualified line,
+    # a guest that is not installed) report all_tools_ran=true and exit 0 — a
+    # denial reading as a pass, which is the one thing a gate must never do.
+    refused = [r for r in results if r["refused"]]
 
     return {
         "framework": "langgraph",
-        "langgraph_version": "installed",
-        "nodes_executed": len(final["tool_calls"]),
-        "tool_calls": final["results"],
-        "all_executed": len(final["results"]) == 3,
+        "langgraph_version": importlib.metadata.version("langgraph"),
+        "nodes_executed": len(results),
+        "tool_calls": results,
+        "all_tools_ran": len(results) == len(TOOLS) and not refused,
+        "refusals": [r["tool"] for r in refused],
+        "lightweight_tools_succeeded": len(succeeded) == 3,
+        "heavy_tool_bounded_by_fuel": len(bounded) == 1,
     }
 
 
@@ -97,11 +131,32 @@ def main():
         print(f"LangGraph {result['langgraph_version']}")
         print("=" * 50)
         for tc in result["tool_calls"]:
-            print(f"  [{tc['tool']:20s}] {tc['status']} ({tc['elapsed_ms']}ms)")
+            flag = " REFUSED" if tc["refused"] else ""
+            print(f"  [{tc['tool']:20s}] {tc['status']}{flag} ({tc['elapsed_ms']}ms)")
         print("=" * 50)
-        print(f"Nodes executed: {result['nodes_executed']}/3")
+        print(
+            f"Nodes executed: {result['nodes_executed']}/{len(TOOLS)}  "
+            f"(all_tools_ran={result['all_tools_ran']})"
+        )
+        if result["refusals"]:
+            print(f"  refused by the host      : {result['refusals']}")
+        print(
+            f"  lightweight tools succeeded : {result['lightweight_tools_succeeded']}"
+        )
+        print(
+            f"  heavy tool bounded by fuel   : {result['heavy_tool_bounded_by_fuel']}"
+        )
         print("Ephemora Cell used as LangGraph tool sandbox")
+
+    # A gate that cannot fail is not a gate. This one's own claim is that real
+    # tools ran under real budgets; if they did not, the process says so.
+    passed = (
+        result["all_tools_ran"]
+        and result["lightweight_tools_succeeded"]
+        and result["heavy_tool_bounded_by_fuel"]
+    )
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -39,9 +39,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-import wasmtime  # noqa: E402
+import wasmtime
 
-from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox  # noqa: E402
+from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
 
 TOKEN = "PERSIST-MARKER-42"
 
@@ -165,7 +165,7 @@ def crash_during_append(work: Path, rounds: int) -> dict:
         book = GrantLedger(path)
         try:
             state = book.usage("g-crash")
-        except Exception:  # noqa: BLE001 - torn tail must raise, that is the point
+        except Exception:
             loud += 1
             continue
         lines = [ln for ln in path.read_text().splitlines() if ln.strip()]
@@ -229,12 +229,22 @@ def main() -> int:
         "promise": "no execution state survives into the next execution",
         "control": positive_control(reader, work),
         "sweeps": [
-            sweep(writer, reader, pooled=True, isolated=False, iterations=args.iterations),
             sweep(
-                writer, reader, pooled=False, isolated=False, iterations=min(300, args.iterations)
+                writer, reader, pooled=True, isolated=False, iterations=args.iterations
             ),
             sweep(
-                writer, reader, pooled=False, isolated=True, iterations=min(40, args.iterations)
+                writer,
+                reader,
+                pooled=False,
+                isolated=False,
+                iterations=min(300, args.iterations),
+            ),
+            sweep(
+                writer,
+                reader,
+                pooled=False,
+                isolated=True,
+                iterations=min(40, args.iterations),
             ),
         ],
         "crash_during_append": crash_during_append(work, args.crash_rounds),

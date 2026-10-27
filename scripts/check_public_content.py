@@ -5,7 +5,9 @@ The public repository carries the product, the engineering and the verifiable
 security evidence — nothing about how the project is governed internally, and
 no private environment detail (personal home paths, credentials). This guard
 scans the tracked tree for leaks of the second kind so they fail CI instead of
-being caught by hand after a push.
+being caught by hand after a push. ``--include-untracked`` additionally scans
+every untracked, non-ignored file — the exact set a plain ``git add -A`` would
+commit — so fresh evidence drops are checked before they are staged, not after.
 
 Rules are structural and generic (see ``public_content_guard.json``); the
 project's private specifics — real usernames, contact names, partner names —
@@ -62,6 +64,25 @@ def _compiled(patterns: Iterable[str]) -> list[re.Pattern]:
 def _tracked_files(root: Path) -> list[str]:
     out = subprocess.run(
         ["git", "ls-files", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    return sorted(p for p in out.decode("utf-8").split("\0") if p)
+
+
+def _untracked_files(root: Path) -> list[str]:
+    """Files a commit would newly add: untracked but not gitignored.
+
+    A release evidence run produces artifacts (measurements, build staging)
+    BEFORE they are tracked. Scanning only `git ls-files` means the guard is
+    green exactly while the leak is still unstaged — the window in which a
+    `git add -A` commits it. This listing closes that window: anything that
+    WOULD be committed by a plain add is scanned now. Gitignored paths stay
+    out (they cannot be committed, so they cannot leak publicly).
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -168,11 +189,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--strict", action="store_true", help="fail on any finding (default)"
     )
+    parser.add_argument(
+        "--include-untracked",
+        action="store_true",
+        help="also scan untracked, non-ignored files (the set a commit would add)",
+    )
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
     config = _load_config(CONFIG_PATH)
     files = _tracked_files(root)
+    untracked: list[str] = []
+    if args.include_untracked:
+        untracked = _untracked_files(root)
+        files = sorted(set(files) | set(untracked))
 
     findings = scan_tree(root, files, config)
 
@@ -200,7 +230,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    print(f"public-content-guard: clean ({len(files)} tracked files scanned)")
+    scope = f"{len(files)} files scanned"
+    if untracked:
+        scope += f" ({len(untracked)} of them not yet tracked)"
+    print(f"public-content-guard: clean ({scope})")
     return 0
 
 

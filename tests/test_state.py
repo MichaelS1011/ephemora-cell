@@ -16,6 +16,7 @@ import wasmtime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ephemora_cell import ExecutionStatus, WASIConfig, WASISandbox
+from ephemora_cell.execution_report import TRUST_TRUSTED
 from ephemora_cell.state import (
     StateCapExceeded,
     StateStore,
@@ -165,11 +166,17 @@ class TestStateStore:
 
 class TestStateImports:
     def test_no_state_store_no_imports(self, tmp_path):
-        """Without the explicit grant the guest cannot resolve the import."""
+        """Without the explicit grant the guest cannot resolve the import.
+
+        ADR-004 state imports are an in-process capability (isolation mandate:
+        a state_store grant needs the in-process path, so this whole class
+        runs under the host-authorized ``trusted`` posture); the negative
+        case here checks the import wiring, not the isolation mandate.
+        """
         wasm = _write_module(tmp_path, "counter.wasm", COUNTER_WAT)
         sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
         try:
-            result = sandbox.run(str(wasm))
+            result = sandbox.run(str(wasm), trust=TRUST_TRUSTED)
         finally:
             sandbox.cleanup()
         # instantiation fails: ephemora_state imports are not defined
@@ -182,7 +189,7 @@ class TestStateImports:
         sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
         try:
             for _ in range(3):
-                result = sandbox.run(str(wasm), state_store=store)
+                result = sandbox.run(str(wasm), state_store=store, trust=TRUST_TRUSTED)
                 assert result.status == ExecutionStatus.SUCCESS, result.stderr[:200]
                 assert result.state_bytes == store.total_bytes
         finally:
@@ -195,7 +202,7 @@ class TestStateImports:
         store = StateStore()
         sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
         try:
-            result = sandbox.run(str(wasm), state_store=store)
+            result = sandbox.run(str(wasm), state_store=store, trust=TRUST_TRUSTED)
         finally:
             sandbox.cleanup()
         # guest exits with errno 3 (not found) -> ERROR with exit_code 3
@@ -207,7 +214,7 @@ class TestStateImports:
         store = StateStore(max_value_bytes=1024)
         sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
         try:
-            result = sandbox.run(str(wasm), state_store=store)
+            result = sandbox.run(str(wasm), state_store=store, trust=TRUST_TRUSTED)
         finally:
             sandbox.cleanup()
         assert result.status == ExecutionStatus.ERROR
@@ -244,7 +251,7 @@ class TestStateImports:
         wasm = _write_module(tmp_path, "small.wasm", wat)
         sandbox = WASISandbox(config=WASIConfig(max_fuel=1_000_000))
         try:
-            result = sandbox.run(str(wasm), state_store=store)
+            result = sandbox.run(str(wasm), state_store=store, trust=TRUST_TRUSTED)
         finally:
             sandbox.cleanup()
         assert result.status == ExecutionStatus.ERROR

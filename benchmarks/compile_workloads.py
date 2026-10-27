@@ -1,6 +1,8 @@
 """Compile benchmark workload WASM modules."""
-import wasmtime
+
 from pathlib import Path
+
+import wasmtime
 
 WORKLOADS_DIR = Path(__file__).parent / "workloads"
 WORKLOADS_DIR.mkdir(exist_ok=True)

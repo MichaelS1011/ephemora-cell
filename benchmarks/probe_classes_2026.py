@@ -36,9 +36,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-import wasmtime  # noqa: E402
+import wasmtime
 
-from ephemora_cell import WASIConfig, WASISandbox, run_wasm  # noqa: E402
+from ephemora_cell import WASIConfig, WASISandbox, run_wasm
 
 ALLOWED = "allowed.txt"
 FD_WRITE_RIGHT = 0x40

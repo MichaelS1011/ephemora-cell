@@ -1,0 +1,10 @@
+# Exact build toolchain for the qualified artifact build (v1.2, macOS arm64).
+# Install with:
+#   python -m pip install --no-index --require-hashes \
+#       --find-links <wheelhouse> -r requirements-build.lock
+# then build with `python -m build --no-isolation`.
+# The same versions are pinned in pyproject.toml [build-system].requires so an
+# isolated build cannot resolve a different setuptools/wheel.
+setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
+wheel==0.48.0 --hash=sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
+packaging==26.3 --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c

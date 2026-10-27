@@ -7,7 +7,9 @@ Usage:
     python integration/agent_frameworks/test_autogen.py
     python integration/agent_frameworks/test_autogen.py --json
 """
+
 from __future__ import annotations
+
 import json
 import sys
 import uuid
@@ -42,11 +44,13 @@ def test_autogen() -> dict:
     results = []
     for wasm in wasm_paths:
         r = executor.execute(wasm)
-        results.append({
-            "wasm": Path(wasm).name,
-            "status": r.status,
-            "elapsed_ms": r.elapsed_ms,
-        })
+        results.append(
+            {
+                "wasm": Path(wasm).name,
+                "status": r.status,
+                "elapsed_ms": r.elapsed_ms,
+            }
+        )
 
     return {
         "framework": "autogen",

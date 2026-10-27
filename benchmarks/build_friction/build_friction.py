@@ -16,7 +16,6 @@ handled as guidance in the builder.
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -25,9 +24,7 @@ import uuid
 from pathlib import Path
 
 OUTDIR = Path(__file__).resolve().parent
-HELLO_RUST = (
-    "fn main() { let x = 40; let y = 2; if x + y != 42 { panic!(); } }"
-)
+HELLO_RUST = "fn main() { let x = 40; let y = 2; if x + y != 42 { panic!(); } }"
 HELLO_GO = "package main\n\nfunc main() {}\n"
 HELLO_C = '#include <stdio.h>\nint main(void) { puts("hi"); return 0; }\n'
 
@@ -52,7 +49,9 @@ def probe_cmd_full(cmd: list[str]) -> str | None:
 def run(cmd: list[str], cwd: Path | None, timeout: float) -> tuple[int, str, float]:
     t0 = time.perf_counter()
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(
+            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout
+        )
         return r.returncode, (r.stderr or r.stdout or ""), time.perf_counter() - t0
     except subprocess.TimeoutExpired:
         return 124, "timeout", time.perf_counter() - t0
@@ -80,7 +79,8 @@ def probe_rust(results: list) -> None:
     (project / "src" / "main.rs").write_text(HELLO_RUST)
     code, err, wall = run(
         ["cargo", "build", "--release", "--target", "wasm32-wasip1", "-q"],
-        project, 300,
+        project,
+        300,
     )
     wasm = project / "target" / "wasm32-wasip1" / "release" / "hello.wasm"
     entry.update(
@@ -108,12 +108,23 @@ def probe_go(results: list) -> None:
     version = probe_cmd(["go", "version"])
     entry = {"language": "go", "toolchain": version, "measured": version is not None}
     if version is None:
-        entry["error_class"] = "toolchain not installed (hint: install go >= 1.21; wasip1 needs GOOS=wasip1 GOARCH=wasm)"
+        entry["error_class"] = (
+            "toolchain not installed (hint: install go >= 1.21; wasip1 needs GOOS=wasip1 GOARCH=wasm)"
+        )
     else:
         project = Path("/tmp") / f"ephemora_m11_go_{uuid.uuid4().hex[:8]}"
         project.mkdir()
         (project / "main.go").write_text(HELLO_GO)
-        env_cmd = ["/usr/bin/env", "GOOS=wasip1", "GOARCH=wasm", "go", "build", "-o", "hello.wasm", "main.go"]
+        env_cmd = [
+            "/usr/bin/env",
+            "GOOS=wasip1",
+            "GOARCH=wasm",
+            "go",
+            "build",
+            "-o",
+            "hello.wasm",
+            "main.go",
+        ]
         code, err, wall = run(env_cmd, project, 300)
         entry.update(
             {
@@ -138,7 +149,8 @@ def probe_c(results: list) -> None:
         (project / "hello.c").write_text(HELLO_C)
         code, err, wall = run(
             ["clang", "--target=wasm32-wasi", "-o", "hello.wasm", "hello.c"],
-            project, 60,
+            project,
+            60,
         )
         entry.update(
             {
@@ -169,7 +181,8 @@ def probe_static(results: list) -> None:
     results.append(
         {
             "language": "assemblyscript",
-            "toolchain": probe_cmd(["npx", "asc", "--version"]) or probe_cmd(["asc", "--version"]),
+            "toolchain": probe_cmd(["npx", "asc", "--version"])
+            or probe_cmd(["asc", "--version"]),
             "measured": False,
             "error_class": "toolchain via npm; not installed (hint: npm i -g assemblyscript)",
         }

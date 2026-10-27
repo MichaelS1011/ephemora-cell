@@ -8,6 +8,7 @@ Benchmarks:
   5. Docker comparison (python:3.12-slim, node:24-alpine)
   6. Summary table
 """
+
 import argparse
 import json
 import os
@@ -24,7 +25,7 @@ from pathlib import Path
 import wasmtime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ephemora_cell import WASISandbox, WASIConfig
+from ephemora_cell import WASIConfig, WASISandbox
 
 # WASM mit _start + WASI (Ephemora Cell braucht es)
 HELLO_WAT = """
@@ -52,15 +53,18 @@ def bench_ephemora_cell_cold(count=300):
     """Ephemora Cell cold — new Sandbox each run."""
     wasm = wasmtime.wat2wasm(HELLO_WAT)
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    tmp.write(wasm); tmp.close()
+    tmp.write(wasm)
+    tmp.close()
 
     times = []
     for _ in range(count):
-        sandbox = WASISandbox(config=WASIConfig(
-            max_fuel=100_000,
-            timeout_seconds=5,
-            max_memory_mb=32,
-        ))
+        sandbox = WASISandbox(
+            config=WASIConfig(
+                max_fuel=100_000,
+                timeout_seconds=5,
+                max_memory_mb=32,
+            )
+        )
         result = sandbox.run(tmp.name)
         times.append(result.elapsed_ms)
         sandbox.cleanup()
@@ -72,13 +76,16 @@ def bench_ephemora_cell_warm(count=300):
     """Ephemora Cell warm — cached engine."""
     wasm = wasmtime.wat2wasm(HELLO_WAT)
     tmp = tempfile.NamedTemporaryFile(suffix=".wasm", delete=False)
-    tmp.write(wasm); tmp.close()
+    tmp.write(wasm)
+    tmp.close()
 
-    sandbox = WASISandbox(config=WASIConfig(
-        max_fuel=100_000,
-        timeout_seconds=5,
-        max_memory_mb=32,
-    ))
+    sandbox = WASISandbox(
+        config=WASIConfig(
+            max_fuel=100_000,
+            timeout_seconds=5,
+            max_memory_mb=32,
+        )
+    )
     times = []
     for _ in range(count):
         result = sandbox.run(tmp.name)
@@ -131,6 +138,7 @@ def stats(times):
 def firecracker_available() -> bool:
     """Check KVM + firecracker binary — Firecracker vs Cell."""
     import shutil
+
     has_kvm = os.path.exists("/dev/kvm")
     has_fc = shutil.which("firecracker") is not None
     # On Mac M5 / GHA without KVM -> not available, fallback to literature value
@@ -169,7 +177,8 @@ def bench_firecracker_cold(count=300) -> list[float] | None:
             # If you have a full setup, replace this with real InstanceStart timing.
             proc = subprocess.run(
                 ["firecracker", "--api-sock", sock_path],
-                capture_output=True, timeout=10,
+                capture_output=True,
+                timeout=10,
             )
             elapsed = (time.perf_counter() - t0) * 1000
             # If firecracker started (exit 0 or signal), the API socket phase
@@ -185,13 +194,19 @@ def bench_firecracker_cold(count=300) -> list[float] | None:
 
 def docker_available() -> bool:
     try:
-        if subprocess.run(
-            ["docker", "--version"], capture_output=True, timeout=5
-        ).returncode != 0:
+        if (
+            subprocess.run(
+                ["docker", "--version"], capture_output=True, timeout=5
+            ).returncode
+            != 0
+        ):
             return False
-        return subprocess.run(
-            ["docker", "info"], capture_output=True, timeout=10
-        ).returncode == 0
+        return (
+            subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=10
+            ).returncode
+            == 0
+        )
     except Exception:
         return False
 
@@ -211,7 +226,8 @@ def measure_docker_baseline(count=7) -> dict | None:
     for name, cmd in images.items():
         warmup = subprocess.run(
             ["docker", "run", "--rm", name] + cmd,
-            capture_output=True, timeout=300,
+            capture_output=True,
+            timeout=300,
         )
         if warmup.returncode != 0:
             return None
@@ -220,7 +236,8 @@ def measure_docker_baseline(count=7) -> dict | None:
             start = time.perf_counter()
             run = subprocess.run(
                 ["docker", "run", "--rm", name] + cmd,
-                capture_output=True, timeout=120,
+                capture_output=True,
+                timeout=120,
             )
             if run.returncode != 0:
                 return None
@@ -241,18 +258,28 @@ def measure_local_baseline(count=7) -> dict:
         subprocess.run([sys.executable, "-c", "pass"], capture_output=True, timeout=30)
         times.append((time.perf_counter() - t0) * 1000)
     s = sorted(times)
-    return {"python3 (local, no docker)": {
-        "mean_ms": round(statistics.mean(times), 3),
-        "p95_ms": round(s[int(len(s) * 0.95)], 3),
-    }}
+    return {
+        "python3 (local, no docker)": {
+            "mean_ms": round(statistics.mean(times), 3),
+            "p95_ms": round(s[int(len(s) * 0.95)], 3),
+        }
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--runs", type=int, default=300,
-                        help="Cell/pure-wasmtime runs per scenario (default 300)")
-    parser.add_argument("--docker-runs", type=int, default=100,
-                        help="Timed docker runs per image after warmup (default 100)")
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=300,
+        help="Cell/pure-wasmtime runs per scenario (default 300)",
+    )
+    parser.add_argument(
+        "--docker-runs",
+        type=int,
+        default=100,
+        help="Timed docker runs per image after warmup (default 100)",
+    )
     args = parser.parse_args()
 
     # Same derivation as coremark_wasi.py --label: host-derived unless the
@@ -296,7 +323,7 @@ def main():
 
     # 4. Overhead (upper-bound: includes WASI subsystem + sandbox policy;
     #       pure baseline uses a no-import module while Cell uses WASI HELLO_WAT)
-    overhead = ((ws['mean_ms'] - ps['mean_ms']) / ps['mean_ms']) * 100
+    overhead = ((ws["mean_ms"] - ps["mean_ms"]) / ps["mean_ms"]) * 100
     results["overhead_pct"] = round(overhead, 2)
     results["overhead_note"] = (
         "Upper-bound: pure baseline is a no-import module (PURE_WAT), "
@@ -313,15 +340,19 @@ def main():
         results["firecracker_cold"] = fc
         results["firecracker_measured"] = True
         print(f"\n[4/5] Firecracker cold ({args.runs} runs, KVM)...")
-        print(f"  Mean: {fc['mean_ms']}ms | P95: {fc['p95_ms']}ms | P99: {fc['p99_ms']}ms")
+        print(
+            f"  Mean: {fc['mean_ms']}ms | P95: {fc['p95_ms']}ms | P99: {fc['p99_ms']}ms"
+        )
     else:
         # Literature value — Northflank 18.01.2026, 125ms boot
         fc = {"mean_ms": 125.0, "p95_ms": 135.0, "p99_ms": 145.0, "count": 0}
         results["firecracker_cold"] = fc
         results["firecracker_measured"] = False
-        results["firecracker_literature"] = "Northflank 18.01.2026, E2B uses Firecracker, 125ms MicroVM boot"
-        print(f"\n[4/5] Firecracker — KVM not available on this host")
-        print(f"  Literature: 125ms boot (Firecracker MicroVM, Northflank 18.01.2026)")
+        results["firecracker_literature"] = (
+            "Northflank 18.01.2026, E2B uses Firecracker, 125ms MicroVM boot"
+        )
+        print("\n[4/5] Firecracker — KVM not available on this host")
+        print("  Literature: 125ms boot (Firecracker MicroVM, Northflank 18.01.2026)")
 
     # Docker reference (live measurement)
     if docker_available():
@@ -334,14 +365,18 @@ def main():
             docker = measure_local_baseline()
             results["docker"] = docker
             results["docker_measured"] = False
-            print("\n[5/5] Docker daemon unreachable — local subprocess baseline "
-                  "(measured without docker)...")
+            print(
+                "\n[5/5] Docker daemon unreachable — local subprocess baseline "
+                "(measured without docker)..."
+            )
     else:
         docker = measure_local_baseline()
         results["docker"] = docker
         results["docker_measured"] = False
-        print("\n[5/5] Docker unavailable — local subprocess baseline "
-              "(measured without docker)...")
+        print(
+            "\n[5/5] Docker unavailable — local subprocess baseline "
+            "(measured without docker)..."
+        )
 
     print(f"\n{'='*60}")
     print("Competitive Summary — Cell vs Firecracker vs Docker")
@@ -350,26 +385,46 @@ def main():
     print("-" * 62)
     for name, d in docker.items():
         print(f"{name:<28} {d['mean_ms']:<12.3f} {d['p95_ms']:<12.3f} {'baseline':<10}")
-    fc_label = "Firecracker (measured)" if results["firecracker_measured"] else "Firecracker (literature)"
+    fc_label = (
+        "Firecracker (measured)"
+        if results["firecracker_measured"]
+        else "Firecracker (literature)"
+    )
     print(f"{fc_label:<28} {fc['mean_ms']:<12.3f} {fc['p95_ms']:<12.3f} {'—':<10}")
-    baseline_key = "python:3.12-slim" if "python:3.12-slim" in docker else next(iter(docker))
+    baseline_key = (
+        "python:3.12-slim" if "python:3.12-slim" in docker else next(iter(docker))
+    )
     speed_cold = round(docker[baseline_key]["mean_ms"] / cs["mean_ms"])
     speed_warm = round(docker[baseline_key]["mean_ms"] / ws["mean_ms"])
     fc_speed_cold = round(fc["mean_ms"] / cs["mean_ms"])
     fc_speed_warm = round(fc["mean_ms"] / ws["mean_ms"])
-    print(f"{'Ephemora Cell cold':<28} {cs['mean_ms']:<12.3f} {cs['p95_ms']:<12.3f} {speed_cold}x{'':<5} (vs Docker)")
-    print(f"{'Ephemora Cell warm':<28} {ws['mean_ms']:<12.3f} {ws['p95_ms']:<12.3f} {speed_warm}x{'':<5} (vs Docker)")
-    print(f"{'Pure wasmtime':<28} {ps['mean_ms']:<12.3f} {ps['p95_ms']:<12.3f} {'—':<10}")
-    print(f"{'Cell vs Firecracker cold':<28} {cs['mean_ms']:<12.3f} {'—':<12} {fc_speed_cold}x{'':<5}")
-    print(f"{'Cell vs Firecracker warm':<28} {ws['mean_ms']:<12.3f} {'—':<12} {fc_speed_warm}x{'':<5}")
+    print(
+        f"{'Ephemora Cell cold':<28} {cs['mean_ms']:<12.3f} {cs['p95_ms']:<12.3f} {speed_cold}x{'':<5} (vs Docker)"
+    )
+    print(
+        f"{'Ephemora Cell warm':<28} {ws['mean_ms']:<12.3f} {ws['p95_ms']:<12.3f} {speed_warm}x{'':<5} (vs Docker)"
+    )
+    print(
+        f"{'Pure wasmtime':<28} {ps['mean_ms']:<12.3f} {ps['p95_ms']:<12.3f} {'—':<10}"
+    )
+    print(
+        f"{'Cell vs Firecracker cold':<28} {cs['mean_ms']:<12.3f} {'—':<12} {fc_speed_cold}x{'':<5}"
+    )
+    print(
+        f"{'Cell vs Firecracker warm':<28} {ws['mean_ms']:<12.3f} {'—':<12} {fc_speed_warm}x{'':<5}"
+    )
     print()
     if not results["firecracker_measured"]:
-        print("Note: Firecracker literature 125ms — live KVM measurement requires Ubuntu 24.04 + /dev/kvm (GHA/EC2 metal)")
+        print(
+            "Note: Firecracker literature 125ms — live KVM measurement requires Ubuntu 24.04 + /dev/kvm (GHA/EC2 metal)"
+        )
     print()
 
     results_dir = (
         Path(__file__).resolve().parents[1]
-        / "benchmarks" / "results" / str(date.today())
+        / "benchmarks"
+        / "results"
+        / str(date.today())
     )
     results_dir.mkdir(parents=True, exist_ok=True)
     out = results_dir / "competitive_benchmark.json"

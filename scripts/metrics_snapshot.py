@@ -22,6 +22,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,16 +121,40 @@ def _update_downloads_badge(snap: dict) -> None:
     )
 
 
+def _host(url: str) -> tuple[str, str]:
+    """(scheme, host) of a URL, parsed — not matched as a substring.
+
+    A prefix or substring test on the raw URL string is not a host check:
+    `http://evil.test/?u=https://api.github.com` contains that prefix and
+    `https://api.github.com.evil.test` starts with it. Parsing settles both.
+    """
+    parsed = urllib.parse.urlparse(url)
+    return (
+        parsed.scheme.lower(),
+        (parsed.netloc or "").split("@")[-1].split(":")[0].lower(),
+    )
+
+
+#: The only hosts this script may talk to. Compared on the PARSED host, so the
+#: comment below is enforced rather than merely true: a look-alike suffix, a
+#: trailing dot or an IP literal is refused before any request exists.
+ALLOWED_HOSTS = frozenset({"api.github.com", "pypistats.org"})
+
+
 def _get(url: str, token: str | None = None, timeout: int = 30) -> dict:
     # Fixed allowlisted https endpoints only (pypistats.org, api.github.com);
-    # no user-controlled URL ever reaches this function.
-    if not url.startswith("https://"):
+    # no user-controlled URL ever reaches this function — and the allowlist makes
+    # that a check instead of a habit.
+    scheme, host = _host(url)
+    if scheme != "https":
         raise ValueError(f"refusing non-https URL: {url}")
+    if host not in ALLOWED_HOSTS:
+        raise ValueError(f"refusing URL outside the host allowlist: {host!r}")
     headers = {"User-Agent": "ephemora-cell-metrics/1.0"}
     # api.github.com rejects the generic vnd.api+json accept type (415).
     headers["Accept"] = (
         "application/vnd.github+json"
-        if url.startswith("https://api.github.com")
+        if host == "api.github.com"
         else "application/json"
     )
     request = urllib.request.Request(url, headers=headers)

@@ -7,9 +7,26 @@ on:
 
 permissions: read-all
 
+# Runtime artifact. 1.2.x ships exactly ONE qualified runtime: the controlled
+# wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). The runtime-wheel job builds it
+# from the two pinned upstream inputs, verifies all hashes and the arm64 Mach-O,
+# and hands it to this job as a workflow artifact. A missing or substituted
+# input FAILS the job on purpose - the unpatched 49.0.0 is never accepted as the
+# product runtime (fail-closed, no silent fallback, no continue-on-error).
+
 jobs:
+  runtime-wheel:
+    uses: ./.github/workflows/runtime-wheel.yml
+
   fuzz-smoke:
-    runs-on: ubuntu-latest
+    needs: runtime-wheel
+    # Scope (2026-10-16): the fuzz smoke drives the SHIPPED engine, so it runs on
+    # the qualified platform. Linux has no qualified runtime wheel, so a Linux leg
+    # could only fuzz a vulnerable 49.x build (excluded by design) — its results
+    # would not describe the engine that ships. No Linux-specific dependency is
+    # involved (pure Python + wasmtime), so macOS arm64 is the honest platform.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -18,12 +35,109 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Create verified Python environment (pip 26.2.2, certifi 2026.10.19)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          bash scripts/create_qualified_venv.sh "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
+        run: |
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
           python -m pip install -e . --no-deps
+          python scripts/check_ca_store.py
+
+      # Same fail-closed identity assertion as the ci.yml runtime legs: EXACT
+      # version (not a 49.0.4 prefix) + embedded dylib digest, so neither the
+      # unpatched 49.0.0 nor a ".dirty"/foreign build can pass this leg.
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
+      # The differential fuzzer uses Node/V8 as its second engine and WABT's
+      # wasm-interp as its third. Both are pinned to verified release assets;
+      # the runner's preinstalled Node is not used.
+      - name: Install pinned Node.js 22.23.4 (official macOS arm64 asset)
+        run: |
+          NODE_TARBALL="$RUNNER_TEMP/node-v22.23.4-darwin-arm64.tar.gz"
+          curl -fsSL -o "$NODE_TARBALL" \
+            https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-arm64.tar.gz
+          echo "c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428  $NODE_TARBALL" \
+            | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/node"
+          tar -xzf "$NODE_TARBALL" -C "$RUNNER_TEMP/node" --strip-components=1
+          echo "$RUNNER_TEMP/node/bin" >> "$GITHUB_PATH"
+          test "$(node --version)" = "v22.23.4"
+
+      - name: Install pinned WABT 1.0.42 (official macOS arm64 asset)
+        run: |
+          WABT_TARBALL="$RUNNER_TEMP/wabt-1.0.42-macos-arm64.tar.gz"
+          curl -fsSL -o "$WABT_TARBALL" \
+            https://github.com/WebAssembly/wabt/releases/download/1.0.42/wabt-1.0.42-macos-arm64.tar.gz
+          echo "3f654779b436c628db3ca4323c51538815f5fbc887a6d5f3bb1c18d36281e240  $WABT_TARBALL" \
+            | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/wabt"
+          tar -xzf "$WABT_TARBALL" -C "$RUNNER_TEMP/wabt" --strip-components=1
+          echo "$RUNNER_TEMP/wabt/bin" >> "$GITHUB_PATH"
+          test "$(wast2json --version)" = "1.0.42"
+          test "$(shasum -a 256 "$(command -v wast2json)" | awk '{print $1}')" \
+            = "e4d4e15fd4938980a656cf3595a5deebf660606ea2a9acffc15555c2dca43082"
+
+      - name: Install pinned wasm-tools 1.262.0 (official macOS arm64 asset)
+        run: |
+          TARBALL="$RUNNER_TEMP/wasm-tools-1.262.0-aarch64-macos.tar.gz"
+          curl -fsSL -o "$TARBALL" \
+            https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-aarch64-macos.tar.gz
+          echo "801b237643cc0f4ab27ebd1745e7863e23bf194a038bc6ca8ce5618212e43669  $TARBALL" \
+            | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/wasm-tools"
+          tar -xzf "$TARBALL" -C "$RUNNER_TEMP/wasm-tools" --strip-components=1
+          echo "$RUNNER_TEMP/wasm-tools" >> "$GITHUB_PATH"
+          test "$(wasm-tools --version | awk '{print $2}')" = "1.262.0"
 
       - name: Run fuzz smoke (100 random WASM modules)
         run: |
           python benchmarks/fuzz_smoke.py
+
+      # Bounded differential campaign: Wasmtime vs Node/V8 vs wasm-interp,
+      # plus component guard mutations (validator comparison when wasm-tools is
+      # present). The report records cases, families, oracles and findings.
+      - name: Differential fuzz campaign (120 s, three engines)
+        run: |
+          python scripts/fuzz_wasm_diff.py --duration 120 --out "$RUNNER_TEMP/fuzz_diff"
+
+      - name: Upload fuzz report and findings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-differential-report
+          path: |
+            ${{ runner.temp }}/fuzz_diff/report.json
+            ${{ runner.temp }}/fuzz_diff/components_report.json
+            ${{ runner.temp }}/fuzz_diff/findings/**
+          if-no-files-found: warn

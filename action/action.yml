@@ -62,11 +62,26 @@ outputs:
   elapsed_ms:
     description: 'Execution wall time in ms'
     value: ${{ steps.run.outputs.elapsed_ms }}
+  error_class:
+    description: >-
+      Who decided the outcome, from the report the CLI wrote: none (success),
+      execution (the guest failed or the sandbox stopped it), attestation (the
+      run happened but its evidence did not hold) or environment (nothing was
+      executed — the engine on this runner is outside the qualified runtime
+      line). A caller-class refusal emits no report at all, so it surfaces as a
+      step failure with the CLI's own message rather than through this output.
+    value: ${{ steps.run.outputs.error_class }}
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    # Pinned to the commit the tag resolves to (tag v5 == v5.6.0, verified with
+    # `git ls-remote https://github.com/actions/setup-python refs/tags/v5` on
+    # 2026-10-19; lightweight tag, so this is a commit SHA, not a tag object).
+    # Floating version refs are not what this release's guarantee rests on: a
+    # tag can be moved, a SHA cannot. Content review of that commit was not
+    # performed — the pin fixes *which* code runs, it does not certify it.
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.12'
 
@@ -123,22 +138,33 @@ runs:
         exit_code=$(jq -r '.exit_code // 1' "$result_file")
         fuel=$(jq -r '.fuel_consumed // "null"' "$result_file")
         elapsed=$(jq -r '.elapsed_ms // 0' "$result_file")
+        error_class=$(jq -r '.error_class // "none"' "$result_file")
 
         {
           echo "status=$status"
           echo "exit_code=$exit_code"
           echo "fuel_consumed=$fuel"
           echo "elapsed_ms=$elapsed"
+          echo "error_class=$error_class"
         } >> "$GITHUB_OUTPUT"
 
-        echo "Cell run: status=$status exit_code=$exit_code fuel_consumed=$fuel elapsed_ms=${elapsed}ms"
+        echo "Cell run: status=$status exit_code=$exit_code fuel_consumed=$fuel elapsed_ms=${elapsed}ms error_class=$error_class"
         if [ -s "$stderr_file" ]; then
           echo "::group::guest output (stderr channel — stdout carries the report)"
           cat "$stderr_file" >&2
           echo "::endgroup::"
         fi
 
+        # status=error is also what a guest that failed inside a covered run
+        # produces, so the class must be read before the step is explained:
+        # an environment class means no guest instruction executed at all,
+        # and blaming the module for it would point at the wrong thing.
+        if [ "$error_class" = "environment" ]; then
+          echo "::error::nothing was executed — this runner's engine is outside the release's qualified runtime line (error_class=environment). The module was not judged. Install a runtime on that line; see docs/cli-errors.md."
+          exit 1
+        fi
+
         if [ "$status" != "success" ] && [ "$FAIL_ON" = "non-success" ]; then
-          echo "::error::Cell run did not succeed: status=$status exit_code=$exit_code"
+          echo "::error::Cell run did not succeed: status=$status exit_code=$exit_code error_class=$error_class"
           exit 1
         fi

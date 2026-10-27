@@ -1,5 +1,111 @@
 # Security Policy
 
+## Public Security Release Status
+
+One glanceable status for developers, customers and external security reviewers. It
+consolidates what is **published**, what was **actually tested**, and what is **not yet
+approved**. Each line points at committed, machine-checkable evidence — it is a signpost, not
+a substitute for the section it links to. Nothing here is a production-security authorisation.
+
+### At a glance
+
+| What a reviewer needs to know | Status | Where to verify |
+|---|---|---|
+| Publicly available version | **`1.1.0`** on PyPI (wheel + sdist), BUSL-1.1 | [PyPI project page](https://pypi.org/project/ephemora-cell/) · [CHANGELOG](CHANGELOG.md) |
+| Software actually tested | the head of the **`release/v1.2.0-rc`** branch — full suite and every binding gate run on that commit in CI shape on the qualified runtime (numbers under *Why there is no production GO*); the frozen security base of the 1.1 line, `284b577`, is one row down | the CI run of the pull request from that branch · `docs/release_assurance.md` |
+| Native runtime tested against | the **controlled build on the 49.0.4 fix line** (embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`), assembled from the official Bytecode Alliance C-API 49.0.4 asset and pinned by wheel/native digest — engine patch parity for the async class **not independently verified** (see the GHSA-32h6 notes); CPython 3.12 CI/lab interpreter. The previously published `49.0.3.post2` build (`ab4f1ea6…0fb73`) is **withdrawn** and no longer accepted by the gate | `requirements.lock` · release-identity records → `native_runtime` |
+| Conformance | pinned wasi-testsuite: 71 pass / 1 documented by-design expected-failure / 0 fail of 72 executed (55 preview-3 tests skipped) · official core spec: 31,896 pass with **81 failing commands across 15 files** (27 unsupported proposals, 51 harness gaps, 3 `local_init` cases still unclassified); those command totals cover the 157 of 257 files that produced per-command results, 684 test cases were skipped, and 100 files aborted before measurement (44 pinned `wast2json` parse refusals, 56 wasmtime-py v128 binding aborts) and contribute one file-level deviation each — re-measured on the qualified **49.0.4 runtime (2026-10-22)**; **standards conformance, not full-suite coverage and not a security certification** | [conformance/README.md](conformance/README.md) |
+| Last reproduced Linux run | **2026-10-13** on a native Linux **aarch64** reference host (Ubuntu 24.04): blocked-worker OS-wall probe holds; plus an `sdist` clean-room `linux/amd64` container run — predates the 1.2.x qualification; not transferable | `benchmarks/results/2026-10-13/native_linux/` · `linux_reference_boundary_probe.json` · [docs/release_assurance.md](docs/release_assurance.md) |
+| Supported workloads | untrusted code compiled to **WASM** — WASI Preview1 modules and WASI 0.2 components; the subprocess path (`run_isolated()` / `use_subprocess=True`) for guests that must not run in-process; MCP tool server | [Execution paths](#execution-paths--which-control-runs-where) |
+| Platforms qualified for 1.2.x | **macOS arm64** only, measured against the 1.2.0 candidate runtime; Linux, Windows, musl/Android **NOT QUALIFIED** — no release evidence claimed there | “Supported platforms (1.2.x)” note below |
+| Excluded / out of scope | **native worker compromise (A7): after an engine escape turns input into arbitrary native code, the worker has the same-user files, environment and network; the worker is a crash/containment boundary, not an OS sandbox**; local write access to the installed package (A8); multi-tenant isolation between concurrent modules in one process (single-tenant; a tenant is a billing identity, never a security boundary); guest network or process spawning (none exposed, by design); cryptographic memory zeroing; in-process execution of untrusted guests | [Scope](#scope) · [Known Limitations](#known-limitations) · [threat model](docs/threat-model.md#native-worker-compromise-a7) |
+| Open risks (not closed) | on the **shipped artifact** (`247c1529…`, engine 49.0.4 fix line): the loader-excluded async component class (GHSA-32h6 — engine patch **not independently verified**) and the documented info/availability classes (GHSA-96f6, preview0/WASIp3 gates); I/O syscalls bypass fuel metering. The 2026-10 aarch64 `br_table` escape (GHSA-mghf-wjfp-p5xm) is **closed** by this build and was measured on the withdrawn one. The `49.0.0`-line statements below and their "no wheel on PyPI" notes document the intermediate `49.0.0` development pin (moved from `47.0.1` on 2026-10-12, after the 1.1.0 release) and the plain-`pip` path; they no longer describe the shipped runtime asset. | [Known Limitations](#known-limitations) · [Dependency & Upgrade Policy](#dependency--upgrade-policy) · [published vs. source](https://github.com/MichaelS1011/ephemora-cell/blob/main/docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where) |
+| Independent external security audit | **None yet** — no third party has certified or audited Cell; the badge is *security-evaluation-pending* | [README](README.md) · this file |
+| Production release | **NO-GO** — see *Why there is no production GO* below | — |
+
+### 2026-10-22 P0 — aarch64 `br_table` escape, runtime withdrawn
+
+GHSA-mghf-wjfp-p5xm (critical, CVSS 9.9, published 2026-10-19) affects
+Wasmtime/Cranelift on aarch64: a `br_table` with more than roughly 256k targets
+can branch to an incorrect target, i.e. to arbitrary code. The published
+`49.0.3.post2` runtime was affected. Measured on this host: a 300,000-target
+module compiled on that build and the default-index call killed the process
+with SIGBUS, while index 0 returned correctly; the 49.0.4 build rejects the
+same module at translation time (`exceeds the implementation limit of 65520`).
+The 49.0.3.post2 asset remains published for history (immutable), but the gate
+floor and the bootstrap pin have moved to 49.0.4; nothing accepts the old
+runtime silently. Measurements in this file that name `ab4f1ea6…` are dated
+evidence for the withdrawn build, not statements about the shipped runtime.
+
+### Release identity — four distinct states, not one version string
+
+A version number cannot tell these apart; only a commit SHA and an artifact digest can.
+Anyone reproducing a security claim installs **from source at a pinned commit**, never from
+the index ([why](https://github.com/MichaelS1011/ephemora-cell/blob/main/docs/release_assurance.md#published-wheel-vs-current-source-which-control-is-where)).
+
+| State | What it is | Authorisation |
+|---|---|---|
+| **Published PyPI `1.1.0`** | the immutable wheel/sdist on the index (sha256 `94cf392f…` / `f4ec76bb…`) | shipped & published; its index page still carries stale `Production/Stable` metadata — the repository `4 - Beta` at the commit is the authoritative text |
+| **Frozen security base `284b577`** | the commit every pilot/readiness decision binds to | technical build of record; **not** re-published (its rebuild digests differ from the index, as expected for a different commit) |
+| **Evidence commit `a136745`** | the doc/evidence commit that tracks the release-identity JSONs for `284b577` | product code byte-identical to `284b577`; no functional change |
+| **Planned 1.2.0 release candidate** | the next release candidate, **not yet released** | carries a PEP 440 label, so `release_identity.py` marks it `publishable: false` by design until it is cut clean |
+
+### `publishable` — what the flag does and does not mean
+
+In `scripts/release_identity.py`, `publishable` is **true only** when the working tree is
+clean, all version sources agree, distribution artifacts are present, **and** the version
+carries no PEP 440 pre-release/local label. It is a statement of *technical well-formedness*
+(this build could be uploaded), computed from source state — **not** a release
+authorisation, not an audit result, and not evidence that a pilot VM accepted anything. A
+labelled candidate is deliberately `false` so a source-built verification artifact can never
+be mistaken for the released one.
+
+### Why there is no production GO
+
+A green suite (2171 passing / 44 skipped, 85.08–85.09 % statement coverage, measured 2026-10-27 in a fresh checkout of this candidate on the qualified 49.0.4 runtime — on a 49.0.0 development venv the previous candidate reported 1772/30 only with the documented escape hatch set, and is red without it, because the gate refuses to run guest code on an engine outside the qualified line or on a native binary that is not the qualified build rather than pretending to be the audited configuration; the pre-run grant claims of `policy check --language` are backed by a tracked run-side measurement in `benchmarks/results/2026-10-19/language_grant_views_measured.json`), the conformance runs and the blocked-worker
+probes establish **laboratory correctness of the tested commit** — they are not, and do not
+automatically become, a production-security approval. General production stays NO-GO until,
+at minimum: an independent external evaluation is completed; the newest isolation controls
+ship in a published release; a dedicated pilot VM is provisioned and accepts the workload
+(currently **NOT TESTED**); and an available runtime closes the pinned-line advisories. None
+of those is cleared by CI passing. Known limitations and any `UNKNOWN` posture above stay
+listed with their reason — they are not folded away by a summary badge. Every attack scenario
+actually run — its class (blocked / bounded / contained / allowed / unresolved / unknown /
+not-tested), boundary, commit, runtime and platform — is consolidated in
+[docs/security_attack_matrix.md](docs/security_attack_matrix.md); the numbers there are per
+boundary and are deliberately **not** summed into a single "vectors blocked" score.
+
+**Supported platforms (1.2.x).** macOS arm64 is the qualified platform for this
+release: the filesystem-escape counter-checks and the worker-containment tests
+were measured against the shipped runtime on this platform, and the full test
+suite is green there. Linux, Windows and musl/Android builds are **NOT
+QUALIFIED** for 1.2.x — no release evidence is claimed for them, and evidence
+measured on macOS is not transferred; the container reference for an
+authorized Linux qualification lives in `deploy/linux-reference/`.
+
+**CI runner.** The five required legs run on `macos-15` (arm64). GitHub retires
+the `macos-14` image on 2026-11-02; `macos-15` is the arm64 image and
+`macos-15-intel` is x64. The runtime bootstrap refuses an interpreter that does
+not run natively on arm64 (arm64 or universal2 on Apple Silicon) and a host
+older than macOS 11.0, so an x64 or Rosetta runner cannot pass. The first
+`macos-15` run stopped in the runtime bootstrap before any test ran: the
+runner's universal2 interpreter reports its 10.13 deployment target, not the
+host version. On the release-candidate branch the GitHub run of the head commit
+is the binding record; a local run is quoted with its environment and is not
+offered as a substitute for it. The local qualification host is macOS arm64
+(platform tag `macosx-26.0-arm64`).
+
+**The VM backend is a second wall, not a stronger version of the first.** On
+macOS arm64 the CLI can run a job inside a Linux VM created through Apple
+Virtualization.framework (`--backend vm`), with the module or script crossing a
+dedicated serial channel under a host mediator. It is off by default, needs the
+operator's VM assets, refuses a run without them instead of falling back to the
+native worker, and does **not** issue a signed execution record yet (`--evidence`
+is refused on that path). Its security position, per backend and per profile, is
+in [docs/platform_support.md](docs/platform_support.md) — including the Linux
+side, where no OS-level isolation is claimed because the probe did not establish
+the boundary on the tested host.
+
 ## Supported Versions
 
 | Version | Supported | Notes |
@@ -77,8 +183,9 @@ Ephemora-cell is an isolated WASM sandbox, not a full security enforcement platf
 - **GC heap not byte-bounded:** `Store.set_limits` limits linear memory only. `WASIConfig.max_gc_heap_mb` is recorded in the security baseline (observability); wasmtime-py 47 has no GC-heap limiter binding, so fuel remains the effective GC memory bound (see `benchmarks/pocs/README.md`)
 - **No memory zeroing:** WASM memory is reclaimed by the Python GC, not cryptographically wiped
 - **Single-tenant:** No multi-tenant isolation between concurrent modules in the same process. `--tenant`/`TenantStore` (ADR-012) attribute consumption to an account and refuse a run whose cumulative caps are spent — a tenant is a billing identity, never a security boundary, and nothing a guest can observe changes when one is attached
-- **Default execution is in-process:** `run()`/`run_wasm()` execute the guest inside the calling process — fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall are enforced there; the OS-level walls (RLIMIT_NOFILE/AS/RSS, per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path (`run_isolated()` / `use_subprocess=True`). For untrusted guests, use the subprocess path. **One class is now mandated, not merely recommended:** a WASI 0.2 `component` that the host has not explicitly marked `trusted` (i.e. `untrusted` or unspecified `unknown`) is forced onto the subprocess path by the central enforcement gate (ADR-015) — see “Isolation is enforced, not just offered” below.
-- **No network, no process spawning:** WASI Preview1 + WASI 0.2 component execution expose no socket or process APIs (by design)
+- **Default execution runs in the isolated worker:** since the 1.2.0 mandate (ADR-015), `run()`/`run_wasm()` route every guest the host has not explicitly marked `trusted` — `untrusted` and unspecified `unknown` alike — onto the subprocess path for BOTH ABIs; only an explicit `trusted` run executes inside the calling process. In-process runs enforce fuel, memory cap, timeout, 10 KB output cap and the `io_budget_bytes` wall; the OS-level walls (RLIMIT_NOFILE and RLIMIT_FSIZE; RLIMIT_AS/RSS are best-effort and macOS does not enforce RLIMIT_AS; per-file `disk_quota_bytes`, `io_cpu_seconds` rusage watchdog, 32 MB module cap, hard process kill) exist only on the subprocess path. The published 1.1.0 wheel still has the old in-process default; see "Isolation is enforced, not just offered" below.
+- **No network, no process spawning:** WASI Preview1 exposes no socket creation or `connect` (the handle-only `sock_accept`/`recv`/`send`/`shutdown` imports exist but cannot obtain a socket), and neither ABI exposes process-spawn APIs (by design; pinned by `tests/test_preview1_socket_surface.py`)
+- **Exit status reaches the host only as far as the guest's ABI and loader let it.** The WASI-0.2 component Python guest catches `SystemExit` in its own loader, so a script calling `sys.exit(3)` is observed as `status: success`, `exit_code: 0`; the JavaScript guest reports a thrown error through its `EPHEMORA_USER_ERROR` marker and also returns cleanly (both measured on the qualified runtime). A component that hard-exits non-zero is never read as success — `std::process::exit(3)` arrives as `error` — but the component ABI carries only the non-zero fact, not the number (`exit(3)` and `exit(7)` both arrive as exit status 1, measured). The Preview1 interpreter route and a plain Preview1 `.wasm` run propagate the exact code (measured: exit `3`/`7`). Every `run` report states this as `exit_status_fidelity` (`exact` / `non_zero_only` / `none`), and `ephemora run` prints a stderr note on a `none` route; branch on the guest's own output, or pin the Preview1 interpreter, when an exit status is load-bearing — a guest's `EPHEMORA_USER_ERROR` marker stays a *guest claim* and never becomes a host verdict
 - **Disk quota is per-file:** `disk_quota_bytes` (default 256 MiB) is enforced via RLIMIT_FSIZE in the subprocess isolation path — a kernel per-file cap, not a per-run aggregate; in-process runs document it as a granted capability
 - **A grant speaks for the tool its signature names — on every path.** The engine
   re-keys any caller-supplied grant mapping by `grant.tool` and refuses two grants
@@ -104,21 +211,92 @@ Ephemora-cell is an isolated WASM sandbox, not a full security enforcement platf
   pooled-path claims (module cache, engine reuse) are exercised in the suite by
   explicitly lifting the budget (`tests/test_execution_invariants.py`), not by the
   default configuration.
-- **Grant-time preopen revalidation closes TOCTOU at grant time:** entries are re-realpath'd immediately before `preopen_dir`; a swap in the milliseconds between config validation and grant is skipped with a warning, but a swap DURING a run (while the guest holds the fd) is outside the sandbox's control
+- **Grant-time preopen revalidation covers forbidden canonical locations:** entries are re-realpath'd immediately before `preopen_dir`; a swap in the milliseconds between config validation and grant is skipped with a warning **only when the new target resolves into a forbidden canonical location** (`/etc`, `/private`, `/usr`, …). A swap to a different canonically *allowed* directory is still inside the operator's `allow_dirs` trust and is granted — measured 2026-10-23 in `tests/test_fs_guest_symlink_matrix.py`. A swap DURING a run (while the guest holds the fd) is outside the sandbox's control.
+- **I/O budget scope (measured 2026-10-16).** `io_budget_bytes` (default 64 MiB) is
+  enforced on BOTH execution paths, each against the scope it really has.
+  **Preview1:** a watcher sums the run's private, initially EMPTY `sandbox_dir`
+  (absolute size, fixed 100 ms poll) and, on breach, interrupts the guest via
+  `engine.increment_epoch()`. **Component (WASI 0.2):** a component has no
+  `/sandbox` mount, so the wall covers the directories the run actually preopened
+  (`effective_preopens`) — its only writable scope — measured as a **delta**
+  against a baseline taken before the guest starts, so a caller-owned directory's
+  pre-existing content is not charged to the guest. On BOTH paths the scope is
+  ALSO re-measured once, after the guest has stopped (the end-of-run sample).
+  A breach is `ExecutionStatus.ERROR` with `io_budget_exceeded=True`. The
+  preview1 text is `I/O budget exceeded: guest wrote N bytes to the sandbox dir
+  (io_budget_bytes=L)`; the component text is `I/O budget exceeded: guest wrote
+  N bytes into the granted directories (io_budget_bytes=L)`.
+  The end-of-run sample exists because a poller CANNOT see a write that begins and
+  finishes inside one interval: the sustained overshoot is what the poller
+  interrupts, and the sub-interval overshoot is what the sample DETECTS at the end
+  of the run — detection, not prevention: the burst is not stopped while it runs.
+  The sample measures a **footprint**, not a tally of every byte ever written: it
+  judges the bytes still on disk once the guest has stopped, in the same scope the
+  poller sums (see above). Bytes a guest writes and then deletes leave no footprint
+  to measure, so a write-then-delete burst is not caught by that measurement
+  (measured 2026-10-16: a component guest that wrote 1310720 bytes and immediately
+  removed them exited `success` with 0 bytes left on disk). A burst whose bytes
+  remain is reported as a breach at the end of the run instead of a silent
+  success; the residual footprint is what the wall bounds, not the write volume.
+  The byte wall therefore contains a sustained write flood (the poller) and the
+  residual footprint a run leaves behind (the end-of-run sample); neither is a
+  preventive cap on the bytes a guest may ever write. On the preview1 path, granted
+  preopen trees stay OUTSIDE the byte wall (a `du` delta over preopen trees is the v2
+  option noted in ADR-002, not implemented); their `write()` host cost is what the
+  `io_cpu_seconds` CPU wall below covers. The two scopes are deliberately NOT
+  symmetric: preview1 compares the absolute size of a private dir that starts
+  empty, while the component path compares a delta over caller-owned directories.
+  Both are locally correct; neither form is "stricter" than the other, and the
+  byte count is only comparable within one path. Passing `io_budget_bytes=None`
+  turns the wall off deliberately — no watcher and no end-of-run sample; the
+  default is the 64 MiB above, so the wall is absent only when it is switched off
+  explicitly.
+- **Orphaned run directories are not swept at startup.** The isolated worker is
+  killed with `SIGKILL` — by this release's own timeout path as well as by an
+  external `kill -9` or the OOM killer — and `SIGKILL` cannot be trapped, so the
+  worker cannot clear its own per-run sandbox and capture directories. A repeat run
+  on the SAME sandbox object does clear that object's earlier directories, but
+  nothing scans the scratch root for directories left behind by a process that is
+  already gone. On a long-lived host that is unbounded **disk growth, not a
+  boundary break**: those directories are outside every guest's reach. An operator
+  running many isolated guests on one machine garbage-collects its own scratch root.
+- **Every time bound reads the system clock.** Trust-root key windows
+  (`not_before`/`not_after`) are validated at load against `datetime.now(UTC)`, and
+  grant windows and cap windows are evaluated against the same wall clock at check
+  time (the check takes an injectable moment for tests, which is how it is
+  measured, not a second clock). A clock rolled backwards can therefore keep an
+  expired key or grant live: the byte/count caps still bite per call, the *window*
+  does not. There is no monotonic or leased bound — that is a design question this
+  release does not answer. The practical rule with the startup-only key check above:
+  rotate the key **and restart the process**.
+- **Verification scope, stated plainly.** Scheduled CI fuzzing
+  (`benchmarks/fuzz_smoke.py`, weekly plus manual dispatch) generates random valid
+  **WASM modules** — bounded instruction counts, no preopened directories — and it
+  is a smoke test, explicitly not a coverage-guided fuzzer. The grant envelope, the
+  trust root, the egress URL parser and the receipt verifier are **not** fuzzed by
+  anything in this repository. The resource, linkage and trust invariants are pinned
+  by targeted tests, **not** by property-based tests (no property framework is in
+  use). No hours-long soak run is part of the qualification — the longest soak in
+  `benchmarks/results/` is ten minutes (`2026-08-25/12_soak_10min.json`). Read those
+  surfaces as untested depth, not as covered: a claim of "fuzzed" or
+  "property-tested" would overstate what was done.
 
 ### Execution paths — which control runs where
 
-Cell has two isolation paths, and the difference is material. The default
-executes the guest **inside your process**; the subprocess path
-(`run_isolated()` / `use_subprocess=True`) adds OS-level walls around a
-disposable worker. For untrusted guests, use the subprocess path.
+Cell has two isolation paths, and the difference is material. Under the current
+source the default is the protected one: every guest the host has not explicitly
+marked `trusted` — `untrusted` or unspecified `unknown` (fail-closed) — runs in
+the disposable worker, for BOTH ABIs. The subprocess path (`run_isolated()` /
+`use_subprocess=True`) adds OS-level walls around that worker; only an explicit
+host `trusted` authorisation executes the guest **inside your process**, where
+the kernel-level walls do not apply.
 
 #### Isolation is enforced, not just offered (ADR-015)
 
 Some host-side defects only a **process** wall contains. GHSA-j2g9 is measured:
 a `component` guest calling `fd_filestat_set_times(u64::MAX)` raises `SIGABRT`
 **in the host** on the in-process path (the host dies); the same guest under the
-worker only kills the worker (`ERROR`, `worker_crashed=true`, parent survives).
+worker only kills the worker (`ERROR` naming the worker crash, parent survives).
 Fuel/wall/memory do not bite on that host-side call. So for this class the
 subprocess path is no longer a recommendation — a gate at the `WASISandbox.run()`
 choke-point **enforces** it, before any guest execution, across every entry point
@@ -132,8 +310,11 @@ choke-point **enforces** it, before any guest execution, across every entry poin
 - `trusted` in-process component execution requires **explicit host
   authorisation** (the MCP `trusted_tools` allowlist); a guest cannot elevate its
   own trust from its bytes or sidecar.
-- Preview1 is never a mandate class (measured unaffected), so the in-process
-  Preview1 default is unchanged.
+- Both ABIs are mandate classes. Preview1 was originally excluded because the
+  measured GHSA-j2g9 host-side abort class is component-specific, but the 1.2.0
+  decision extended the gate to Preview1 as well: an untrusted/unknown module is
+  forced onto the worker exactly like a component, and the in-process path
+  remains only for explicit `trusted` runs.
 - The mandate guards the **guaranteed public paths** (`WASISandbox.run`,
   `run_wasm`, `run_isolated`, the MCP engine, the CLI). Calling the low-level
   `ComponentSandbox` primitive directly bypasses the gate **by design** — it is
@@ -146,7 +327,11 @@ choke-point **enforces** it, before any guest execution, across every entry poin
   configuration, never in the receipt.
 - This is process isolation, **not** full OS sandboxing (no seccomp/pledge is
   claimed), and it does **not** add a component sync blockade — see the
-  attestation truth table below. **No false guarantees.**
+  attestation truth table below. **No false guarantees.** In particular, it does
+  not protect against **A7**, a native compromise of the worker after an engine
+  escape: that process still has the invoking user's file, environment and
+  network access. The v1.2 contract and the measured Option B research boundary
+  are stated in [docs/threat-model.md](docs/threat-model.md#native-worker-compromise-a7).
 
 **Build scope.** Every bullet above describes the **current source**, not the
 published release: `1.1.0` was cut on 2026-10-05 (`75b7bc2`), before the gate
@@ -169,16 +354,16 @@ result["fuel_consumed"]; result["io_cpu_used_seconds"]; result["io_budget_exceed
 result["security_baseline"]   # attested limits, incl. wasmtime_version
 ```
 
-| Control | In-process (default) | Subprocess (`run_isolated()`) |
+| Control | In-process (explicit `trusted` only) | Subprocess / worker (forced for untrusted/unknown; `run_isolated()`) |
 |---|---|---|
 | Fuel metering (guest CPU) | ✅ | ✅ |
 | Memory cap (`Store.set_limits`) | ✅ | ✅ |
 | Wall-clock timeout (epoch) | ✅ epoch at safepoints | ✅ outer wall (`communicate()` + `SIGKILL` at `max(timeout_seconds+5, 5)`) |
 | 10 KB output cap | ✅ | ✅ |
-| I/O byte wall (`io_budget_bytes`, sandbox dir) | ✅ watcher + epoch interrupt | ✅ |
+| I/O byte wall (`io_budget_bytes`) | ✅ watcher + end-of-run sample + epoch interrupt (scope: private sandbox dir) | ✅ watcher + end-of-run sample (component scope: granted preopens, as a delta) |
 | I/O CPU wall (`io_cpu_seconds`) | ❌ documented-trusted * | ✅ worker rusage watchdog |
 | Disk quota (`disk_quota_bytes`) | ❌ trusted capability * | ✅ RLIMIT_FSIZE (per file) |
-| RLIMIT_NOFILE / AS / RSS, 32 MB module cap | ❌ | ✅ |
+| RLIMIT_NOFILE / FSIZE, 32 MB module cap; RLIMIT_AS/RSS best-effort | ❌ | ✅ (AS/RSS best-effort) |
 | Preopen deny + grant-time TOCTOU revalidation | ✅ | ✅ |
 | Per-call module binding (`expected_sha256`) | ✅ | ✅ (worker verifies before compiling) |
 
@@ -186,6 +371,13 @@ result["security_baseline"]   # attested limits, incl. wasmtime_version
 there would cap your application itself, so these knobs are honored as
 declared capabilities, not enforced walls (guest code is still fuel-,
 memory-, timeout- and byte-wall-bounded in-process).
+
+**RLIMIT scope (2026-10-23).** `RLIMIT_NOFILE`, `RLIMIT_FSIZE` and the 32 MB
+module cap are enforced in the worker. `RLIMIT_AS` and `RLIMIT_RSS` are
+best-effort: macOS does not enforce `RLIMIT_AS`, Linux treats `RLIMIT_RSS` as
+advisory, and a rejected `setrlimit` is logged rather than reported as an
+enforced wall. The byte-accurate memory wall is `Store.set_limits` inside the
+sandbox; no row above claims otherwise.
 
 **Timeout semantics (2026-10-12).** `timeout_seconds` is the *configured* budget,
 not a hard kill instant. On the subprocess path the parent bounds the run with
@@ -201,20 +393,24 @@ host call is *not* guaranteed to be caught there — the guaranteed outer kill e
 only on the subprocess (worker) path.
 
 Backed by tests: `tests/test_run_io_budgets.py` (byte wall on both paths,
-CPU wall on the worker path), `tests/test_disk_quota.py` (RLIMIT_FSIZE),
+CPU wall on the worker path), `tests/test_component_io_budget.py` (component
+byte wall over granted preopens as a delta; preview1 end-of-run sample; positive
+and boundary controls), `tests/test_disk_quota.py` (RLIMIT_FSIZE),
 `tests/test_process_executor.py` (rlimits, timeout kill, module cap),
 `tests/test_effective_preopens.py` (preopens),
 `tests/test_load_guard.py` (atomic publication, settled-file load guard,
 per-call digest binding on all paths — ADR-006 amendment, 2026-09-25).
 
-For production and regulated deployments, the Ephemora enterprise edition builds on Cell's isolation.
+For production and regulated deployments, the Ephemora enterprise offering builds on Cell's isolation.
 
 ## Security Design
 
 Threat model (adversary model, trust boundaries, residual risks):
-[docs/threat-model.md](docs/threat-model.md). Red-team pass behind this release (what was
-found, what was closed with a test that bites, and what is deliberately left open):
-[docs/security_review_2026-10-05.md](docs/security_review_2026-10-05.md).
+[docs/threat-model.md](docs/threat-model.md). What this release deliberately leaves
+open — with the reason stated — is listed under
+["Known Limitations"](#known-limitations) in this document; the evidence behind each
+posture claim (including what is *not* proved by it) is in
+[docs/security_posture.md](docs/security_posture.md).
 
 Ephemora-cell relies on:
 - **WASM Memory Safety:** Bounds-checked memory access (no buffer overflows)
@@ -280,6 +476,21 @@ A signature is a claim about bytes, so the three questions get three answers:
   pass as evidence about an execution, or the other way round. Replay detection stays
   with the verifier: **Cell proves uniqueness; the verifier decides whether it has
   been seen before** — the evidence persists, the execution state does not.
+- **A bare execution receipt has no module or policy digest.** The signed
+  `PreExecutionRecord` carries `module_sha256`, `config_fingerprint` and
+  `input_hash`; `verify_chain` binds the receipt to exactly that record through
+  `back_link`. A receipt verified alone therefore proves its own fields, not
+  which module or policy ran — do not read it as that proof.
+- **Output and resource limits are not inferred by the verifier.** `stdout_bytes`
+  counts the bytes the host captured **after** the 10 KB capture cap; truncation
+  is marked inside the captured text, not as a separate signed boolean. A `null`
+  `memory_mb` means "not measured", never "0 MB". The signature covers those
+  recorded facts, not the guest's total output or a measurement that was never
+  made.
+- **The ledger's tail is not self-authenticating.** `verify` detects reordering,
+  edits and interior drops, but a chain shortened at the end needs an external
+  head anchor; the verifier prints that limit explicitly. Freshness and single use
+  of a receipt likewise stay with the caller.
 
 ### Effective enforcement attestation — claim vs configured intent
 
@@ -387,6 +598,12 @@ gates (`tests/test_egress_sidecar.py::TestTransportWalls`,
   (`limit: "timeout"`; measured: 8 s of trickle refused against a 1 s budget).
   Empty userinfo (`http://:@host`) was accepted because an empty username is
   falsy and the `:@` still reached the wire; any `@` in the netloc is refused.
+- **A policy decision is not a transfer.** An allowlisted request whose TLS
+  handshake, DNS lookup or connection fails keeps `decision: "allowed"` (the
+  policy did allow it) but carries `transport_ok: false` and a failing response
+  document; a delivered response carries `transport_ok: true`. Policy and grant
+  denials leave it `null` because no socket was attempted. This stops "allowed"
+  from reading as "successfully transmitted" in `_meta.egress`.
 - **The audit trail cannot claim a hop it never opened.** The stdlib calls
   `redirect_request()` *before* applying its own loop limit, so the last hop of a
   long chain was recorded as followed while the entry read `allowed, fetch
@@ -518,17 +735,44 @@ fuel/wall accounting before it can ship.
 ## Dependency & Upgrade Policy
 
 **Runtime dependency:** `wasmtime` is the only runtime dependency. It is declared
-as a range in `pyproject.toml` (`>=49.0.0,<50`) and pinned to the exact tested
-revision in `requirements.txt` / `requirements.lock` (`wasmtime==49.0.0`).
+as a **fix-line range** in `pyproject.toml` (`>=49.0.4,<50`); `requirements.txt`
+carries that declared specifier, and `requirements.lock` pins the **exact**
+controlled build — `wasmtime==49.0.4.post1+git.2c2970205f`
+(`macosx_11_0_arm64`, wheel sha256 `5d1ac880…0865e`) — installed with
+`pip install --require-hashes -r requirements.lock`, which is how the
+release set installs it; CI downloads the same wheel from its versioned asset
+and verifies the digest before install. The bare pin `wasmtime==49.0.4` is deliberately
+not used: per PEP 440 it can never match the `49.0.4.post1+git.2c2970205f` build, and
+the hash-pinned lock is what keeps a `.dirty` build sharing the `49.0.4` prefix
+from being selected. PyPI carries no `49.0.4` wheel, so the lock is satisfied from
+the release set/asset rather than from the index.
 
-**Install guarantee (2026-10-12).** The `>=49.0.0` floor is set so the security
-improvement holds for the *supported install path*, not only the internal CI pins:
-PyPI ships one `wasmtime` wheel per major (47.0.1 / 48.0.0 / 49.0.0 today), so a
-fresh `pip install` of this package resolves only to 49.0.0 and can never pull an
-engine from the older GHSA-vqjp-affected window. Because the ceiling is `<50`, any
-future 49.x wheel that lands on PyPI would be picked up automatically — such a wheel
-must be re-qualified against the fuel / epoch / egress invariants (engine-upgrade
-gate) before it can be trusted; the floor is only raised deliberately.
+**Fail-closed install guarantee (updated 2026-10-22).** PyPI carries no wasmtime
+49.0.4 wheel, so a plain `pip install` of this package **fails to resolve
+instead of silently installing a vulnerable 49.0.0–49.0.3 engine** — fail-closed
+by declared contract. The patched engine (49.0.4 fix line) ships as a versioned
+release asset and in the release set as a controlled build: the
+official Bytecode Alliance C-API asset
+`wasmtime-v49.0.4-aarch64-macos-c-api.tar.xz` (tarball sha256 `f83147d1…5460`,
+verified before embedding), assembled with the byte-identical PyPI 49.0.0 Python
+bindings; embedded `_libwasmtime.dylib` sha256 `247c1529…a30b`. The wheel is platform-tagged
+`macosx_11_0_arm64`, so non-macOS resolution refuses it by tag — no platform
+silently receives an unverified engine. The same rule is stated for the core
+wheel: an install by name from a local index selects a file, not an artifact —
+version and filename are identical across builds — so the digest published with
+the release is the thing to verify before installing. `doctor` reports the
+module path and the digest of the exact native file the bindings load, and
+`run` refuses a different file on the qualified platform with
+`error_class=environment` before any guest code executes. Re-qualify any new wheel against
+the fuel / epoch / egress invariants before relaxing the range.
+
+> **Version scope of this section (added 2026-10-16).** Every "pinned `49.0.0`" statement below
+> describes the intermediate development pin (moved from `47.0.1` to `49.0.0` on 2026-10-12,
+> after the 1.1.0 release) and the plain-`pip`-installable line — not the published 1.1.x wheel
+> (pinned `47.0.1`) and not the 1.2.0 candidate, which ships a controlled build on the 49.0.4 fix
+> line (`_libwasmtime.dylib` sha256 `247c1529…a30b`, macOS arm64). Where those differ, the
+> shipped artifact's re-measurement governs; the PyPI fix-wheel situation still governs what an
+> unconfigured `pip install` resolves to.
 
 **Dependency upgrade truth (2026-10-12).** The runtime dependency was moved
 from `47.0.1` to `49.0.0` to reduce exposure to specific previously affected engine
@@ -557,9 +801,20 @@ that statement would be false. What the new pin changes, by category:
   wall can bound; unchanged by the version move.
 - **Open native sandbox risks:** an in-process engine 0-day remains part of the threat
   surface; the version pin and the worker boundary reduce but do not eliminate it.
-  GHSA-32h6-97mm-8q3c (Critical, CVSS 9.3, async component surface) is **unresolved**
-  at this pin — reachability is classified UNKNOWN (see the advisory triage below),
-  not closed by the move to 49.0.0.
+  GHSA-32h6-97mm-8q3c (Critical; identical to RUSTSEC-2026-0327 — **native stack
+  buffer overflow** in async-lifted component callback result-count validation) is
+  **unpatched in the engine** at this pin (IN BAND, fix 49.0.2, no wheel on PyPI).
+  As of this commit its execution path is **technically enforced-excluded at the
+  loader boundary**: `ephemora_cell/component_guard.py` independently walks the
+  component bytes and refuses any component-model async construct (async-lift /
+  future / stream) before the single `wasmtime.component.Component()` site in
+  `wasi_02.py` is reached — fail-closed, on both the in-process trusted path and
+  the protected worker. This is loader-boundary avoidance backed by regression
+  tests (negative async reproduction + positive controls against the real guest
+  corpus), **not** a claim the upstream overflow is patched: the worker boundary
+  and the config posture remain containment, and definitive closure still needs a
+  corrected wasmtime wheel or a controlled source build (see the advisory triage
+  below).
 
 Full regression against the new pin is required by the engine-upgrade gate (below).
 
@@ -592,7 +847,7 @@ RUSTSEC-2026-0095, a Winch-backend memory access — fixed in 36.0.7 / 42.0.2 / 
 / 24.0.7; the pinned 49.0.0 contains the fixes) demonstrated that engine 0-days are
 a real in-process risk. Cell's answer is layered: security claims are bound to the
 tested engine version (`requirements.txt` pin, `wasmtime_version` attested in every
-execution record), CI watches RUSTSEC/bytecodealliance alongside pip-audit, and
+execution record), CI reads the GitHub security-advisory feed for Wasmtime alongside pip-audit, and
 `run_isolated()` is the mitigation layer for untrusted guests (disposable worker
 process, hard kill). Confirmation artifacts (2026-09-25): a version-floor
 test pins the engine at `>= 43.0.1` so the "contains the fixes" claim
@@ -617,10 +872,36 @@ CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
 (`tests/fixtures/`, `benchmarks/workloads/`, `ephemora_cell_mcp/tools/`,
 `examples/`) are tracked files, and those citations are to bytes in the clone.
 
+- **GHSA-m9f7-9w4p-gv38** (High, CVSS 8.8, CWE-61, no CVE — advisory published
+  2026-10-14; wasmtime-wasi filesystem sandbox escape: a relative symlink plus a
+  `path_rename` whose source carries a trailing slash moves a directory from
+  outside the preopens into the sandbox area). **Advisory scope (counter-checked
+  against the published advisory on 2026-10-16):** affected `wasmtime-wasi`
+  `<= 36.0.17`, `>= 37.0.0, <= 48.0.5` and `>= 49.0.0, <= 49.0.2`; fixed in
+  `36.0.18`, `48.0.6` and `49.0.3`. Affected platforms are macOS and FreeBSD
+  (Linux and Windows are **not** affected). The advisory lists **no workaround** —
+  the only remediation is an engine upgrade. **Cell's exposure
+  at the shipped artifact (engine 49.0.4 fix line, embedded `_libwasmtime.dylib`
+  sha256 `247c1529…a30b`, macOS arm64; first measured on the now-withdrawn
+  49.0.3 build 2026-10-16 and rechecked on 49.0.4): not reachable** —
+  `path_rename("up/" -> "grabbed")` is denied with errno 54 (ENOTDIR); the target
+  directory stays untouched and no host byte is readable. In a "continue" variant
+  the follow-up guest `path_open` is denied as well (errno 44 / ENOENT). The
+  measurement was counter-checked: (i) the same harness on
+  upstream `wasmtime 49.0.0` (dylib `2cc7e377…`) reproduces the escape (the guest
+  reads the host secret content), and (ii) the host layer (`renameat` with a
+  trailing-slash source) does follow the symlink — so the block is attributable
+  to the shipped engine artifact, not to a harmless kernel quirk. This holds for
+  macOS arm64 only; the evidence is not transferred to Linux or Windows, which
+  remain **NOT QUALIFIED**. The published **1.1.x** line pins `wasmtime 47.0.1`,
+  which falls inside `>= 37.0.0, <= 48.0.5`: for that line this class is **open**
+  (fixed only at `48.0.6`/`49.0.3`) and is the subject of the prepared 1.1.0
+  advisory notice — it is not closed by anything in this section.
+
 - **GHSA-x84v-gj2h-g759** (WASIp3 streams, CVSS 6.9 — added 2026-09-25):
   guest-controlled-size host heap allocation when writing to WASIp3
   streams; affects wasmtime 46.0.0–46.0.2 and 47.0.0–47.0.3, patched in
-  47.0.4 — **closed by the current `wasmtime==49.0.0` pin** (49.0.0 is past
+  47.0.4 — **closed by the 49.0.0 development pin and still closed by the `49.0.4` build** (49.0.0 is past
   47.0.4, which supersedes the earlier "wheel pending" state tracked by
   `scripts/check_wasmtime_patch.py`). **Cell's exposure: the surface is
   structurally unreachable** — WASIp3 worlds cannot be linked through the
@@ -632,7 +913,7 @@ CI does not rebuild them (the builder job installs `wasm32-wasip1` only, not
   qualification ([docs/recipes.md](docs/recipes.md#wasi-02-components)).
 
 **September 2026 advisories — exposure statement (updated 2026-10-12):** two wasmtime
-advisories were raised against the 47.0.x line; under the current `49.0.0` pin
+advisories were raised against the 47.0.x line; under the `49.0.0` development pin (now superseded by 49.0.4)
 GHSA-vqjp is closed (fixed in 47.0.4) and GHSA-m63x still applies (fix line 48.0.3 /
 49.0.1, no wheel):
 
@@ -661,7 +942,7 @@ GHSA-vqjp is closed (fixed in 47.0.4) and GHSA-m63x still applies (fix line 48.0
   every Preview1 run grants the `/sandbox` scratch preopen by design, so the
   affected code path is reachable even in the default posture; operator-granted
   `allow_dirs` widen the reachable scope. No config-level workaround exists
-  upstream. **Closed by the current `wasmtime==49.0.0` pin** — the fix landed in
+  upstream. **Closed by `49.0.0` and still closed by the current `49.0.4` build** — the fix landed in
   engine 47.0.4, which 49.0.0 carries, so the shipped runtime is now past the
   affected window. **The preopen test matrix exists** (2026-09-25):
   `tests/test_fs_escape_matrix.py` + `benchmarks/probe_classes_2026.py` run the
@@ -735,6 +1016,14 @@ range (49.0.0 < 49.0.1, and no 48.0.3/49.0.1 wheel exists). Triage per advisory:
   `benchmarks/datetime_overflow_probe.py`). The probe is deliberately NOT wired
   into `mcp_cve_replay.py` — its default in-process run aborts the harness
   process, so the harness isolates each leg in its own interpreter.
+  **Re-measurement 2026-10-16 at the shipped artifact (`ab4f1ea6…0fb73`, macOS
+  arm64):** the wasip2 `descriptor.set-times` overflow **no longer reproduces** —
+  the in-process run survives without a panic, and the positive control
+  (`NewTimestamp::Now`) succeeds. On upstream `49.0.0` the same harness still
+  reproduces (SIGABRT, "overflow in Duration::new") with containment in the
+  worker. The class remains an engine detail externally; from here on the
+  "unpatched" statement refers explicitly to the **PyPI 49.0.0 line**, not to the
+  shipped artifact.
 - **GHSA-c9gc-w9vx-w86p** (wasmtime-wasi-http outgoing-body host memory
   exhaustion, Moderate, CVSS 6.2, availability-only): the host fails to enforce
   the allowance returned by `wasi:io/streams.check-write` for WASIp2 outgoing
@@ -858,8 +1147,10 @@ range (49.0.0 < 49.0.1, and no 48.0.3/49.0.1 wheel exists). Triage per advisory:
 advisories were published on 2026-10-02 (RustSec `RUSTSEC-2026-0321…0324`). All
 four are patched only in **36.0.17 / 48.0.4 / 49.0.2**, and none of those exist
 as a `wasmtime` Python wheel: re-checked against the PyPI JSON API on
-2026-10-03, the binding's release line is **47.0.1, 48.0.0, 49.0.0** — one wheel
-per major, no patch releases. So the pinned 49.0.0 still sits inside every affected
+2026-10-03 and again on **2026-10-14** (`python scripts/check_wasmtime_patch.py`,
+exit 1 = still waiting), the binding's release line is still **47.0.1, 48.0.0,
+49.0.0** — one wheel per major, no patch releases; the PyPI `latest` field is
+`49.0.0`. So the pinned 49.0.0 still sits inside every affected
 range of this wave (49.0.0 < 49.0.2) and the engine-upgrade gate stays the only
 closure path. Sources here are
 RustSec's own database files plus the GitHub advisory pages; the GitHub
@@ -933,26 +1224,92 @@ the advisories exist, which is why the citations name RustSec.
   wasip3 surface): **Cell's exposure: NO** — WASI 0.3 is gate-off by decision
   (ADR-009 D3) and no wasip3 surface is linked for guests.
 
-**Critical advisory with unresolved reachability — GHSA-32h6-97mm-8q3c.** This is a
-**Critical (CVSS 9.3)** advisory in the engine's **async component execution**
-surface, called out separately so the public record does not imply it is closed: the
-pinned `49.0.0` sits within the advisory's affected upstream versions, and **this pin
-movement does not fix it.**
-- **What the configuration evidence shows:** the `wasmtime` Python binding exposes no
-  async component entrypoint and Cell never enables an async store/future, so on the
-  shipped surface no guest path reaches an async component call — attested by the
-  policy- and surface-audit checks (`tests/test_surface_audit.py`, engine-config
-  assertions) and re-checked against the installed 49.0.0 binding.
-- **What that does NOT prove (residual risk):** whether wasmtime's internal C API can
-  route a component call through the async path is a Rust-internal detail **not
-  verifiable from the installed Python package**. The configuration defense therefore
-  holds only as far as concrete config/build evidence carries it, and it does not
-  conclusively exclude internal C-API reachability. This advisory is classified
-  **UNKNOWN — residual risk**, deliberately **not** NOT-REACHABLE.
-- **Testing boundary:** no exploit-style reproduction is attempted on a normal
-  development machine. Closure depends on an upstream fix line past 49.0.0 plus a
-  reachability re-check at the engine-upgrade gate.
+**rustls 0.23.37** (GHSA-2mjx-qc3c-rqvc / RUSTSEC-2026-0285, fixed in 0.23.45) ships inside the `wasmtime-wasi-http` component of the runtime artifact (measured 2026-10-16, dylib `ab4f1ea6…`). No shipped execution path wires it in (no `add_wasi_http` call sites in the product); tracked on the fix line.
 
+**Critical memory-safety advisory, unresolved — GHSA-32h6-97mm-8q3c.** Corrected
+2026-10-14 against the fetched primary sources
+(`benchmarks/results/2026-10-13/native_runtime_advisory_coverage.json`, GH advisory API):
+GHSA-32h6-97mm-8q3c and RUSTSEC-2026-0327 are **the same advisory** (alias-confirmed),
+and the vulnerability is **not** a host panic — it is a **native stack buffer overflow**:
+*“Wasmtime component async-lifted callback result count is unvalidated, causing a native
+stack buffer overflow.”* Its CVSS 4.0 vector carries **integrity HIGH and
+confidentiality LOW/HIGH with a changed scope**, i.e. a memory-corruption class, so it
+must be treated as a potential engine-escape, not an availability-only defect. The
+pinned `49.0.0` sits **IN BAND (fix 49.0.2)** and the fix wheel is not yet published to
+PyPI (re-confirmed 2026-10-14), so **this pin does not fix it and it is not closed.**
+- **What the configuration evidence shows (a control, not a proof of unreachability):**
+  the `wasmtime` Python binding exposes no async component entrypoint and Cell never
+  enables an async store/future (`wasm_stack_switching=False`, `component-model-async`
+  not enabled), attested by `tests/test_surface_audit.py`,
+  `tests/test_async_component_reachability.py`, and the engine-config assertions.
+- **What the lab measurement does and does NOT establish (2026-10-13,**
+  `async_component_validation_ghsa_32h6.json`):** a hostile async-lifted component fed
+  under the async-disabled config aborts at an `unreachable!()` validation arm
+  (`SIGABRT`, returncode −6) *before the async-lifted export is instantiated*. That is a
+  **different code path than the unvalidated-result-count overflow**; we have **not**
+  shown that abort reliably prevents the overflow. That lab observation, on its own,
+  is why we earlier refused to call the memory-safety class *configuration*-excluded.
+  The reachability of the overflow is now addressed by a different, enforced mechanism
+  at the loader (see the closure-route bullet below): the component bytes are refused
+  before the native parser is ever reached. It is **not** closed by a config assumption,
+  and the corrected-wheel upgrade gate stays open (public 1.2.0 release approval remains
+  a gated maintainer decision regardless).
+- **Containment (not closure):** the mandatory worker subprocess (ADR-015) keeps
+  even the observed `SIGABRT` out of the parent (fail-closed `ERROR`, no in-process
+  fallback, pinned by
+  `tests/test_isolation_gate.py::test_forced_run_never_falls_back_to_in_process_on_worker_crash`).
+  Worker containment and the config assumption
+  are **explicitly not a full fix.** Closure requires one of: the corrected wheel, a
+  controlled corrected runtime build, an AOT security-checked component validation with
+  a corrected parser, or a technically enforced exclusion of vulnerable components
+  before they reach the vulnerable native runtime — each proven by negative reproduction,
+  positive controls, artifact digests, and regression tests.
+- **What that does NOT prove (residual risk):** whether wasmtime's internal C API can
+  route a *synchronous* component through an async callback is a Rust-internal detail,
+  but the loader guard does not depend on answering it: it refuses the async *input
+  class* (async-lift / future / stream) before `Component()` runs, so the unvalidated
+  async-callback result-count path has no product-loadable component that reaches it.
+  The **upstream engine defect itself is still unpatched at 49.0.0** — that remains a
+  dependency risk for any direct `wasmtime` use outside Cell and keeps the
+  corrected-wheel upgrade gate open; the loader exclusion is defense at Cell's own
+  boundary, not a patch of the engine.
+- **Testing boundary:** no exploit-style reproduction is attempted on a normal
+  development machine; the negative validation runs in the isolated lab harness where a
+  native abort is the *result*, not a harness failure. Full closure depends on an
+  upstream fix line past 49.0.0 (48.0.4 / 49.0.2 — **confirmed still absent from PyPI on
+  2026-10-14**) plus a reachability re-check at the engine-upgrade gate.
+- **Remediation progress (enforced-exclusion route WIRED 2026-10-15):** the "technically
+  enforced exclusion" route is implemented and now wired into the loader as
+  `ephemora_cell/component_guard.py`, an **independent** component-binary reader (it
+  never calls the native `wasmtime` parser, which *is* the vulnerable code). It
+  positively detects and refuses every component-model async construct that anchors the
+  overflow — async `functype` (0x43), `future` (0x65), `stream` (0x66) — including inside
+  nested components and inside `componenttype`/`instancetype` declarators, and fails
+  closed on any byte stream it cannot confidently walk. It is called in
+  `wasi_02.ComponentSandbox.run` at the **single** `wasmtime.component.Component()`
+  construction site in the shipped source, so it guards both the in-process trusted path
+  and the protected worker. The accept side was certified against the repository's real
+  component corpus (WASI p2 Rust probes, `componentize-py` lifted guests, WAT fixtures —
+  every one walks cleanly, none over-rejected), proven by
+  `tests/test_component_guard.py` (async detection + real-guest acceptance + loader
+  integration: an async component is refused through `run()` with a `GHSA-32h6-97mm-8q3c`
+  error before the native parser, a real guest is not). Remaining grammar boundary,
+  stated honestly: the reader does not parse an embedded core WebAssembly-GC `type`
+  declarator, so a component placing a core type inside its type section is refused
+  fail-closed (a conservative over-reject, never a bypass). This closes the
+  *product-execution* path for the overflow; it does **not** patch the engine — the
+  corrected 49.0.2 wheel / controlled source build stays the definitive fix and the
+  engine-upgrade gate stays open. Release approval for 1.2.0 remains a gated maintainer
+  decision.
+
+**Loader exclusion vs. engine patch — clarification (2026-10-16).** The loader guard
+excludes the **product execution path**; it does not patch the engine. For the shipped
+artifact (engine 49.0.4 fix line, `_libwasmtime.dylib` sha256 `247c1529…a30b`, macOS
+arm64), no evidence is held that the native overflow itself is fixed there — an engine
+patch parity in the artifact is **not independently verified**. Until a negative
+reproduction of the overflow form, a positive control, the artifact digest and a dated
+record exist, the class counts as **open**, bounded by the loader guard plus the worker
+boundary.
 
 **Engine-upgrade gate:** any wasmtime bump re-runs the security evidence suite —
 `benchmarks/verify_8_vectors.py`, `benchmarks/mcp_cve_replay.py`, and the wasi

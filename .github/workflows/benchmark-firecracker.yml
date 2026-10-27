@@ -1,5 +1,22 @@
 name: Benchmark Firecracker vs Cell
 
+# Scope (2026-10-16) — this leg is NOT QUALIFIED for the 1.2.x runtime.
+#
+# Firecracker needs Linux/KVM by construction, so this workflow can only ever
+# run on Linux. The qualified 1.2.x runtime is wasmtime 49.0.4.post1+git.2c2970205f,
+# wheel tag macosx_11_0_arm64 (embedded _libwasmtime.dylib sha256 247c1529…a30b)
+# — macOS arm64 ONLY; there is no qualified Linux runtime wheel. Cell therefore
+# cannot be installed here, and the step used to paper over that with
+# `pip install wasmtime==49.0.0` (removed 2026-10-16): the unpatched engine is
+# not the product's runtime, so a comparison measured on it would be
+# non-comparable and would normalise an engine version the release excludes.
+#
+# This leg now fails closed with an explicit ::error:: instead of a cryptic pip
+# resolution error that could be "fixed" by reinstalling 49.0.0. Re-enable it
+# only once a qualified Linux runtime wheel exists — then install
+# "wasmtime>=49.0.4,<50" from the release set or a verified build artifact,
+# exactly as scripts/ci_runtime_bootstrap.py does for macOS.
+
 on:
   workflow_dispatch:
   push:
@@ -13,29 +30,14 @@ permissions: read-all
 jobs:
   firecracker:
     runs-on: ubuntu-24.04
-    permissions:
-      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
-      - name: Check KVM
+      # Deliberately no continue-on-error and no wasmtime==49.0.0 fallback:
+      # an unpatched engine is not the runtime this benchmark is about.
+      - name: Runtime scope guard (fail closed — no 49.0.0 fallback)
         run: |
-          ls -l /dev/kvm || echo "No /dev/kvm"
-          kvm-ok 2>&1 | head -5 || true
-      - name: Setup Firecracker
-        run: bash benchmarks/setup_firecracker.sh
-      # Pin the same tested wasmtime as CI (unresolved 'latest'
-      # made benchmark results non-comparable across runs).
-      - name: Install Cell
-        run: pip install -e . && pip install wasmtime==49.0.0
-      - name: Run competitive benchmark (with Firecracker)
-        run: BENCH_LABEL=ubuntu-24.04-kvm python benchmarks/competitive_benchmark.py | tee competitive.log
-      - name: Upload results
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: competitive-firecracker
-          path: |
-            /tmp/ephemora_cell-competitive-*.json
-            competitive.log
+          echo "::error::no qualified 1.2.x runtime for Linux — this Firecracker leg is NOT QUALIFIED and installs no runtime; the qualified wasmtime 49.0.4.post1+git.2c2970205f wheel is macosx_11_0_arm64 only, and the unpatched wasmtime 49.0.0 that this leg used to pin is not the product's runtime (see the ci.yml runtime legs and the runtime proposal)"
+          exit 1

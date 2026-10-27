@@ -1,0 +1,317 @@
+{
+  "schema": "ephemora-cell/language-grant-evidence/1",
+  "measured_at": "2026-10-17T21:32:49Z",
+  "environment": {
+    "python": "3.12.13",
+    "platform": "Darwin 25.5.0 arm64",
+    "wasmtime": "49.0.3.post2+git.1d21c90f",
+    "doctor_runtime_floor": "ok \u2014 wasmtime 49.0.3.post2+git.1d21c90f on the qualified line"
+  },
+  "guests": {
+    "python_legacy": {
+      "role": "python_legacy",
+      "present": true,
+      "path": "<build-tree>",
+      "sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02",
+      "digest_verified": true,
+      "expected_sha256": "8e40bfb538b390c1e8b652f4b4369d83d3fd6d1af6b3111631ad80bf0c5a0a02"
+    },
+    "python_component": {
+      "role": "python_component",
+      "present": true,
+      "path": "<build-tree>",
+      "sha256": "42984274746ee96e9855049f5d0370b9515fa13e4ce9610c29083c9a8a558935",
+      "digest_verified": true,
+      "expected_sha256": "42984274746ee96e9855049f5d0370b9515fa13e4ce9610c29083c9a8a558935"
+    },
+    "js_interpreter": {
+      "role": "js_interpreter",
+      "present": true,
+      "path": "<build-tree>",
+      "sha256": "53037972a42c1c562dad6a5162a40e41d16e8b9b9d42f1494e1540a367fe5646",
+      "digest_verified": true,
+      "expected_sha256": "53037972a42c1c562dad6a5162a40e41d16e8b9b9d42f1494e1540a367fe5646"
+    },
+    "js_javy_module": {
+      "role": "js_javy_module",
+      "present": true,
+      "path": "<build-tree>",
+      "sha256": "124757d481928a5b232551177e78a8fafab0b03418e7fd89c53424a843acc64b",
+      "digest_verified": true,
+      "expected_sha256": "124757d481928a5b232551177e78a8fafab0b03418e7fd89c53424a843acc64b"
+    }
+  },
+  "results": [
+    {
+      "case": "python_legacy_interpreter",
+      "verdict": "MATCH",
+      "checks": {
+        "guest_paths": true,
+        "host_paths": true,
+        "sandbox_scratch": true,
+        "abi": true,
+        "worker": true,
+        "run_succeeded": true,
+        "argv": true
+      },
+      "promised": {
+        "guest_paths": [
+          "/opt/wasi-python/lib/python3.10",
+          "/work"
+        ],
+        "replaces_allow_dirs": true,
+        "abi": "preview1",
+        "sandbox_scratch": true,
+        "reachability": "reachable from run --language python only when the guest is a legacy Preview1 core-module interpreter (it then requires stdlib_dir)"
+      },
+      "host_expectation": {
+        "kind": "set",
+        "paths": [
+          "<build-tree>",
+          "<tmpdir>/ephemora-grantev-qmotpazr/script_dir"
+        ],
+        "argv": [
+          "/work/probe.py"
+        ]
+      },
+      "measured": {
+        "guest_paths": [
+          "/opt/wasi-python/lib/python3.10",
+          "/work"
+        ],
+        "host_paths": [
+          "<build-tree>",
+          "<tmpdir>/ephemora-grantev-qmotpazr/script_dir"
+        ],
+        "sandbox_scratch": true,
+        "abi_passed": null,
+        "use_subprocess": true,
+        "effective_preopens": [
+          "<build-tree>",
+          "<tmpdir>/ephemora-grantev-qmotpazr/script_dir",
+          "/sandbox"
+        ]
+      },
+      "guest_probe": {
+        "argv": [
+          "/work/probe.py"
+        ],
+        "work_listing": [
+          "caller_marker.txt",
+          "probe.py"
+        ],
+        "sibling_of_script_visible_at_work": true,
+        "separate_caller_dir_visible_at_work": false
+      },
+      "run_status": "ExecutionStatus.SUCCESS",
+      "run_error": null
+    },
+    {
+      "case": "python_component_guest",
+      "verdict": "MATCH",
+      "checks": {
+        "guest_paths": true,
+        "host_paths": true,
+        "sandbox_scratch": true,
+        "abi": true,
+        "worker": true,
+        "run_succeeded": true,
+        "argv": true
+      },
+      "promised": {
+        "guest_paths": [
+          "/work"
+        ],
+        "replaces_allow_dirs": true,
+        "abi": "component",
+        "sandbox_scratch": false,
+        "reachability": "reachable from run --language python when the resolved guest is a WASI-0.2 component (the installed product guest)"
+      },
+      "host_expectation": {
+        "kind": "temp_prefix",
+        "prefix": "ephemora-pycomp-",
+        "tempdir": "<tmpdir>",
+        "argv": [
+          "wasm-module"
+        ]
+      },
+      "measured": {
+        "guest_paths": [
+          "/work"
+        ],
+        "host_paths": [
+          "<tmpdir>/ephemora-pycomp-ul99uq0r"
+        ],
+        "sandbox_scratch": false,
+        "abi_passed": "component",
+        "use_subprocess": true,
+        "effective_preopens": [
+          "<tmpdir>/ephemora-pycomp-ul99uq0r"
+        ]
+      },
+      "guest_probe": {
+        "argv": [
+          "wasm-module"
+        ],
+        "work_listing": [
+          "main.py"
+        ],
+        "sibling_of_script_visible_at_work": false,
+        "separate_caller_dir_visible_at_work": false
+      },
+      "run_status": "ExecutionStatus.SUCCESS",
+      "run_error": null
+    },
+    {
+      "case": "python_component_args_forwarded",
+      "verdict": "MATCH",
+      "checks": {
+        "guest_paths": true,
+        "host_paths": true,
+        "sandbox_scratch": true,
+        "abi": true,
+        "worker": true,
+        "run_succeeded": true,
+        "argv": true
+      },
+      "promised": {
+        "guest_paths": [
+          "/work"
+        ],
+        "replaces_allow_dirs": true,
+        "abi": "component",
+        "sandbox_scratch": false,
+        "reachability": "reachable from run --language python when the resolved guest is a WASI-0.2 component (the installed product guest)"
+      },
+      "host_expectation": {
+        "kind": "temp_prefix",
+        "prefix": "ephemora-pycomp-",
+        "tempdir": "<tmpdir>",
+        "argv": [
+          "wasm-module",
+          "a",
+          "b"
+        ]
+      },
+      "measured": {
+        "guest_paths": [
+          "/work"
+        ],
+        "host_paths": [
+          "<tmpdir>/ephemora-pycomp-81f5gv94"
+        ],
+        "sandbox_scratch": false,
+        "abi_passed": "component",
+        "use_subprocess": true,
+        "effective_preopens": [
+          "<tmpdir>/ephemora-pycomp-81f5gv94"
+        ]
+      },
+      "guest_probe": {
+        "argv": [
+          "wasm-module",
+          "a",
+          "b"
+        ],
+        "work_listing": [
+          "main.py"
+        ],
+        "sibling_of_script_visible_at_work": false,
+        "separate_caller_dir_visible_at_work": false
+      },
+      "run_status": "ExecutionStatus.SUCCESS",
+      "run_error": null
+    },
+    {
+      "case": "javascript_source_run",
+      "verdict": "MATCH",
+      "checks": {
+        "guest_paths": true,
+        "host_paths": true,
+        "sandbox_scratch": true,
+        "abi": true,
+        "worker": true,
+        "run_succeeded": true
+      },
+      "promised": {
+        "guest_paths": [
+          "/work"
+        ],
+        "replaces_allow_dirs": true,
+        "abi": "preview1",
+        "sandbox_scratch": true,
+        "reachability": "the only entry run --language javascript can reach \u2014 the CLI always passes script_path"
+      },
+      "host_expectation": {
+        "kind": "temp_prefix",
+        "prefix": "ephemora-jssrc-",
+        "tempdir": "<tmpdir>"
+      },
+      "measured": {
+        "guest_paths": [
+          "/work"
+        ],
+        "host_paths": [
+          "<tmpdir>/ephemora-jssrc-nn31_e7m"
+        ],
+        "sandbox_scratch": true,
+        "abi_passed": null,
+        "use_subprocess": true,
+        "effective_preopens": [
+          "<tmpdir>/ephemora-jssrc-nn31_e7m",
+          "/sandbox"
+        ]
+      },
+      "guest_probe": {
+        "raw_stdout": "grantev"
+      },
+      "run_status": "ExecutionStatus.SUCCESS",
+      "run_error": null
+    },
+    {
+      "case": "javascript_module_run",
+      "verdict": "MATCH",
+      "checks": {
+        "guest_paths": true,
+        "host_paths": true,
+        "sandbox_scratch": true,
+        "abi": true,
+        "worker": true,
+        "run_succeeded": true
+      },
+      "promised": {
+        "guest_paths": [],
+        "replaces_allow_dirs": false,
+        "abi": "preview1",
+        "sandbox_scratch": true,
+        "reachability": "library-only: reached through lang_js.run_javascript_module (or run_language('javascript') without script_path); the CLI never selects it"
+      },
+      "host_expectation": {
+        "kind": "set",
+        "paths": [
+          "<tmpdir>/ephemora-grantev-qmotpazr/caller_dir"
+        ]
+      },
+      "measured": {
+        "guest_paths": [
+          "<tmpdir>/ephemora-grantev-qmotpazr/caller_dir"
+        ],
+        "host_paths": [
+          "<tmpdir>/ephemora-grantev-qmotpazr/caller_dir"
+        ],
+        "sandbox_scratch": true,
+        "abi_passed": null,
+        "use_subprocess": true,
+        "effective_preopens": [
+          "<tmpdir>/ephemora-grantev-qmotpazr/caller_dir",
+          "/sandbox"
+        ]
+      },
+      "guest_probe": {
+        "raw_stdout": "hello from javy in the cell"
+      },
+      "run_status": "ExecutionStatus.SUCCESS",
+      "run_error": null
+    }
+  ]
+}

@@ -14,21 +14,40 @@ What is checked (hard, exit 1 on drift):
   2. docs/comparison-mcp-servers.md ``N CI-enforced tests (M skipped)``,
      ``comprises N collected tests today`` and its ``N passing (M skipped)``
      split — same invariant, and the bare total must equal the collection.
+  3. SECURITY.md ``N passing / M skipped`` and
+     docs/security_attack_matrix.md ``N passing / M skipped`` — added because
+     both carry a release count and NEITHER was machine-guarded: they drifted
+     by hand, and a hand-stamped security claim is the worst place to trust
+     hand-stamping.
 
 What is reported only (WARNING, exit 0 unless strict mode):
 
   * README.md hero badge        ``tests-N_passing``
-  * README.md freshness block   ``N tests passing, P% coverage``
 
-These two must carry the same passing count as the hard claims —
+These must carry the same passing count as the hard claims —
 ``passing = collected - skipped`` (xpassed counts as passing, matching
 the historical badge convention). They are re-stamped by the release
-step with the final numbers (the badge/freshness line is deliberately
-refreshed last, per release); in the default CI mode a stale badge
-prints a warning instead of failing so the guard can ship before that
-re-stamp. Set ``CHECK_TEST_COUNT_STRICT=1`` to make badge/freshness
-drift a hard failure — intended for after the release re-stamp, when
-every number must agree.
+step with the final numbers (the badge is deliberately refreshed last, per
+release); in the default CI mode a stale badge prints a warning instead of
+failing so the guard can ship before that re-stamp. Set
+``CHECK_TEST_COUNT_STRICT=1`` to make badge drift a hard failure — intended
+for after the release re-stamp, when every number must agree.
+
+What this guard deliberately does NOT check: the coverage fraction (``5587/
+6304`` on the fresh-clone run), the ``89 %`` figures and the ``measured <date>``
+stamps. Those come
+from a coverage RUN, not from ``--collect-only``, and this script must stay
+cache-free and cheap; they are re-stamped by hand at each release from the
+coverage job in ``.github/workflows/ci.yml``. A previous soft check here looked
+for a ``N tests passing, P% coverage`` sentence that no longer exists in
+README.md — an assertion that silently verified nothing, so it is removed
+instead of being left to look like coverage.
+
+Known limit of the hard checks: they verify ``passing + skipped == collected``,
+so a document that keeps the SUM right but invents the SPLIT (say 1454 passing /
+13 skipped against a 1453/14 run) passes. The split comes from the run, not from
+the collection, so closing that would mean comparing against a stored pytest
+summary — deliberately out of scope here, and stated instead of pretended.
 
 Exit 0 = all hard checks match (warnings allowed in default mode).
 Exit 1 = any hard mismatch, or a source (pytest run / file / pattern)
@@ -256,16 +275,43 @@ def main() -> int:
         ),
     )
 
-    # --- soft checks (badge/freshness — release re-stamps) ---------------
-    # Both carry the passing count (= collected - skipped), same convention
-    # as the hard claims above.
+    # --- soft checks (badge — release re-stamps) -------------------------
+    # Carries the passing count (= collected - skipped), same convention as the
+    # hard claims above.
     _soft_claim(r"tests-(\d+)_passing", readme, "README.md hero badge", tv_passing)
-    _soft_claim(
-        r"(\d+)\s+tests\s+passing,\s*\d+%\s*coverage",
-        readme,
-        "README.md freshness block",
-        tv_passing,
-    )
+
+    # --- extra hard checks: prose claims outside README/comparison --------
+    # SECURITY.md and the attack matrix both state the suite result in prose.
+    # Neither was covered before, so both were hand-stamped risk points. A
+    # missing file is a FAILURE here, not a skipped check: this guard's own
+    # contract says absence is an error, and an exists() wrapper would let
+    # deleting the document silence it.
+    for rel, pattern, where, hint in (
+        (
+            "SECURITY.md",
+            r"(\d+)\s+passing\s*/\s*(\d+)\s+skipped",
+            "SECURITY.md suite claim",
+            "update the 'N passing / M skipped' claim in SECURITY.md",
+        ),
+        (
+            "docs/security_attack_matrix.md",
+            r"\*\*(\d+)\s+passing\s*/\s*(\d+)\s+skipped",
+            "docs/security_attack_matrix.md gate claim",
+            "update the '**N passing / M skipped' claim in "
+            "docs/security_attack_matrix.md",
+        ),
+    ):
+        path = REPO / rel
+        if not path.is_file():
+            print(
+                f"FAIL: {rel} not found — the suite claim it carries is no "
+                "longer checked, which is a gate failure, not a skipped check",
+                file=sys.stderr,
+            )
+            return 1
+        _passing_skipped(
+            pattern, path.read_text(encoding="utf-8"), where, collected, fix_hint=hint
+        )
 
     print(
         f"OK: documented test counts match the collection ({collected} "

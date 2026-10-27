@@ -1,0 +1,90 @@
+{
+  "component": {
+    "bytes": 18453867,
+    "sha256": "46fb1a35d19b2aab867aefe9d6ac420401025c6633c3a58f204714428726c2a5"
+  },
+  "cases": [
+    {
+      "case": "json_io",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"answer\": 40, \"echo\": \"baz!\"}\n",
+      "stderr_head": "",
+      "fuel_consumed": 12253253,
+      "expect": "SUCCESS exact JSON (re-run vs dispatch build)",
+      "wall_s": 2.051
+    },
+    {
+      "case": "fuel_stop",
+      "status": "ExecutionStatus.FUEL_EXHAUSTED",
+      "stdout_head": "",
+      "stderr_head": "Fuel exhausted: error while executing at wasm backtrace:\n    0: 0xd7a589 - libpython3.14.so!_PyEval_EvalFrameDefault\n    1: 0xd8c7b0 - libpython3.14.so!_PyEval_Vector\n    2: 0xbfee1c - libpython3.14.so!_PyFunction_Vectorcall\n    3: 0xc014d7 - libpython3.14.so!method_vectorcall\n    4: 0xbfe8fa - libp",
+      "fuel_consumed": 40000000,
+      "expect": "FUEL_EXHAUSTED at 40M (component boot ~12M)",
+      "wall_s": 2.004
+    },
+    {
+      "case": "epoch_wall",
+      "status": "ExecutionStatus.TIMEOUT",
+      "stdout_head": "",
+      "stderr_head": "Timeout after 3s: error while executing at wasm backtrace:\n    0: 0xd7a589 - libpython3.14.so!_PyEval_EvalFrameDefault\n    1: 0xd8c7b0 - libpython3.14.so!_PyEval_Vector\n    2: 0xbfee1c - libpython3.14.so!_PyFunction_Vectorcall\n    3: 0xc014d7 - libpython3.14.so!method_vectorcall\n    4: 0xbfe8fa - li",
+      "fuel_consumed": null,
+      "expect": "TIMEOUT, unbounded fuel, 3s wall",
+      "wall_s": 4.873
+    },
+    {
+      "case": "no_capability",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "refused: FileNotFoundError: [Errno 44] No such file or directory: '/etc/hosts'\n",
+      "stderr_head": "",
+      "fuel_consumed": 12157741,
+      "expect": "refusal recorded (no fs imports in world)",
+      "wall_s": 1.952
+    },
+    {
+      "case": "memory_pressure",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "allocated MB: 64\nallocated MB: 128\nallocated MB: 192\nallocation stopped at 256 MB: MemoryError\n",
+      "stderr_head": "",
+      "fuel_consumed": 213521051,
+      "expect": "allocation stops under 256MB cap",
+      "wall_s": 2.092
+    },
+    {
+      "case": "big_output",
+      "status": "ExecutionStatus.ERROR",
+      "stdout_head": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "stderr_head": "error while executing at wasm backtrace:\n    0: 0xabe402 - libc.so!abort\n    1: 0x1144ebd - componentize_py_runtime.wasm!std::sys::pal::wasi::abort_internal\n    2: 0x11424f6 - componentize_py_runtime.wasm!std::process::abort\n    3: 0x1142c8c - componentize_py_runtime.wasm!__rustc::__rust_abort\n    4",
+      "fuel_consumed": null,
+      "expect": "output budget behavior recorded",
+      "wall_s": 2.521
+    },
+    {
+      "case": "state_run1",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"run_count\": 1}\n",
+      "stderr_head": "",
+      "fuel_consumed": 12171956,
+      "expect": "run_count==1",
+      "wall_s": 2.109
+    },
+    {
+      "case": "state_run2",
+      "status": "ExecutionStatus.SUCCESS",
+      "stdout_head": "{\"run_count\": 1}\n",
+      "stderr_head": "",
+      "fuel_consumed": 12171956,
+      "expect": "run_count==1 again (build-time state, no carry)",
+      "wall_s": 1.958
+    }
+  ],
+  "scope": "Language program counter-check: componentize-py 0.25.1 through the Cell component path",
+  "environment": "laboratory macOS aarch64; NOT the pilot VM (that line was blocked at the time); isolated branch of this release line",
+  "background": "Language program: Python integration, CPython-WASI primary with a componentize-py counter-check, measured against the same 15-item catalog as the JavaScript guest matrix",
+  "toolchain": {
+    "version": "0.25.1 (pip wheel, Apache-2.0), isolated venv cpyenv (Python 3.12), repo venv untouched",
+    "countercheck_wit": "custom world cell:py/runner vendored from WebAssembly/wasi-cli@0.2.8 (wit snapshot main e922fd7); single entry export run: func() \u2014 Cell's supported component world",
+    "first_build_sha256": "23939fa467a062172daddaa46de09b476fab03e0ff5a33d240307e9996005b25",
+    "dispatch_build_sha256": "46fb1a35d19b2aab867aefe9d6ac420401025c6633c3a58f204714428726c2a5",
+    "dispatch_build_bytes": 18453867
+  }
+}

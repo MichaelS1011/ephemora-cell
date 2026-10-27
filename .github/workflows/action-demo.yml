@@ -2,6 +2,26 @@
 # push: the smoke job executes a benign module, the enforcement job feeds
 # the SAME module a 100-unit fuel budget and expects the sandbox to stop
 # it with status fuel_exhausted. If either behavior regresses, CI is red.
+#
+# Scope (2026-10-16, K-BR4-05): both jobs drive the SHIPPED engine through the
+# composite action, so they now run on the qualified platform (macOS arm64,
+# macos-15) with the hash-pinned runtime asset. macos-14 is retired on
+# 2026-11-02 (actions/runner-images#13518); macos-15 is the arm64 image. There is NO Linux/Docker-specific subject here: the
+# demo asserts the action's CLI contract, the sandbox status reporting and fuel
+# accounting, and the `--isolated` OS walls are implemented with
+# resource.setrlimit (ephemora_cell/process_worker.py), which macOS enforces as
+# well. A Linux leg could only install and run the unpatched 49.0.0 (no 49.0.4
+# runtime wheel exists for Linux), so the ubuntu legs were dropped instead of
+# being kept permanently red — Linux stays NOT QUALIFIED for 1.2.x.
+#
+# The composite action installs the package itself (`pip install ephemora-cell`,
+# action/action.yml:79-81) — that command is outside this workflow's control.
+# Both jobs install the checkout first (`pip install -e . --no-deps`), so that
+# requirement is already satisfied and needs no index. Every `uses: ./action`
+# step still carries PIP_NO_INDEX=1: if the requirement were ever unsatisfied,
+# the action would fail closed instead of pulling an unpinned package from PyPI.
+# The runtime itself is installed by scripts/ci_runtime_bootstrap.py, not by the
+# action.
 name: action-demo
 
 on:
@@ -13,40 +33,227 @@ on:
 
 permissions: read-all
 
+# Runtime artifact. 1.2.x ships exactly ONE qualified runtime: the controlled
+# wasmtime 49.0.4.post1 build (wheel tag macosx_11_0_arm64, embedded
+# _libwasmtime.dylib sha256 247c1529…a30b). The runtime-wheel job builds it
+# from the two pinned upstream inputs with the checked-in recipe, verifies the
+# input/wheel/native hashes and hands it to the demo jobs as a workflow
+# artifact. No release asset, PyPI wheel or local cache is used; a missing or
+# changed input FAILS the job.
+
 jobs:
+  runtime-wheel:
+    uses: ./.github/workflows/runtime-wheel.yml
+
   smoke:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    needs: runtime-wheel
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Create verified Python environment (pip 26.2.2, certifi 2026.10.19)
+        run: |
+          bash scripts/create_qualified_venv.sh "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
+        run: |
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
+          python -m pip install -e . --no-deps
+          python scripts/check_ca_store.py
+          # The composite action runs `pip install ephemora-cell` inside its own
+          # setup-python interpreter. Resolving that from PyPI would demo the
+          # *published* package instead of this commit, and on an unpublished
+          # candidate it cannot resolve at all (measured on this branch's first
+          # PR run: "No matching distribution found"). The wheelhouse carries
+          # this commit's wheel, the qualified runtime wheel and the pinned CA
+          # wheel; the action step keeps PIP_NO_INDEX=1 and gains
+          # PIP_FIND_LINKS, so it installs these exact bytes or fails closed.
+          python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheelhouse" .
+          cp "$RUNNER_TEMP/runtime-wheel/"*.whl "$RUNNER_TEMP/wheelhouse/"
+          python -m pip download --no-deps -d "$RUNNER_TEMP/wheelhouse" certifi==2026.10.19
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       - id: hello
         uses: ./action
+        env:
+          # No index, only the wheelhouse: the action's own
+          # `pip install ephemora-cell` installs this commit's wheel plus the
+          # qualified runtime and the pinned CA bundle, or it fails closed.
+          PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ runner.temp }}/wheelhouse
         with:
           module: examples/hello.wasm
           profile: llm
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       - name: Assert the run succeeded
         run: |
           [ "${{ steps.hello.outputs.status }}" = "success" ] || { echo "unexpected status: ${{ steps.hello.outputs.status }}"; exit 1; }
-          echo "smoke OK on ${{ matrix.os }}: status=${{ steps.hello.outputs.status }} fuel=${{ steps.hello.outputs.fuel_consumed }} elapsed=${{ steps.hello.outputs.elapsed_ms }}ms"
+          echo "smoke OK on macos-15/$(uname -m): status=${{ steps.hello.outputs.status }} fuel=${{ steps.hello.outputs.fuel_consumed }} elapsed=${{ steps.hello.outputs.elapsed_ms }}ms"
 
   enforcement:
-    runs-on: ubuntu-latest
+    needs: runtime-wheel
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Download the qualified runtime wheel
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: qualified-wasmtime-wheel
+          path: ${{ runner.temp }}/runtime-wheel
+
+      - name: Create verified Python environment (pip 26.2.2, certifi 2026.10.19)
+        run: |
+          bash scripts/create_qualified_venv.sh "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies (qualified macOS arm64 runtime)
+        run: |
+          if [ "$(uname -m)" != "arm64" ]; then
+            echo "::error::runner is $(uname -m); the qualified runtime wheel is arm64 only"; exit 1
+          fi
+          python scripts/ci_runtime_bootstrap.py --wheel "$RUNNER_TEMP/runtime-wheel/wasmtime-49.0.4.post1+git.2c2970205f-py3-none-macosx_11_0_arm64.whl"
+          python -m pip install -e . --no-deps
+          python scripts/check_ca_store.py
+          # The composite action runs `pip install ephemora-cell` inside its own
+          # setup-python interpreter. Resolving that from PyPI would demo the
+          # *published* package instead of this commit, and on an unpublished
+          # candidate it cannot resolve at all (measured on this branch's first
+          # PR run: "No matching distribution found"). The wheelhouse carries
+          # this commit's wheel, the qualified runtime wheel and the pinned CA
+          # wheel; the action step keeps PIP_NO_INDEX=1 and gains
+          # PIP_FIND_LINKS, so it installs these exact bytes or fails closed.
+          python -m pip wheel --no-deps -w "$RUNNER_TEMP/wheelhouse" .
+          cp "$RUNNER_TEMP/runtime-wheel/"*.whl "$RUNNER_TEMP/wheelhouse/"
+          python -m pip download --no-deps -d "$RUNNER_TEMP/wheelhouse" certifi==2026.10.19
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
       # fuel_bomb.wasm is an infinite loop — it exhausts ANY budget on ANY
       # platform. (hello.wasm is NOT suitable: fuel costs are not cross-
       # platform deterministic — the same module burns 16397 units on
       # macOS arm64 but only 12 on Linux x86_64, so 100 fuel does not stop
-      # it on Linux.)
+      # it on Linux.) Both figures were re-measured on the qualified platform
+      # during this work: hello.wasm = 16397 units, fuel bomb = exactly 100
+      # (the demo-CLI run of the qualification pass).
       - id: fuel-bomb
         uses: ./action
+        env:
+          # Same fail-closed binding as in the smoke job (see the file header).
+          PIP_NO_INDEX: "1"
+          PIP_FIND_LINKS: ${{ runner.temp }}/wheelhouse
         with:
           module: examples/fuel_bomb.wasm
           profile: llm
           fuel: 100
         continue-on-error: true
+
+      - name: Assert qualified runtime identity
+        run: |
+          python - <<'PY'
+          import hashlib, importlib.metadata as md, pathlib, platform, sys
+          import wasmtime
+
+          EXPECTED_VERSION = "49.0.4.post1+git.2c2970205f"
+          EXPECTED_DYLIB_SHA256 = "247c1529445001f4b6ed1d46d4f3b4a2c67f8a0c568c9e6559500eb1a89ca30b"
+          version = md.version("wasmtime")
+          if version != EXPECTED_VERSION:
+              sys.exit(f"FAIL: installed wasmtime {version!r} != qualified {EXPECTED_VERSION!r}")
+          machine = {"arm64": "aarch64", "AMD64": "x86_64"}.get(platform.machine(), platform.machine())
+          lib = pathlib.Path(wasmtime.__file__).parent / f"{sys.platform}-{machine}" / "_libwasmtime.dylib"
+          if not lib.exists():
+              sys.exit(f"FAIL: expected runtime library {lib} not found")
+          digest = hashlib.sha256(lib.read_bytes()).hexdigest()
+          if digest != EXPECTED_DYLIB_SHA256:
+              sys.exit(f"FAIL: loaded runtime digest {digest} != qualified {EXPECTED_DYLIB_SHA256}")
+          print(f"qualified runtime: wasmtime {version}, dylib sha256 {digest}")
+          PY
+
+      # `continue-on-error` above is deliberate and NOT a mask: this step checks
+      # the masked step's `outcome` (must be failure) AND the expected status and
+      # fuel values, so a failed install or a broken sandbox cannot pass as
+      # "fuel_exhausted". Verified with literal values — including the
+      # empty-output case — in the qualification assertion run (5/5).
       - name: Assert the fuel bomb was stopped
         run: |
           [ "${{ steps.fuel-bomb.outcome }}" = "failure" ] || { echo "action should have failed on fuel exhaustion"; exit 1; }

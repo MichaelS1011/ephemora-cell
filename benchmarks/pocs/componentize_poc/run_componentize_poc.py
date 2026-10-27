@@ -17,6 +17,7 @@ Run from the repo root:
 
     .venv/bin/python benchmarks/pocs/componentize_poc/run_componentize_poc.py
 """
+
 from __future__ import annotations
 
 import json
@@ -24,17 +25,19 @@ import os
 import statistics
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 from ephemora_cell import (
     ComponentSandbox,
-    ExecutionStatus,
     WASIConfig,
-    WASISandbox,
     run_wasm,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+REPO = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 RESULTS = os.path.join(HERE, "results.json")
 
 P1_PRINT = os.path.join(HERE, "p1_print_lifted.wasm")
@@ -80,21 +83,26 @@ def scenario_1_output_capture() -> dict:
     # Hand-written preview1 wat module whose _start calls proc_exit(0).
     r = run_comp(P1_PRINT, WASIConfig(max_fuel=FUEL_FULL))
     out["p1_print_lifted"] = {
-        "status": status_name(r), "exit_code": r.exit_code,
-        "stdout": r.stdout.strip(), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "exit_code": r.exit_code,
+        "stdout": r.stdout.strip(),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     # Rust wasip1 module (returns from _start normally, no proc_exit).
     r = run_comp(RUST_FS, WASIConfig(max_fuel=FUEL_FULL))
     out["rust_fs_lifted"] = {
-        "status": status_name(r), "exit_code": r.exit_code,
-        "stdout": r.stdout.strip(), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "exit_code": r.exit_code,
+        "stdout": r.stdout.strip(),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     # run_wasm(abi="auto") dispatch on a lifted component.
     r = run_wasm(P1_PRINT, max_fuel=FUEL_FULL)
     out["auto_dispatch_lifted"] = {
-        "status": status_name(r), "stdout": r.stdout.strip(),
+        "status": status_name(r),
+        "stdout": r.stdout.strip(),
         "stderr": (r.stderr or "")[:220],
     }
     return out
@@ -104,13 +112,17 @@ def scenario_2_args_env() -> dict:
     out = {}
     target = os.path.join(os.path.expanduser("~"), f".t12_cp_preopen_{os.getpid()}")
     import shutil
+
     shutil.rmtree(target, ignore_errors=True)
     os.mkdir(target)
     try:
         r = run_comp(
             RUST_FS,
-            WASIConfig(max_fuel=FUEL_FULL, allow_dirs=(target,),
-                       allow_env=(("EPHEMORA_TEST", "42"),)),
+            WASIConfig(
+                max_fuel=FUEL_FULL,
+                allow_dirs=(target,),
+                allow_env=(("EPHEMORA_TEST", "42"),),
+            ),
             args=[target],
         )
         out["rust_fs_args_env_preopen"] = {
@@ -131,7 +143,8 @@ def scenario_3_fuel() -> dict:
     out = {}
     r = run_comp(P1_LOOP, WASIConfig(max_fuel=50_000))
     out["lifted_fuel_exhausted"] = {
-        "status": status_name(r), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     return out
@@ -141,7 +154,8 @@ def scenario_4_epoch_timeout() -> dict:
     out = {}
     r = run_comp(P1_LOOP, WASIConfig(max_fuel=None, timeout_seconds=1))
     out["lifted_epoch_timeout"] = {
-        "status": status_name(r), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     return out
@@ -151,12 +165,14 @@ def scenario_5_memory_limit() -> dict:
     out = {}
     r = run_comp(P1_GROW, WASIConfig(max_fuel=FUEL_FULL, max_memory_mb=2))
     out["lifted_memory_limit_2mb"] = {
-        "status": status_name(r), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     r = run_comp(P1_GROW, WASIConfig(max_fuel=FUEL_FULL, max_memory_mb=128))
     out["lifted_memory_no_limit"] = {
-        "status": status_name(r), "stderr": (r.stderr or "")[:220],
+        "status": status_name(r),
+        "stderr": (r.stderr or "")[:220],
         "elapsed_ms": round(r.elapsed_ms, 2),
     }
     return out
@@ -165,6 +181,7 @@ def scenario_5_memory_limit() -> dict:
 def scenario_6_preopen_allowlist() -> dict:
     out = {}
     import shutil
+
     target = os.path.join(os.path.expanduser("~"), f".t12_cp_denied_{os.getpid()}")
     shutil.rmtree(target, ignore_errors=True)
     os.mkdir(target)
@@ -185,9 +202,13 @@ def scenario_7_entry_points() -> dict:
     """Export names of each lifted artifact + the native fixture."""
     import wasmtime
     from wasmtime import component as _component
+
     out = {}
-    for label, path in [("p1_print_lifted", P1_PRINT), ("rust_fs_lifted", RUST_FS),
-                        ("hello02_native", HELLO02)]:
+    for label, path in [
+        ("p1_print_lifted", P1_PRINT),
+        ("rust_fs_lifted", RUST_FS),
+        ("hello02_native", HELLO02),
+    ]:
         eng = wasmtime.Engine()
         comp = _component.Component.from_file(eng, path)
         exports = [str(n) for n in comp.type.exports(eng)]
@@ -202,9 +223,11 @@ def scenario_7_entry_points() -> dict:
 def scenario_8_startup_overhead() -> dict:
     """Startup overhead: lifted wat + lifted Rust vs native wasip2 fixture."""
     out = {}
-    for label, path in [("hello02_native", HELLO02),
-                        ("p1_print_lifted", P1_PRINT),
-                        ("rust_fs_lifted", RUST_FS)]:
+    for label, path in [
+        ("hello02_native", HELLO02),
+        ("p1_print_lifted", P1_PRINT),
+        ("rust_fs_lifted", RUST_FS),
+    ]:
         m = median_comp(path, WASIConfig(max_fuel=FUEL_FULL), n=7)
         out[label] = {
             "status": m["status"],
@@ -220,12 +243,14 @@ def main() -> None:
     print("Ephemora Cell — Componentize PoC")
     print("=" * 72)
 
-    results = {"tooling": {
-        "wasm-tools": "1.255.0",
-        "adapter": "wasi_snapshot_preview1.command.wasm (wasmtime v34.0.0 release)",
-        "lift_cmd": "wasm-tools component new <module.wasm> --adapt "
-                    "wasi_snapshot_preview1.command.wasm -o <lifted>.wasm",
-    }}
+    results = {
+        "tooling": {
+            "wasm-tools": "1.255.0",
+            "adapter": "wasi_snapshot_preview1.command.wasm (wasmtime v34.0.0 release)",
+            "lift_cmd": "wasm-tools component new <module.wasm> --adapt "
+            "wasi_snapshot_preview1.command.wasm -o <lifted>.wasm",
+        }
+    }
 
     print("\n[1] Output capture through the adapter")
     s = scenario_1_output_capture()
@@ -236,21 +261,27 @@ def main() -> None:
     print("\n[2] Args / env / preopen passthrough (lifted Rust wasip1)")
     s = scenario_2_args_env()
     results["scenario_2_args_env"] = s
-    print(f"  status={s['rust_fs_args_env_preopen']['status']} "
-          f"file_written={s['file_written']} content={s.get('file_content')!r}")
+    print(
+        f"  status={s['rust_fs_args_env_preopen']['status']} "
+        f"file_written={s['file_written']} content={s.get('file_content')!r}"
+    )
     print(f"  stdout={s['rust_fs_args_env_preopen']['stdout']!r}")
 
     print("\n[3] Fuel exhaustion (lifted infinite loop)")
     s = scenario_3_fuel()
     results["scenario_3_fuel"] = s
-    print(f"  {s['lifted_fuel_exhausted']['status']}: "
-          f"{s['lifted_fuel_exhausted']['stderr'][:80]}")
+    print(
+        f"  {s['lifted_fuel_exhausted']['status']}: "
+        f"{s['lifted_fuel_exhausted']['stderr'][:80]}"
+    )
 
     print("\n[4] Epoch timeout (lifted infinite loop)")
     s = scenario_4_epoch_timeout()
     results["scenario_4_epoch_timeout"] = s
-    print(f"  {s['lifted_epoch_timeout']['status']}: "
-          f"{s['lifted_epoch_timeout']['stderr'][:80]}")
+    print(
+        f"  {s['lifted_epoch_timeout']['status']}: "
+        f"{s['lifted_epoch_timeout']['stderr'][:80]}"
+    )
 
     print("\n[5] Memory limit (lifted memory.grow loop)")
     s = scenario_5_memory_limit()
@@ -261,8 +292,10 @@ def main() -> None:
     print("\n[6] Preopen allowlist (deny by default)")
     s = scenario_6_preopen_allowlist()
     results["scenario_6_preopen_allowlist"] = s
-    print(f"  {s['no_preopen_denied']['status']}  "
-          f"file_written={s['no_preopen_denied']['file_written']}")
+    print(
+        f"  {s['no_preopen_denied']['status']}  "
+        f"file_written={s['no_preopen_denied']['file_written']}"
+    )
 
     print("\n[7] Entry-point naming")
     s = scenario_7_entry_points()

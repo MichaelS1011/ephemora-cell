@@ -100,11 +100,11 @@ a contradiction inside the project's own documentation, noted as such.
 process pays WASM instantiation, 10.23 ms). Deterministic
 fuel metering = reproducible accounting ("Verified. Not claimed.").
 
-**Interop note:** the naive tool breaks against the official MCP SDK 2.0
+**Interop note:** the naive tool breaks against the official MCP SDK 2.2.0
 (`tools/list` returns `input_schema` instead of `inputSchema` → pydantic
 ValidationError) — SDK conformance is not a given, not even
 for hand-written servers. `ephemora-cell-mcp` is verified in CI against the
-official MCP Python SDK 2.0 over stdio — initialize, `tools/list`, and a real
+official MCP Python SDK 2.2.0 over stdio — initialize, `tools/list`, and a real
 `tools/call` with execution `_meta` (`integration/test_mcp_sdk_client.py`,
 job `mcp-sdk-interop`).
 
@@ -203,8 +203,8 @@ retrieved 2026-10-03):**
    measurement, §3), no container latency (Docker wrapper: +490 ms, a
    third-party figure from EnkryptAI's walkthrough, not a Docker value).
 5. **A Wassette parallel, with a production-ready core:** the same
-   WASM deny-by-default philosophy (Wasmtime), but Cell ships 1084 CI-enforced
-   tests (4 skipped) with security gates (pip-audit, SBOM, bandit) and an
+   WASM deny-by-default philosophy (Wasmtime), but Cell ships 2171 CI-enforced
+   tests (44 skipped) with security gates (pip-audit, SBOM, bandit) and an
    active release line; Wassette itself declares itself "not production ready".
    Status 2026-10-03: Wassette v0.8.0 lists memory, CPU-time and execution-time
    limits as future work (`docs/concepts.md`), so it has neither metering nor
@@ -460,8 +460,8 @@ open — not verified here.
 **Test suite + build harness on DGX (Grace arm64):** 271 passed / 1 skipped
 (macOS-only `-/private` symlink test, correctly not applicable on Linux) in
 27.8 s; macOS: 272/272 — state of the joint run at that date; the suite
-comprises 1088 collected tests today (measured 2026-10-13)
-— 1084 passing (4 skipped)
+comprises 2215 collected tests today (measured 2026-10-27)
+— 2171 passing (44 skipped)
 against `pytest --collect-only`. Containment mock run `docker_socket`:
 control group (Docker only) block_rate **0.0** (ESCAPE), experimental
 (Docker+Ephemora) block_rate **1.0** (BLOCKED) — Ephemora contribution +1.0.

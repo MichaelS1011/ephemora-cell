@@ -60,7 +60,7 @@ The last one returns:
         "elapsed_ms": 0.48,
         "fuel_consumed": 20591,
         "fuel_budget": 2000000,
-        "memory_mb": 0.0,
+        "memory_mb": null,
         "stdout_bytes": 23,
         "stderr_bytes": 0,
         "warnings": [],
@@ -79,6 +79,8 @@ The last one returns:
   }
 }
 ```
+
+*(Illustrative capture: the `wasmtime_version` shown is the engine of the capture's date, not the current release — see the dated captures under [Local verification results](#local-verification-results-2026-08-20) below.)*
 
 ## Protocol surface
 
@@ -191,7 +193,9 @@ Every `tools/call` result embeds the Cell's `ExecutionReport` under
 `_meta.execution`: `status`, `exit_code`, `elapsed_ms`, `fuel_consumed`,
 `fuel_budget`, `fuel_utilization`, `memory_mb`, `stdout_bytes`,
 `stderr_bytes`, `warnings`, and `security_baseline` (incl. the exact
-`wasmtime_version` the tool ran on). The client can record this as an
+`wasmtime_version` the tool ran on). `memory_mb` is `null` — not `0.0` — when
+the run measured no resident memory, which is every 1.2.0 execution path. The
+client can record this as an
 auditable execution witness — signing it into a SEP-2787-style signed
 record (via `ExecutionReport.sign()`) is a drop-in next step.
 
@@ -554,8 +558,9 @@ tool supply chain.
 - **Bounded output** — 10 KB stdout/stderr byte budget (ENOSPC), host-owned
   capture files the guest cannot tamper with.
 - **Attack-vector closure** — the 8 documented vectors (shell, fork,
-  network, fsync, host FS, symlink escape, threading, env) are verified
-  blocked (reproducible via `benchmarks/verify_8_vectors.py`).
+  network, fsync, host FS, symlink escape, threading, env) are
+  classified as 4 blocked by policy + 4 rejected as unsupported
+  (reproducible via `benchmarks/verify_8_vectors.py`).
 
 **What the Cell does NOT guarantee:**
 

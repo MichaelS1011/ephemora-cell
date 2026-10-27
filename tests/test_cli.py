@@ -72,14 +72,15 @@ class TestAllowEnvParsing:
     def test_malformed_rejected_cleanly(self, tmp_path):
         mod = _write_module(tmp_path, PRINTING_WAT)
         proc = _run_cli("run", str(mod), "--allow-env", "FOO")
-        assert proc.returncode == 1
+        # caller class: the flag cannot be honoured, so nothing ran
+        assert proc.returncode == 2
         assert "NAME=VALUE" in proc.stderr
         assert "Traceback" not in proc.stderr
 
     def test_empty_name_rejected(self, tmp_path):
         mod = _write_module(tmp_path, PRINTING_WAT)
         proc = _run_cli("run", str(mod), "--allow-env", "=1")
-        assert proc.returncode == 1
+        assert proc.returncode == 2
         assert "empty variable name" in proc.stderr
 
     def test_valid_pairs_work(self, tmp_path):
@@ -111,7 +112,8 @@ class TestAllowDirsRejection:
     def test_forbidden_dir_clean_error(self, tmp_path):
         mod = _write_module(tmp_path, PRINTING_WAT)
         proc = _run_cli("run", str(mod), "--allow-dirs", "/etc")
-        assert proc.returncode == 1
+        # caller class: the sandbox refused the grant before any guest ran
+        assert proc.returncode == 2
         assert "forbidden" in proc.stderr.lower()
         assert "Traceback" not in proc.stderr
 
