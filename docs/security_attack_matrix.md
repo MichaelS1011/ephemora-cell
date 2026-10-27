@@ -193,7 +193,7 @@ two filesystem-escape CVEs, not a broad CVE score.
 `tests/test_grant_trust.py`, `tests/test_grant_ledger.py`, `tests/test_transport.py`,
 `tests/test_signed_receipt.py`, `tests/test_execution_invariants.py` and the rest of
 the suite pin the behaviours above as executable gates. On the 2026-10-27 candidate tree: **2171 passing
-/ 44 skipped / 85.08 % statement coverage** (gate 80 %). These are **gates, not a scored
+/ 44 skipped / 85.09 % statement coverage** (gate 80 %). These are **gates, not a scored
 attack matrix** — they keep the mechanisms from regressing and are not added to any
 "vectors blocked" total.
 
